@@ -1,74 +1,74 @@
-# tandem.toml de una Mac. Va en ~/Library/Application Support/Tandem/tandem.toml
-# (o donde diga `tandemd --config`). Se valida con `tandemd --check-config <archivo>`.
+# tandem.toml of a Mac. It lives in ~/Library/Application Support/Tandem/tandem.toml
+# (or wherever `tandemd --config` says). Validate it with `tandemd --check-config <file>`.
 #
-# No hace falta escribirlo: si no existe, tandemd lo genera al arrancar con el puesto
-# vacío (T-082), y todo se configura desde la UI (DECISIONS D4). Este ejemplo muestra
-# todas las opciones.
+# It does not need to be written by hand: if it does not exist, tandemd generates it at
+# startup with an empty desk (T-082), and everything is configured from the UI (DECISIONS
+# D4). This example shows every option.
 #
-# Las dos máquinas son iguales (DECISIONS D1, D2, A1): ninguna es «la Mac» ni «la PC»
-# para el código. Cada una es un lado, `a` o `b`, y el lado lo deciden las claves
-# públicas al emparejar (la menor es `a`). En este ejemplo la Mac quedó como `a`; si
-# hubiera quedado como `b`, el agente cambia los lados solo y reescribe este archivo.
-# Lo que se sabe de cada máquina (sistema, nombre, color) va en [machines].
+# The two machines are equal (DECISIONS D1, D2, A1): neither is "the Mac" or "the PC" as
+# far as the code is concerned. Each one is a side, `a` or `b`, and the public keys decide
+# the side when pairing (the lower one is `a`). In this example the Mac ended up as `a`; if
+# it had ended up as `b`, the agent swaps the sides by itself and rewrites this file.
+# What is known about each machine (system, name, color) goes in [machines].
 #
-# El formato de v0.2, con lados `mac`/`pc`, sigue cargando: se traduce solo
-# (ejemplos en docs/examples/v0.2/).
+# The v0.2 format, with `mac`/`pc` sides, still loads: it is translated on its own
+# (examples in docs/examples/v0.2/).
 #
-# En el directorio de datos el agente guarda:
-# - identity.key: su llave Ed25519. Se crea sola la primera vez; no se comparte.
-# - trust.toml: las llaves de los pares emparejados. Sin par, el agente trabaja solo
-#   y la UI lo indica. Se llena al emparejar desde la UI (en las dos máquinas, y
-#   comparar el código).
+# In the data directory the agent keeps:
+# - identity.key: its Ed25519 key. It is created on the first run; it is never shared.
+# - trust.toml: the keys of the paired peers. With no peer, the agent works alone
+#   and the UI says so. It is filled in when pairing from the UI (on both machines, and
+#   comparing the code).
 
 machine = "a"
 
 [network]
-# Puerto UDP (QUIC) de los dos agentes.
+# UDP (QUIC) port of the two agents.
 port = 52000
-# Donde espera mientras se empareja (por omisión, port + 1).
+# Where it listens while pairing (default: port + 1).
 # pairing_port = 52001
-# La otra máquina en cada enlace directo (DESIGN §6), de mayor a menor prioridad. La LAN
-# de casa (Wi-Fi) no hace falta fijarla: se descubre por mDNS.
+# The other machine on each direct link (DESIGN §6), from highest to lowest priority. The
+# home LAN (Wi-Fi) does not need to be set: it is discovered through mDNS.
 peers = [
     { kind = "usb4", addr = "10.77.1.2:52000" },
     { kind = "ethernet", addr = "10.77.2.2:52000" },
 ]
 
 [orchestrator]
-# Encender la otra máquina y esperar a que su agente responda.
+# Power on the other machine and wait for its agent to answer.
 power_on_timeout_secs = 120
 step_timeout_secs = 10
 
 [power]
-# Sin ningún enlace con la otra máquina durante esto, se la da por apagada.
+# With no link to the other machine for this long, it is considered powered off.
 peer_lost_after_secs = 15
-# Esta máquina se despierta por Wake-on-LAN desde el reposo («Activar para acceso a la red»).
+# This machine wakes up through Wake-on-LAN from sleep ("Wake for network access").
 wakeable = true
 
-# Wake-on-LAN por el Ethernet directo: la MAC de la tarjeta de la otra máquina, la IP de
-# esta en ese enlace y el broadcast de su subred.
+# Wake-on-LAN over the direct Ethernet: the MAC of the other machine's card, this
+# machine's IP on that link and the broadcast address of its subnet.
 [power.wol]
 mac = "aa:bb:cc:dd:ee:ff"
 source = "10.77.2.1"
 broadcast = "10.77.2.3"
 
 [input]
-# Dónde está el teclado y el mouse al arrancar (`a` o `b`), hasta que el hub decida.
+# Where the keyboard and mouse are at startup (`a` or `b`), until the hub decides.
 keyboard = "a"
 
-# El teclado y el mouse que viajan en el hub USB-C, por VID:PID (en Windows, el
-# Administrador de dispositivos; en macOS, Información del sistema → USB). El teclado está
-# en la máquina donde aparecen. Sin esta sección los roles no cambian solos.
+# The keyboard and mouse that travel on the USB-C hub, by VID:PID (on Windows, Device
+# Manager; on macOS, System Information → USB). The keyboard is on the machine where they
+# show up. Without this section the roles do not change by themselves.
 [input.hub]
 keyboard = "046d:c33f"
 mouse = "046d:c539"
 
-# Cmd↔Ctrl entre macOS y Windows ya es lo predeterminado (entre dos sistemas iguales no se
-# reasigna nada); para cambiarlo, una tabla por dirección con los ocho modificadores, por
-# ejemplo [input.remap.mac_to_win] meta_left = "control_left", ...
+# Cmd↔Ctrl between macOS and Windows is already the default (between two identical systems
+# nothing is remapped); to change it, one table per direction with the eight modifiers, for
+# example [input.remap.mac_to_win] meta_left = "control_left", ...
 
-# Qué máquina es cada lado: lo llena el agente con lo que anuncia cada una, y el nombre y
-# el color se cambian desde la UI. Es del puesto: igual en las dos máquinas.
+# Which machine is each side: the agent fills it in with what each one announces, and the
+# name and color are changed from the UI. It belongs to the desk: the same on both machines.
 [machines.a]
 os = "macos"
 name = "MacBook Pro"
@@ -76,13 +76,13 @@ color = "#7aa7e6"
 
 [machines.b]
 os = "windows"
-name = "Torre"
+name = "Tower"
 color = "#a99be8"
 
-# El acomodo de pantallas para el teclado y el mouse (DESIGN §7). Es del puesto: el mismo
-# en las dos máquinas, y se sincroniza solo. Cada pantalla va en las coordenadas nativas
-# del cursor de su máquina: puntos en macOS, píxeles físicos del escritorio virtual en
-# Windows. Sin [[screens]] de una máquina valen las que ella misma lee.
+# The screen arrangement for the keyboard and mouse (DESIGN §7). It belongs to the desk:
+# the same on both machines, and it syncs by itself. Each screen uses the native cursor
+# coordinates of its machine: points on macOS, physical pixels of the virtual desktop on
+# Windows. Without [[screens]] for a machine, the ones it reads itself apply.
 [[screens]]
 machine = "b"
 id = "34"
@@ -99,7 +99,7 @@ x = 3440
 y = 0
 width = 3840
 height = 2160
-# Windows al 150 %: el acomodo lleva la escala de cada pantalla.
+# Windows at 150 %: the arrangement carries the scale of each screen.
 scale = 1.5
 
 [[screens]]
@@ -110,19 +110,19 @@ y = 0
 width = 3440
 height = 1440
 
-# De qué lado de B está A (left, right, up, down) y cómo se alinean (start, center, end).
-# Sin esta sección, A a la izquierda de B y todo el borde cruza.
+# Which side of B A is on (left, right, up, down) and how they line up (start, center, end).
+# Without this section, A is to the left of B and the whole edge crosses.
 [arrangement]
 a_side = "left"
 align = "center"
 
-# Bloquea el cursor en la máquina donde está (nombres de KeyboardEvent.code, todas a
-# la vez). ScrollLock de un teclado de PC llega a macOS como F14 y vale igual.
+# Locks the cursor on the machine where it is (KeyboardEvent.code names, all at the same
+# time). ScrollLock on a PC keyboard reaches macOS as F14 and counts the same.
 [shortcuts]
 lock = ["ScrollLock"]
 
-# Teclado y mouse: Cmd↔Ctrl entre macOS y Windows y arrastrar archivos. Compartir el
-# portapapeles es un módulo de cada máquina: se apaga con `[modules.<lado>] clipboard = false`.
+# Keyboard and mouse: Cmd↔Ctrl between macOS and Windows, and dragging files. Sharing the
+# clipboard is a module of each machine: turn it off with `[modules.<side>] clipboard = false`.
 [prefs]
 cmd_ctrl = true
 drag_files = true

@@ -11,7 +11,7 @@ try {
   console.log("=== K&M m1:", (await wiz(p1).locator("main").innerText()).replace(/\n+/g, " | "));
   await L.shot(p1, F, "04-m1-keyboard-detected");
   const snap = await m1.snapshot(); console.log(JSON.stringify(snap.input).slice(0,400)); console.log(JSON.stringify(snap.caps.here.input), JSON.stringify(snap.caps.here.hub));
-  await step(p1, "Permisos"); await L.sleep(500); console.log("=== permissions:", (await wiz(p1).locator("main").innerText()).replace(/\n+/g, " | ").slice(0,300));
+  await step(p1, "Permissions"); await L.sleep(500); console.log("=== permissions:", (await wiz(p1).locator("main").innerText()).replace(/\n+/g, " | ").slice(0,300));
   await step(p1, "Done"); await L.sleep(500); 
   console.log("=== ready:", (await wiz(p1).locator("main").innerText()).replace(/\n+/g, " | "));
   console.log("buttons:", await wiz(p1).locator("main button").allInnerTexts());

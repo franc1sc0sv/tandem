@@ -3,7 +3,7 @@ import { createRequire } from "node:module"; const require = createRequire(impor
 import * as L from "./lib.mjs"; import { readFileSync } from "node:fs"; import { createHash } from "node:crypto";
 const tag = process.argv[2] ?? "host3"; const { m1, m2 } = L.attach(tag);
 const F = "G6-buttons-with-effect";
-const SKIP = /^(Salir|Confirmar|Desemparejar|Apagar|Cerrar)$/;
+const SKIP = /^(Leave|Confirm|Unpair|Power off|Close)$/;
 const logLines = (m) => readFileSync(m.log, "utf8").split("\n").length;
 const routes = ["#/desk", "#/tunnels", "#/monitors", "#/arrangement", "#/network", "#/machine/a", "#/machine/b", "#/settings", "#/settings:Shortcuts", "#/settings:Keyboard and mouse", "#/settings:Actualizaciones", "#/settings:Avanzado", "#/states"];
 const noEffect = [], tried = [];

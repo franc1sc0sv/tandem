@@ -1,0 +1,40 @@
+# Spanish that stays on purpose (T-210). Checked by scripts/ci/english.sh.
+# One entry per line: <path (shell glob)> <optional regex matched against the offending line>.
+# Without a regex the whole file is allowed. Keep this list as small as possible.
+
+# ISO_ES: the label set of a real Spanish ISO keyboard (test data).
+crates/tandem-input/src/event/keymap.rs ^\s*\(0x[0-9A-Fa-f]+, "[^"]*"\),|ISO PC keyboard|`ç`
+
+# "ñ" names the key under test.
+crates/tandem-hw/src/report.rs ñ
+crates/tandem-input/examples/mac_emulate.rs ñ
+
+# Spanish Windows `netsh` output that the parser must recognise.
+crates/tandem-link/src/iface/assign.rs elevación|administrador|acceso denegado|requiere
+
+# Spanish-localized `wsl -l -v` header, input of a parser test.
+crates/tandem-env/src/parse.rs NOMBRE|VERSIÓN
+
+# Unicode test data.
+crates/tandem-cli/src/api.rs añ€😀
+crates/tandem-link/src/discovery/fingerprint.rs "é"
+crates/tandem-link/src/identity/public_key.rs "é"
+crates/tandem-proto/src/files.rs ñandú
+crates/tandem-proto/src/tunnel.rs "ñ"
+crates/tandem-workspace/src/repo.rs ü
+crates/tandemd/src/config_edit.rs áñ
+
+# Old Spanish ids and names (scenes, icon, screens) that the config migration of T-209 must
+# still recognise, and the tests that feed them in.
+crates/tandem-core/src/legacy.rs
+crates/tandem-sim/tests/legacy_ids.rs
+crates/tandemd/src/agent.rs trabajo|Trabajo|puesto|pantalla|solo-a|Solo
+crates/tandemd/src/config.rs trabajo|Trabajo|puesto|pantalla
+crates/tandemd/src/store.rs trabajo|Trabajo|solo
+crates/tandemd/src/input/screens.rs pantalla-N
+docs/tasks/T-202.md trabajo|puesto|pantalla
+docs/tasks/T-209.md trabajo|Trabajo|puesto|pantalla|solo-|solo\b
+
+
+# The acceptance sweep detects untranslated Spanish UI text, so its word list is Spanish on purpose.
+docs/reports/acceptance/2026-11-18-b/harness/demo-sweep.mjs const spanish

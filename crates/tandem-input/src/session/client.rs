@@ -464,7 +464,7 @@ mod tests {
     }
 
     #[test]
-    fn enter_repetido_suelta_lo_anterior() {
+    fn repeated_enter_releases_the_previous() {
         let mut c = client();
         c.on_stream(enter(0, 0.0));
         c.on_stream(key(0x04, KeyState::Pressed));

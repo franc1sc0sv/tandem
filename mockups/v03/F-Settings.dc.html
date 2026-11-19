@@ -58,7 +58,7 @@ a{color:#9cc0f0}
       <sc-for list="{{tabs}}" as="t" hint-placeholder-count="5"><button type="button" role="tab" class="tab" aria-selected="{{t.on}}" onClick="{{t.pick}}" style="{{t.style}}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{t.ic}}"></path></svg>{{t.name}}</button></sc-for>
     </div>
     <section style="flex:1 1 560px;min-width:0;max-width:760px">
-      <sc-if value="{{isPuesto}}" hint-placeholder-val="{{ true }}">
+      <sc-if value="{{isDesk}}" hint-placeholder-val="{{ true }}">
         <div class="pane">
           <div class="row" style="border-top:0"><span style="flex:1">Desk name</span><input value="My desk" style="font:inherit;font-size:13.5px;color:#e8e8eb;background:#111215;border:1px solid #31343b;border-radius:9px;padding:8px 12px"></div>
           <div class="row"><span style="width:8px;height:8px;border-radius:50%;background:#7aa7e6"></span><span style="flex:1">MacBook Pro <span class="mut" style="font-size:12.5px">· this machine</span></span><button type="button" class="btn ic" aria-label="Rename" title="Rename"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"></path></svg></button></div>
@@ -68,7 +68,7 @@ a{color:#9cc0f0}
           <div class="row"><span style="flex:1;display:flex;flex-direction:column;gap:3px">Leave desk<span class="mut" style="font-size:12.5px">This machine forgets the other machines’ keys and, if they are connected, they forget its key; if not, they do once they leave too.</span></span><button type="button" class="btn danger"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 4H5a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h4M14 17l5-5-5-5M19 12H9"></path></svg>Leave</button></div>
         </div>
       </sc-if>
-      <sc-if value="{{isAtajos}}" hint-placeholder-val="{{ false }}">
+      <sc-if value="{{isShortcuts}}" hint-placeholder-val="{{ false }}">
         <div class="pane">
           <p class="mut" style="margin:0 0 8px;font-size:12.5px">They work on any machine of the desk, even with Tandem in the background. Click and press the new combination.</p>
           <div class="row"><span style="flex:1">Show or hide Tandem</span><span class="combo">⌃⌥0</span></div>
@@ -79,7 +79,7 @@ a{color:#9cc0f0}
           <div class="row"><span style="flex:1">Scene “PC only”</span><span class="combo">⌃⌥3</span></div>
         </div>
       </sc-if>
-      <sc-if value="{{isTeclado}}" hint-placeholder-val="{{ false }}">
+      <sc-if value="{{isKeyboard}}" hint-placeholder-val="{{ false }}">
         <div class="pane">
           <div class="row" style="border-top:0"><span style="flex:1;display:flex;flex-direction:column;gap:3px">Swap Cmd and Ctrl between macOS and Windows<span class="mut" style="font-size:12.5px">Copy is ⌘C on the Mac and Ctrl+C on the PC, with the same finger.</span></span><button type="button" class="sw" role="switch" aria-checked="true" aria-label="Swap Cmd and Ctrl"></button></div>
           <div class="row"><span style="flex:1;display:flex;flex-direction:column;gap:3px">Drag between machines<span class="mut" style="font-size:12.5px">With a button held down, the cursor does not cross the edge.</span></span><button type="button" class="sw off" role="switch" aria-checked="false" aria-label="Drag between machines"></button></div>
@@ -108,12 +108,12 @@ a{color:#9cc0f0}
 </x-dc>
 <script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":860}}'>
 class Component extends DCLogic {
-  constructor(p) { super(p); this.state = { t: 'puesto', found: false }; }
+  constructor(p) { super(p); this.state = { t: 'desk', found: false }; }
   renderVals() {
-    const ts = [['puesto', 'Desk and machines', 'M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z'], ['atajos', 'Shortcuts', 'M2 6h20v12H2zM6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10'], ['teclado', 'Keyboard and mouse', 'M12 3a6 6 0 0 1 6 6v6a6 6 0 0 1-12 0V9a6 6 0 0 1 6-6zM12 7v4'], ['upd', 'Updates', 'M12 4v11M7 10l5 5 5-5M5 20h14'], ['adv', 'Advanced', 'M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0M14 4v4M8 10v4M16 16v4']];
+    const ts = [['desk', 'Desk and machines', 'M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z'], ['shortcuts', 'Shortcuts', 'M2 6h20v12H2zM6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10'], ['keyboard', 'Keyboard and mouse', 'M12 3a6 6 0 0 1 6 6v6a6 6 0 0 1-12 0V9a6 6 0 0 1 6-6zM12 7v4'], ['upd', 'Updates', 'M12 4v11M7 10l5 5 5-5M5 20h14'], ['adv', 'Advanced', 'M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0M14 4v4M8 10v4M16 16v4']];
     const t = this.state.t;
     return {
-      isPuesto: t === 'puesto', isAtajos: t === 'atajos', isTeclado: t === 'teclado', isUpd: t === 'upd', isAdv: t === 'adv',
+      isDesk: t === 'desk', isShortcuts: t === 'shortcuts', isKeyboard: t === 'keyboard', isUpd: t === 'upd', isAdv: t === 'adv',
       found: this.state.found, checkLabel: this.state.found ? 'Check again' : 'Check now',
       check: () => this.setState({ found: true }),
       tabs: ts.map(([id, name, ic]) => ({ name, ic, on: id === t ? 'true' : 'false', style: id === t ? 'background:#1c1d22;color:#e8e8eb' : '', pick: () => this.setState({ t: id }) }))

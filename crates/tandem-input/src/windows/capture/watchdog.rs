@@ -135,7 +135,7 @@ mod tests {
     }
 
     #[test]
-    fn inactivo_durante_minutos_no_hace_nada() {
+    fn idle_for_minutes_does_nothing() {
         let t0 = Instant::now();
         let mut w = Watchdog::new(cfg());
         // Ten minutes of ticks every 100 ms without any event.

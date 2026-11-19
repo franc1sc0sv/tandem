@@ -1,42 +1,42 @@
-# tandem.toml de una PC con Windows. Va en %APPDATA%\Tandem\tandem.toml (o donde diga
-# `tandemd --config`). Se valida con `tandemd --check-config <archivo>`.
+# tandem.toml of a Windows PC. It lives in %APPDATA%\Tandem\tandem.toml (or wherever
+# `tandemd --config` says). Validate it with `tandemd --check-config <file>`.
 #
-# No hace falta escribirlo: si no existe, tandemd lo genera al arrancar con el puesto
-# vacío (T-082), y todo se configura desde la UI (DECISIONS D4). Este ejemplo muestra
-# todas las opciones.
+# It does not need to be written by hand: if it does not exist, tandemd generates it at
+# startup with an empty desk (T-082), and everything is configured from the UI (DECISIONS
+# D4). This example shows every option.
 #
-# Es la otra mitad del puesto de tandem.mac.toml: el puesto ([machines], [[screens]],
-# [arrangement]) es el mismo; cambian `machine`, las direcciones de la otra máquina y
-# cómo despertarla. Por las claves, en este ejemplo la PC quedó como `b`.
+# It is the other half of the desk in tandem.mac.toml: the desk ([machines], [[screens]],
+# [arrangement]) is the same; `machine`, the addresses of the other machine and how to
+# wake it change. Because of the keys, in this example the PC ended up as `b`.
 #
-# El formato de v0.2, con lados `mac`/`pc`, sigue cargando: se traduce solo
-# (ejemplos en docs/examples/v0.2/).
+# The v0.2 format, with `mac`/`pc` sides, still loads: it is translated on its own
+# (examples in docs/examples/v0.2/).
 
 machine = "b"
 
 [network]
 port = 52000
-# Donde espera mientras se empareja (por omisión, port + 1).
+# Where it listens while pairing (default: port + 1).
 # pairing_port = 52001
-# La otra máquina en cada enlace directo (DESIGN §6). La LAN de casa se descubre por mDNS.
+# The other machine on each direct link (DESIGN §6). The home LAN is discovered through mDNS.
 peers = [
     { kind = "usb4", addr = "10.77.1.1:52000" },
     { kind = "ethernet", addr = "10.77.2.1:52000" },
 ]
 
 [input]
-# Dónde está el teclado y el mouse al arrancar (`a` o `b`), hasta que el hub decida.
+# Where the keyboard and mouse are at startup (`a` or `b`), until the hub decides.
 keyboard = "a"
 
-# El teclado y el mouse que viajan en el hub USB-C, por VID:PID. El teclado está en la
-# máquina donde aparecen. Sin esta sección los roles no cambian solos.
+# The keyboard and mouse that travel on the USB-C hub, by VID:PID. The keyboard is on the
+# machine where they show up. Without this section the roles do not change by themselves.
 [input.hub]
 keyboard = "046d:c33f"
 mouse = "046d:c539"
 
-# Cmd↔Ctrl entre macOS y Windows ya es lo predeterminado (entre dos sistemas iguales no se
-# reasigna nada); para cambiarlo, una tabla por dirección con los ocho modificadores, por
-# ejemplo [input.remap.win_to_mac] control_left = "meta_left", ...
+# Cmd↔Ctrl between macOS and Windows is already the default (between two identical systems
+# nothing is remapped); to change it, one table per direction with the eight modifiers, for
+# example [input.remap.win_to_mac] control_left = "meta_left", ...
 
 [machines.a]
 os = "macos"
@@ -45,10 +45,10 @@ color = "#7aa7e6"
 
 [machines.b]
 os = "windows"
-name = "Torre"
+name = "Tower"
 color = "#a99be8"
 
-# El acomodo de pantallas (DESIGN §7): el mismo que en la otra máquina.
+# The screen arrangement (DESIGN §7): the same as on the other machine.
 [[screens]]
 machine = "b"
 id = "34"
@@ -65,7 +65,7 @@ x = 3440
 y = 0
 width = 3840
 height = 2160
-# Windows al 150 %: el acomodo lleva la escala de cada pantalla.
+# Windows at 150 %: the arrangement carries the scale of each screen.
 scale = 1.5
 
 [[screens]]
@@ -76,19 +76,19 @@ y = 0
 width = 3440
 height = 1440
 
-# De qué lado de B está A (left, right, up, down) y cómo se alinean (start, center, end).
-# Sin esta sección, A a la izquierda de B y todo el borde cruza.
+# Which side of B A is on (left, right, up, down) and how they line up (start, center, end).
+# Without this section, A is to the left of B and the whole edge crosses.
 [arrangement]
 a_side = "left"
 align = "center"
 
-# Bloquea el cursor en la máquina donde está (nombres de KeyboardEvent.code, todas a
-# la vez). ScrollLock de un teclado de PC llega a macOS como F14 y vale igual.
+# Locks the cursor on the machine where it is (KeyboardEvent.code names, all at the same
+# time). ScrollLock on a PC keyboard reaches macOS as F14 and counts the same.
 [shortcuts]
 lock = ["ScrollLock"]
 
-# Teclado y mouse: Cmd↔Ctrl entre macOS y Windows y arrastrar archivos. Compartir el
-# portapapeles es un módulo de cada máquina: se apaga con `[modules.<lado>] clipboard = false`.
+# Keyboard and mouse: Cmd↔Ctrl between macOS and Windows, and dragging files. Sharing the
+# clipboard is a module of each machine: turn it off with `[modules.<side>] clipboard = false`.
 [prefs]
 cmd_ctrl = true
 drag_files = true

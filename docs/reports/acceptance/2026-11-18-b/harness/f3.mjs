@@ -8,25 +8,25 @@ try {
   const p = await L.openUi(m1, { hash: "#/monitors/scene" }); await L.sleep(1200);
   console.log("state initial screens:", JSON.stringify(await screenIn()));
   // 1. Crear
-  await p.locator("input").first().fill("Prueba B");
+  await p.locator("input").first().fill("Test B");
   await pickRadio(p, "Std-34", "Mac"); 
   await p.locator("button.kbd").focus(); await p.keyboard.press("Control+Alt+9"); await L.sleep(300);
   await L.shot(p, F, "01-new-scene");
   await p.getByRole("button", { name: "Guardar", exact: true }).click(); await L.sleep(1500);
-  const created = [m1, m2].map((m) => scenesOf(m).filter((s) => s.includes('name = "Prueba B"')));
+  const created = [m1, m2].map((m) => scenesOf(m).filter((s) => s.includes('name = "Test B"')));
   L.record(F, "create scene: reaches tandem.toml on both machines", created.every((c) => c.length === 1), JSON.stringify(created[0]));
   const urlHash = await p.evaluate(() => location.hash);
   L.record(F, "create scene: returns to Monitors", urlHash === "#/monitors", urlHash);
-  const card = p.locator("article[aria-label='Scene Prueba B']");
+  const card = p.locator("article[aria-label='Scene Test B']");
   L.record(F, "create scene: appears as a card with its shortcut", (await card.count()) === 1 && /Ctrl|⌃/.test(await card.innerText()), (await card.innerText().catch(() => "")).replace(/\n/g, " | "));
   // 2. Edit
   await card.getByRole("link", { name: "Edit scene" }).click().catch(async () => card.locator("[aria-label='Edit scene']").click());
   await L.sleep(800);
-  await p.locator("input").first().fill("Prueba B2");
+  await p.locator("input").first().fill("Test B2");
   await pickRadio(p, "Zfail-27", "Mac");
   await p.getByRole("button", { name: "Guardar", exact: true }).click(); await L.sleep(1500);
-  const edited = [m1, m2].map((m) => scenesOf(m).filter((s) => s.includes('name = "Prueba B2"')));
-  L.record(F, "edit scene: the change reaches both machines", edited.every((c) => c.length === 1) && scenesOf(m1).every((s) => !s.includes('name = "Prueba B"\n')), JSON.stringify(edited[0]));
+  const edited = [m1, m2].map((m) => scenesOf(m).filter((s) => s.includes('name = "Test B2"')));
+  L.record(F, "edit scene: the change reaches both machines", edited.every((c) => c.length === 1) && scenesOf(m1).every((s) => !s.includes('name = "Test B"\n')), JSON.stringify(edited[0]));
   // 3. Apply with success (standard only): create scene "Only Std" and apply it
   await p.goto(m1.origin + "/#/monitors/scene"); await L.sleep(800);
   await p.locator("input").first().fill("Solo Std");
@@ -48,7 +48,7 @@ try {
   await m2.ctl({ cmd: "monitor_osd", id: 0, input: "dp" }); await m1.ctl({ cmd: "monitor_osd", id: 0, input: "dp" }); await L.sleep(4000);
   console.log("before the failure:", JSON.stringify(await screenIn()));
   await p.goto(m1.origin + "/#/monitors"); await L.sleep(1200);
-  await p.locator("article[aria-label='Scene Prueba B2']").getByRole("button", { name: "Apply" }).click();
+  await p.locator("article[aria-label='Scene Test B2']").getByRole("button", { name: "Apply" }).click();
   await L.sleep(7000);
   const failText = (await L.text(p)).replace(/\n+/g, " | ");
   await L.shot(p, F, "04-rollback");

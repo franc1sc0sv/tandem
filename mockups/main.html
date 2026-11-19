@@ -256,7 +256,7 @@ const S = {
   hub: "mac",
   pc: "on",          // on | boot | off
   cables: true,
-  builtin: "off",    // off | mirror | extend  (preferencia del usuario)
+  builtin: "off",    // off | mirror | extend  (user preference)
   busy: false,
 };
 const MON = { m34: { label: '34"', cls: "m34" }, m32: { label: '32"', cls: "m32" } };
@@ -267,7 +267,7 @@ const WALL = {
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const macExternals = () => Object.keys(S.owner).filter(k => S.owner[k] === "mac");
-// Si la Mac se queda sin monitores externos, su pantalla se enciende sola.
+// If the Mac is left without external monitors, its screen turns on by itself.
 const builtinEffective = () => macExternals().length === 0 ? "extend" : S.builtin;
 
 function monitorEl(id) {
@@ -311,7 +311,7 @@ function render() {
   $("#pcState").textContent = S.pc === "on" ? "RTX 5080" : S.pc === "boot" ? "starting…" : "off";
   $(".side.pc").classList.toggle("asleep", S.pc !== "on");
 
-  // pantalla de la Mac
+  // the Mac's screen
   const eff = builtinEffective(), forced = macExternals().length === 0;
   $$("#biSeg button").forEach(b => {
     const v = b.dataset.v;
@@ -411,7 +411,7 @@ $("#power").addEventListener("click", async () => {
   if (S.busy) return;
   if (S.pc === "on") {
     S.busy = true;
-    const p = runSteps(["Monitores → HDMI", "Stopping Deskflow", "Clean shutdown"]);
+    const p = runSteps(["Monitors → HDMI", "Stopping Deskflow", "Clean shutdown"]);
     await sleep(450);
     transition(() => { S.owner.m34 = "mac"; S.owner.m32 = "mac"; S.hub = "mac"; });
     await p; S.pc = "off"; render(); S.busy = false;

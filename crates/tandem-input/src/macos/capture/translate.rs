@@ -751,7 +751,7 @@ mod tests {
     }
 
     #[test]
-    fn flags_repetidos_no_duplican() {
+    fn repeated_flags_do_not_duplicate() {
         let mut t = Translator::new();
         let raw = RawEvent::FlagsChanged {
             keycode: 0x3B,
@@ -784,7 +784,7 @@ mod tests {
     }
 
     #[test]
-    fn fn_no_viaja() {
+    fn fn_does_not_travel() {
         let mut t = Translator::new();
         let raw = RawEvent::FlagsChanged {
             keycode: 0x3F,
@@ -932,7 +932,7 @@ mod tests {
     }
 
     #[test]
-    fn trackpad_en_pixeles() {
+    fn trackpad_in_pixels() {
         assert_eq!(
             scroll(true, 0.0, 0.0, 12.5, -3.0, false),
             Some(Scroll::Pixels { dx: 3.0, dy: 12.5 })
@@ -972,7 +972,7 @@ mod tests {
     }
 
     #[test]
-    fn teclas_multimedia() {
+    fn media_keys() {
         let down = |code: i64| (code << 16) | 0x0A00;
         let up = |code: i64| (code << 16) | 0x0B00;
         assert_eq!(

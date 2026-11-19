@@ -526,7 +526,7 @@ mod tests {
     /// Real capture: requires Accessibility. Moves the mouse and types for 5 s.
     #[test]
     #[ignore = "hardware"]
-    fn captura_real_cinco_segundos() {
+    fn real_capture_five_seconds() {
         let (tx, rx) = mpsc::channel();
         let capture = MacCapture::start(move |e| tx.send(e).is_ok()).unwrap();
         std::thread::sleep(std::time::Duration::from_secs(5));

@@ -93,6 +93,7 @@ mod tests {
     fn rejects_malformed_hex() {
         assert!("abc".parse::<PublicKey>().is_err());
         assert!("zz".repeat(32).parse::<PublicKey>().is_err());
+        // Non-ASCII input (Unicode test data).
         assert!("é".repeat(32).parse::<PublicKey>().is_err());
     }
 

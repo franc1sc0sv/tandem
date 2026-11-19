@@ -12,7 +12,7 @@ try {
   let t = await body(p);
   console.log("PERMISOS:", t.slice(60, 500), await btns(p));
   await L.shot(p, F, "01-permissions");
-  L.record(F, "permissions revoked: the UI says so and offers how to grant them", /Faltan permissions/.test(t) && /(Revisar permissions|Open ajustes)/i.test(t), t.slice(60, 360));
+  L.record(F, "permissions revoked: the UI says so and offers how to grant them", /Missing permissions/.test(t) && /(Review permissions|Open settings)/i.test(t), t.slice(60, 360));
   await m1.ctl({ cmd: "missing", list: [] }); await L.sleep(2500);
   L.record(F, "permissions granted: the Desk returns to normal", !/Permissions revoked|permission/i.test((await body(p)).slice(0, 400)) || /Live desktops/.test(await body(p)));
   // 2. link down (with the other still "on": long pc_lost_after_secs on this machine)

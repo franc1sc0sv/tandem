@@ -230,7 +230,7 @@ mod tests {
     }
 
     #[test]
-    fn errores_claros() {
+    fn clear_errors() {
         assert_eq!(p(&[]), Err(CliError::NoCommand));
         assert_eq!(
             p(&["nothing"]),

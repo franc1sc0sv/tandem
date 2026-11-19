@@ -861,7 +861,7 @@ mod tests {
     }
 
     #[test]
-    fn pipeline_inactivo_no_toca_nada() {
+    fn idle_pipeline_touches_nothing() {
         assert_eq!(reinstalls_with(Vec::new), 0);
     }
 }

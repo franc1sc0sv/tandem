@@ -147,7 +147,7 @@ Screenshots: `docs/reports/acceptance/2026-11-18-b/F4-monitors/`
 
 | Check | Result | Detail |
 |---|---|---|
-| renaming a machine on A reaches B (agent and tandem.toml) | PASS | [["Escritorio-PC","Mac"],["Escritorio-PC","Mac"]] |
+| renaming a machine on A reaches B (agent and tandem.toml) | PASS | [["Desk-PC","Mac"],["Desk-PC","Mac"]] |
 | B shows the notice "Changed from … · Undo" | PASS | Changed from Mac ¦ Machines and scenes |
 | "Undo" restores the name on both machines | PASS | {"before":["PC","Mac"],"after":[["PC","Mac"],["PC","Mac"]]} |
 | changing a machine's color on A reaches B | PASS | {"before":["#a99be8","#7aa7e6"],"after":[["#5fbfb0","#7aa7e6"],["#5fbfb0","#7aa7e6"]]} |
@@ -201,7 +201,7 @@ Screenshots: `docs/reports/acceptance/2026-11-18-b/F5-tunnels-mcp/`
 
 | Check | Result | Detail |
 |---|---|---|
-| power off the other machine: transaction with steps in the agent (PowerOff) and state off | PASS | steps: [[],["{\"step\":\"power_off\",\"machine\":\"a\"}"]] state {"on":{"a":false,"b":true},"scene":"trabajo"} |
+| power off the other machine: transaction with steps in the agent (PowerOff) and state off | PASS | steps: [[],["{\"step\":\"power_off\",\"machine\":\"a\"}"]] state {"on":{"a":false,"b":true},"scene":"work"} |
 | power on the other machine (simulated Wake-on-LAN over Ethernet): PowerOn step and state on | PASS | steps: [["{\"step\":\"power_on\",\"machine\":\"a\"}"],["{\"step\":\"power_off\",\"machine\":\"a\"}"]] state {"on":{"a":true,"b":true},"scene":null} |
 
 Screenshots: `docs/reports/acceptance/2026-11-18-b/F10-power/`

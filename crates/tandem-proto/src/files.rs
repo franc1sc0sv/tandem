@@ -360,6 +360,7 @@ mod tests {
             single: false,
             entries: vec![
                 FileEntry {
+                    // Unicode and a space in the name (test data).
                     path: "a b/ñandú.txt".into(),
                     kind: EntryKind::File {
                         size: 3,
