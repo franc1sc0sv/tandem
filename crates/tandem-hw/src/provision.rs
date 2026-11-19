@@ -61,7 +61,10 @@ pub struct Provisioned {
     pub data_dir: PathBuf,
 }
 
-/// Writes `<root>/data` (identity and trust) and `<root>/tandem.toml`.
+/// Writes `<root>/data` (identity and trust) and `<root>/tandem.toml`. The test agent takes
+/// `UiCommand::SyntheticMotion` (`[input] synthetic_motion`): on Windows it is the only way
+/// `input-cross` reaches an edge, since the capture drops injected input (T-239). Its screens
+/// are not declared: the agent uses the ones it reads, like a fresh installation.
 /// `peer_addr` is `ip:port` of the other machine.
 pub fn provision(
     root: &Path,
@@ -82,7 +85,8 @@ pub fn provision(
         &config,
         format!(
             "machine = \"{machine}\"\n[network]\nport = {port}\n\
-             peers = [{{ kind = \"wifi\", addr = \"{peer_addr}\" }}]\n"
+             peers = [{{ kind = \"wifi\", addr = \"{peer_addr}\" }}]\n\
+             [input]\nsynthetic_motion = true\n"
         ),
     )?;
     Ok(Provisioned {
@@ -129,6 +133,32 @@ mod tests {
         assert_eq!(cfg.network.port, TEST_PORT);
         assert_eq!(cfg.network.peers.len(), 1);
         assert_ne!(TEST_PORT, tandemd::config::DEFAULT_PORT);
+    }
+
+    /// T-239: without it the PC's `input-cross` cannot reach an edge.
+    #[test]
+    fn the_test_agent_takes_synthetic_motion() {
+        let dir = tempfile::tempdir().unwrap();
+        for role in [Role::Pc, Role::Mac] {
+            let p = provision(
+                &dir.path().join(format!("{role:?}")),
+                role,
+                TEST_PORT,
+                "192.0.2.7:47871",
+            )
+            .unwrap();
+            let cfg = AgentConfig::load(&p.config).unwrap();
+            assert!(cfg.input.synthetic_motion, "{role:?}");
+            assert_eq!(cfg.machine, p.machine);
+        }
+    }
+
+    #[test]
+    fn a_normal_configuration_does_not_take_synthetic_motion() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("tandem.toml");
+        std::fs::write(&path, "machine = \"a\"\n[input]\n").unwrap();
+        assert!(!AgentConfig::load(&path).unwrap().input.synthetic_motion);
     }
 
     #[test]

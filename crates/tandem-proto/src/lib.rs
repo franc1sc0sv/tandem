@@ -53,7 +53,7 @@ pub use workspace::{BringBackReport, CommitInfo, WorkspaceDown, WorkspaceSpec, W
 /// Protocol version. Bumped on any incompatible change to the messages.
 ///
 /// Only the same version talks: the two agents and the UI ship together.
-pub const PROTOCOL_VERSION: u16 = 39;
+pub const PROTOCOL_VERSION: u16 = 40;
 
 /// Since this version each agent announces its capabilities on connecting (T-084): an
 /// older one does not send them and cannot be spoken to as a peer.
@@ -138,9 +138,10 @@ mod tests {
     /// bumps to v38.
     /// T-152 (`ControlMsg::Unpaired`, leaving the desk notifies the other machine) and T-159 (the MAC
     /// announced for Wake-on-LAN and `UiCommand::SetWol`) bump to v39: they were going to be v38, but T-150 landed earlier.
+    /// T-239 (`UiCommand::SyntheticMotion`, motion fed to a test agent's input engine) bumps to v40.
     #[test]
     fn version_stays_above_the_one_from_t084() {
-        assert_eq!(PROTOCOL_VERSION, 39);
+        assert_eq!(PROTOCOL_VERSION, 40);
         assert_eq!(super::CAPABILITIES_SINCE, 10);
         assert_eq!(super::SIDES_SINCE, 16);
     }

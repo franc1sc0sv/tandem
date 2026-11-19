@@ -62,7 +62,7 @@ use crate::drag::FileDragBackend;
 use crate::network::ActiveLink;
 use crate::peer::open_channel;
 
-pub use backends::{CaptureSink, InputBackends, PlatformInput};
+pub use backends::{CaptureSink, InputBackends, PlatformInput, WeakCaptureSink};
 
 /// Input engine timings. The normal one is [`InputOptions::default`]; tests
 /// speed them up.
@@ -873,6 +873,9 @@ async fn new_server(sh: &Arc<Shared>, peer: Option<Os>) -> Result<Server, String
         peer,
     )
     .with_scenes(sh.agent.scene_shortcuts(sh.scene_keys.clone()));
+    if sh.agent.config().input.synthetic_motion {
+        sh.agent.set_synthetic_sink(Some(sink.downgrade()));
+    }
     // The session sees the keys already remapped: the shortcut, written with the physical ones, too.
     let lock_keys = sh.lock_keys.iter().map(|&k| sink.remap_key(k)).collect();
     let backends = sh.backends.clone();

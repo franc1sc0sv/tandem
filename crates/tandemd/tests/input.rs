@@ -1069,6 +1069,172 @@ async fn the_cross_test_outcomes_come_from_the_engine_through_watch_cursor() {
     assert_eq!(crossed[0], (Machine::B, Machine::A, Side::Left));
 }
 
+/// T-239: the Windows capture drops what `SendInput` injects (its loop guard), so synthetic
+/// motion from the hardware suite never reached the edge on the PC. A test agent with
+/// `synthetic_motion` takes `SyntheticMotion` as captured motion: it crosses the PC's edge and
+/// reaches the Mac. An agent without it rejects the command, so production input is unchanged.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn synthetic_motion_through_the_agent_crosses_only_on_a_test_agent() {
+    let (mac_id, pc_id) = sides(Identity::from_seed([71; 32]), Identity::from_seed([72; 32]));
+    let mac_fake = FakeInputBackends::new(vec![screen("m32", 1920, 1080)]);
+    let pc_fake = FakeInputBackends::new(vec![screen("m34", 3440, 1440)]);
+    pc_fake.devices().set(vec![KEYBOARD, MOUSE]);
+    let (mut mac, mut pc) = tandemd::start_pair!(
+        |mac_port, pc_port| start(
+            Machine::A,
+            &mac_id,
+            mac_port,
+            (pc_id.public_key(), pc_port),
+            mac_fake.clone(),
+        ),
+        start_with(
+            Machine::B,
+            &pc_id,
+            pc_port,
+            (mac_id.public_key(), mac_port),
+            pc_fake.clone(),
+            "synthetic_motion = true\n",
+        )
+    );
+    let pc_serving = |s: &InputStatus| s.server == Machine::B && s.session;
+    mac.until_input(pc_serving).await;
+    pc.until_input(pc_serving).await;
+    both_on(&mac, &pc).await;
+
+    // Without the switch the agent does not take it.
+    match mac
+        .ui
+        .request(UiCommand::SyntheticMotion { dx: -5, dy: 0 })
+        .await
+        .unwrap()
+    {
+        Reply::Rejected(why) => assert!(why.contains("synthetic_motion"), "{why}"),
+        other => panic!("the Mac should reject synthetic motion: {other:?}"),
+    }
+
+    assert_eq!(
+        pc.ui
+            .request(UiCommand::WatchCursor { on: true })
+            .await
+            .unwrap(),
+        Reply::Done
+    );
+    // Only the agent's motion: the fake capture gets nothing, like `SendInput` on Windows.
+    let mut crossed = None;
+    within(async {
+        while crossed.is_none() {
+            assert_eq!(
+                pc.ui
+                    .request(UiCommand::SyntheticMotion { dx: -40, dy: 0 })
+                    .await
+                    .unwrap(),
+                Reply::Done
+            );
+            let end = tokio::time::Instant::now() + Duration::from_millis(5);
+            while let Ok(Ok(Some(ev))) = tokio::time::timeout_at(end, pc.ui.next_event()).await {
+                if let AgentToUi::Crossed { from, to, edge } = ev {
+                    crossed = Some((from, to, edge));
+                }
+            }
+        }
+    })
+    .await;
+    assert_eq!(crossed, Some((Machine::B, Machine::A, Side::Left)));
+    // Once over, the motion keeps going to the Mac, as the latency check needs.
+    for _ in 0..5 {
+        pc.ui
+            .request(UiCommand::SyntheticMotion { dx: 3, dy: 0 })
+            .await
+            .unwrap();
+    }
+    until_injected(&mac_fake, |e| {
+        e.iter()
+            .any(|e| matches!(e, InputEvent::MotionAbsolute { .. }))
+    })
+    .await;
+    mac.stop().await;
+    pc.stop().await;
+}
+
+/// T-239 review: the agent's handle for synthetic motion must not keep the capture channel
+/// open. When the capture dies on a test agent the engine notices (`CaptureClosed`) and rebuilds
+/// it; while it cannot, `SyntheticMotion` is refused instead of feeding a dead capture.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn synthetic_motion_does_not_keep_a_dead_capture_alive() {
+    let (mac_id, pc_id) = sides(Identity::from_seed([73; 32]), Identity::from_seed([74; 32]));
+    let mac_fake = FakeInputBackends::new(vec![screen("m32", 1920, 1080)]);
+    let pc_fake = FakeInputBackends::new(vec![screen("m34", 3440, 1440)]);
+    pc_fake.devices().set(vec![KEYBOARD, MOUSE]);
+    let (mac, mut pc) = tandemd::start_pair!(
+        |mac_port, pc_port| start(
+            Machine::A,
+            &mac_id,
+            mac_port,
+            (pc_id.public_key(), pc_port),
+            mac_fake.clone(),
+        ),
+        start_with(
+            Machine::B,
+            &pc_id,
+            pc_port,
+            (mac_id.public_key(), mac_port),
+            pc_fake.clone(),
+            "synthetic_motion = true\n",
+        )
+    );
+    let pc_serving = |s: &InputStatus| s.server == Machine::B && s.session;
+    mac.until_input(pc_serving).await;
+    pc.until_input(pc_serving).await;
+    both_on(&mac, &pc).await;
+    assert!(pc_fake.capturing());
+
+    // Rebuilding the capture fails, so the engine's state after the death is observable.
+    pc_fake.fail_capture(Some("the hook died".into()));
+    pc_fake.close_capture();
+    within(async {
+        loop {
+            match pc
+                .ui
+                .request(UiCommand::SyntheticMotion { dx: 1, dy: 0 })
+                .await
+                .unwrap()
+            {
+                Reply::Rejected(why) => {
+                    assert!(why.contains("not capturing"), "{why}");
+                    break;
+                }
+                _ => tokio::time::sleep(Duration::from_millis(10)).await,
+            }
+        }
+    })
+    .await;
+
+    // Once the capture can be built again, the engine did rebuild it: the channel had closed.
+    pc_fake.fail_capture(None);
+    within(async {
+        while !pc_fake.capturing() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await;
+    within(async {
+        loop {
+            match pc
+                .ui
+                .request(UiCommand::SyntheticMotion { dx: 1, dy: 0 })
+                .await
+                .unwrap()
+            {
+                Reply::Done => break,
+                _ => tokio::time::sleep(Duration::from_millis(10)).await,
+            }
+        }
+    })
+    .await;
+    mac.stop().await;
+    pc.stop().await;
+}
+
 /// The live cursor (T-128) between two agents: without a subscription nothing is emitted; with the PC's
 /// UI watching, the Mac's samples arrive (it has focus, over the control
 /// channel) and the crossing, at 30 Hz at most; when it stops watching, the Mac stops sampling.
