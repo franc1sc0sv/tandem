@@ -24,16 +24,7 @@ pub fn link_notices(shadowed: &[Shadowed], failed: Option<&ManagerError>) -> Vec
         .into_iter()
         .map(|(kind, (kept, dropped))| NetworkNotice {
             interface: format!("{kind} path"),
-            message: format!(
-                "{} also {} the {kind} path; only {kept} is used. Remove the extra peer from \
-                 [network] in tandem.toml to silence this.",
-                dropped.join(", "),
-                if dropped.len() == 1 {
-                    "reaches"
-                } else {
-                    "reach"
-                },
-            ),
+            message: shadowed_text(kind, kept, &dropped),
             command: String::new(),
         })
         .collect();
@@ -41,11 +32,28 @@ pub fn link_notices(shadowed: &[Shadowed], failed: Option<&ManagerError>) -> Vec
         None | Some(ManagerError::NoCandidates) => {}
         Some(e) => out.push(NetworkNotice {
             interface: "Link manager".into(),
-            message: format!("not running, so there is no link with the other machine: {e}"),
+            message: format!(
+                "The link manager is not running, so there is no link with the other machine: {e}"
+            ),
             command: String::new(),
         }),
     }
     out
+}
+
+/// What Tandem did with the extra address(es) of a path. It says nothing about where the
+/// address came from or how to remove it: a declared peer and a discovered one read the same,
+/// and there is nothing for the user to edit (D4).
+fn shadowed_text(kind: LinkKind, kept: std::net::SocketAddr, dropped: &[String]) -> String {
+    let lead = if dropped.len() == 1 {
+        "Two addresses reach"
+    } else {
+        "Several addresses reach"
+    };
+    format!(
+        "{lead} the other machine over the {kind} path. Tandem uses {kept} and ignores {}.",
+        dropped.join(", ")
+    )
 }
 
 #[cfg(test)]
@@ -78,8 +86,43 @@ mod tests {
         );
         assert_eq!(n.len(), 1);
         assert_eq!(n[0].interface, "Ethernet path");
-        assert!(n[0].message.contains("[fe80::2%3]:47770"));
-        assert!(n[0].message.contains("169.254.252.182:47770"));
+        assert_eq!(
+            n[0].message,
+            "Two addresses reach the other machine over the Ethernet path. Tandem uses \
+             [fe80::2%3]:47770 and ignores 169.254.252.182:47770."
+        );
+    }
+
+    #[test]
+    fn no_text_asks_the_user_to_edit_the_config_file() {
+        let n = link_notices(
+            &[
+                shadowed(LinkKind::Ethernet, "[fe80::2%3]:1", "169.254.1.2:1"),
+                shadowed(LinkKind::Wifi, "192.168.1.2:1", "192.168.1.3:1"),
+            ],
+            Some(&ManagerError::ZeroDuration),
+        );
+        for notice in &n {
+            for text in [&notice.interface, &notice.message, &notice.command] {
+                let lower = text.to_lowercase();
+                assert!(
+                    !lower.contains("tandem.toml") && !lower.contains("[network]"),
+                    "{text}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_manager_notice_starts_with_a_capital_and_keeps_the_reason() {
+        let n = link_notices(&[], Some(&ManagerError::ZeroDuration));
+        assert_eq!(n.len(), 1);
+        assert_eq!(n[0].interface, "Link manager");
+        assert_eq!(
+            n[0].message,
+            "The link manager is not running, so there is no link with the other machine: \
+             the health check timings cannot be 0"
+        );
     }
 
     #[test]
@@ -94,9 +137,10 @@ mod tests {
         );
         let keys: Vec<_> = n.iter().map(|n| n.interface.as_str()).collect();
         assert_eq!(keys, ["USB4 path", "Wi-Fi path", "Link manager"]);
-        assert!(
-            n[1].message
-                .contains("192.168.1.3:1, 192.168.1.4:1 also reach")
+        assert_eq!(
+            n[1].message,
+            "Several addresses reach the other machine over the Wi-Fi path. Tandem uses \
+             192.168.1.2:1 and ignores 192.168.1.3:1, 192.168.1.4:1."
         );
         assert!(n[2].message.contains("cannot be 0"));
     }
