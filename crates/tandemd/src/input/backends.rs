@@ -164,6 +164,14 @@ pub struct CaptureSink {
     scenes: Option<crate::agent::SceneShortcuts>,
 }
 
+impl std::fmt::Debug for CaptureSink {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CaptureSink")
+            .field("remap", &self.remap)
+            .finish_non_exhaustive()
+    }
+}
+
 /// The modifier remapping between two systems: Cmd<->Ctrl between macOS and Windows;
 /// between two identical ones (or without yet knowing the other machine's), none.
 pub fn direction(from: Os, to: Option<Os>) -> Option<Direction> {

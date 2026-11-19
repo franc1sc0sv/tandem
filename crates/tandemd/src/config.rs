@@ -387,6 +387,10 @@ pub struct InputConfig {
     /// default no, like Deskflow (T-093).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub drag_between_machines: bool,
+    /// Test agents only (T-239): accept `UiCommand::SyntheticMotion`. The hardware suite writes
+    /// it; a normal installation never does.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub synthetic_motion: bool,
 }
 
 /// Both machines have to start with the same server even if neither knows anything: side

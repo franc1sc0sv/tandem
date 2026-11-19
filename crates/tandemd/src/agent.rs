@@ -138,6 +138,9 @@ pub struct Agent {
     /// "Lock here" requests (T-129): the counter goes up with each one and the input
     /// engine applies the last requested value.
     lock_requests: watch::Sender<(u64, bool)>,
+    /// Where `UiCommand::SyntheticMotion` goes (T-239): the running capture's sink, set by the
+    /// input engine only when `[input] synthetic_motion` is on.
+    synthetic: Mutex<Option<crate::input::CaptureSink>>,
     /// This process, to announce it in the capabilities.
     process: tandem_proto::ProcessInfo,
     /// The desk's monitors: channels, owners and what each owner read (T-110).
@@ -391,6 +394,7 @@ impl Agent {
             input_engine: std::sync::atomic::AtomicBool::new(false),
             permission_requests: watch::Sender::new(0),
             lock_requests: watch::Sender::new((0, false)),
+            synthetic: Mutex::new(None),
             process,
             monitors,
             // Without backends nothing is found; [`Agent::with_env_host`] sets the real one.
@@ -913,6 +917,43 @@ impl Agent {
         Reply::Done
     }
 
+    /// The capture that `UiCommand::SyntheticMotion` feeds; `None` when it stops. The input
+    /// engine calls it only when `[input] synthetic_motion` is on.
+    pub fn set_synthetic_sink(&self, sink: Option<crate::input::CaptureSink>) {
+        *self
+            .synthetic
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = sink;
+    }
+
+    /// `UiCommand::SyntheticMotion` (T-239): the motion enters the input engine as if captured,
+    /// so it crosses edges like the real mouse. Only test agents take it: the Windows capture
+    /// drops injected input on purpose and the hardware suite needs another way in, without
+    /// weakening that guard.
+    fn synthetic_motion(&self, dx: i32, dy: i32) -> Reply {
+        if !self.cfg.input.synthetic_motion {
+            return Reply::Rejected(
+                "synthetic motion is off on this agent ([input] synthetic_motion)".into(),
+            );
+        }
+        let slot = self
+            .synthetic
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let Some(sink) = slot.as_ref() else {
+            return Reply::Rejected("the input engine is not capturing on this machine".into());
+        };
+        let event = tandem_input::InputEvent::MotionRelative {
+            dx: f64::from(dx),
+            dy: f64::from(dy),
+        };
+        if sink.send(event) {
+            Reply::Done
+        } else {
+            Reply::Rejected("nobody receives what is captured on this machine".into())
+        }
+    }
+
     /// The keyboard and mouse, for the UI.
     pub fn input_status(&self) -> InputStatus {
         self.input_status.borrow().clone()
@@ -1148,6 +1189,7 @@ impl Agent {
             }
             UiCommand::LockHere { on } => self.lock_here(on),
             UiCommand::SetWol { mac } => self.set_wol_mac(mac.as_deref()),
+            UiCommand::SyntheticMotion { dx, dy } => self.synthetic_motion(dx, dy),
             UiCommand::SetPower { machine, on } => self.start_power(machine, on),
             UiCommand::ApplyScene { id } => self.apply_scene(&id),
             UiCommand::SetModule {

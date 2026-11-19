@@ -709,6 +709,14 @@ pub enum UiCommand {
     SetWol {
         mac: Option<String>,
     },
+    /// Test agents only (T-239): relative motion fed to this machine's input engine as if it
+    /// had been captured, in pixels. The Windows capture drops injected input on purpose (its
+    /// loop guard), so the hardware suite drives the edge this way. Rejected unless the agent's
+    /// `[input] synthetic_motion` is on.
+    SyntheticMotion {
+        dx: i32,
+        dy: i32,
+    },
     /// Open a tunnel to `target` (the other machine). Only from a
     /// [`Peer::Client`]; answers [`Reply::Tunnel`] (T-103).
     OpenTunnel {
@@ -1766,6 +1774,11 @@ pub(crate) mod samples {
                 mac: Some("aa:bb:cc:dd:ee:ff".into()),
             },
             UiCommand::SetWol { mac: None },
+            UiCommand::SyntheticMotion { dx: -6, dy: 0 },
+            UiCommand::SyntheticMotion {
+                dx: i32::MIN,
+                dy: i32::MAX,
+            },
             UiCommand::FilesPut {
                 tunnel: crate::TunnelId(1),
                 local: "/home/u/build".into(),
@@ -1887,6 +1900,7 @@ pub(crate) mod samples {
             UiCommand::GetProcesses { .. } => 41,
             UiCommand::LockHere { .. } => 43,
             UiCommand::SetWol { .. } => 44,
+            UiCommand::SyntheticMotion { .. } => 45,
         }
     }
 
@@ -2390,7 +2404,7 @@ mod tests {
         covers(&hellos(), |h| peer_arm(&h.peer), 4);
         covers(&control(), control_arm, 25);
         let cmds: Vec<_> = ui_requests().into_iter().map(|r| r.command).collect();
-        covers(&cmds, ui_command_arm, 45);
+        covers(&cmds, ui_command_arm, 46);
         covers(&modules(), |m| module_state_arm(&m.state), 3);
         covers(&to_ui(), to_ui_arm, 20);
         covers(&monitor_event_kinds(), monitor_event_kind_arm, 10);

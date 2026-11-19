@@ -215,11 +215,90 @@ const PUSHES: [(&str, f64, f64); 4] = [
     ("top", 0.0, -6.0),
 ];
 
-/// H4: this machine owns the keyboard and mouse; synthetic motion is injected against
-/// each edge until the agent reports `Crossed` toward the other. It does not move the
-/// physical mouse. It keeps injecting for `keep_injecting` after crossing so the other
-/// machine can measure its latency (`latency-watch` runs over there at the same time).
+/// How `input-cross` moves the cursor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Drive {
+    /// Real system injection (`CGEventPost` on macOS): it goes through the capture like the
+    /// physical mouse. The macOS tap only lets through, unforwarded, events carrying
+    /// `INJECTED_MARKER`, and the check's events do not carry it.
+    System,
+    /// Motion fed to the agent's input engine (`UiCommand::SyntheticMotion`). The Windows
+    /// capture drops whatever `SendInput` injects on purpose (`LLMHF_INJECTED` in the hook, Raw
+    /// Input without a device), so system injection never reaches the edge there (T-239).
+    Agent,
+}
+
+impl Drive {
+    /// The one that reaches the edge on `os` (`std::env::consts::OS`).
+    pub fn for_os(os: &str) -> Self {
+        if os == "windows" {
+            Drive::Agent
+        } else {
+            Drive::System
+        }
+    }
+
+    fn describe(self) -> &'static str {
+        match self {
+            Drive::System => "synthetic system input",
+            Drive::Agent => "synthetic motion fed to the agent",
+        }
+    }
+}
+
+/// What is pushing the cursor, until told to stop.
+enum Pusher {
+    System(std::thread::JoinHandle<Result<(), String>>),
+    Agent(tokio::task::JoinHandle<anyhow::Result<()>>),
+}
+
+impl Pusher {
+    async fn start(
+        drive: Drive,
+        ctx: &Ctx,
+        dx: f64,
+        dy: f64,
+        stop: Arc<AtomicBool>,
+    ) -> anyhow::Result<Self> {
+        Ok(match drive {
+            Drive::System => Pusher::System(spawn_injector(dx, dy, stop)),
+            Drive::Agent => {
+                // Its own connection: the main one keeps answering while this one pushes.
+                let mut c = conn::connect(&ctx.data_dir, Peer::Ui, IPC_WAIT).await?;
+                let (dx, dy) = (dx.round() as i32, dy.round() as i32);
+                Pusher::Agent(tokio::spawn(async move {
+                    while !stop.load(Ordering::Relaxed) {
+                        req(&mut c, UiCommand::SyntheticMotion { dx, dy }).await?;
+                        tokio::time::sleep(Duration::from_millis(2)).await;
+                    }
+                    Ok(())
+                }))
+            }
+        })
+    }
+
+    async fn finish(self) -> anyhow::Result<()> {
+        match self {
+            Pusher::System(t) => tokio::task::spawn_blocking(move || t.join())
+                .await?
+                .map_err(|_| anyhow::anyhow!("the injection thread died"))?
+                .map_err(anyhow::Error::msg),
+            Pusher::Agent(t) => t.await?,
+        }
+    }
+}
+
+/// H4: this machine owns the keyboard and mouse; synthetic motion is pushed against each
+/// edge until the agent reports `Crossed` toward the other. It does not move the physical
+/// mouse. It keeps pushing for `keep_injecting` after crossing so the other machine can
+/// measure its latency (`latency-watch` runs over there at the same time). How it pushes
+/// depends on the system ([`Drive::for_os`]).
 pub async fn input_cross(ctx: &Ctx, keep_injecting: Duration) -> CheckResult {
+    input_cross_with(ctx, keep_injecting, Drive::for_os(std::env::consts::OS)).await
+}
+
+/// [`input_cross`] with the given way of pushing.
+pub async fn input_cross_with(ctx: &Ctx, keep_injecting: Duration, drive: Drive) -> CheckResult {
     let started = Instant::now();
     let r = ctx.result("input-cross", &["H4", "T-093"]);
     let out = async {
@@ -243,23 +322,23 @@ pub async fn input_cross(ctx: &Ctx, keep_injecting: Duration) -> CheckResult {
         req(&mut watch, UiCommand::WatchCursor { on: true }).await?;
         for (edge, dx, dy) in PUSHES {
             let stop = Arc::new(AtomicBool::new(false));
-            let worker = spawn_injector(dx, dy, stop.clone());
+            let pusher = Pusher::start(drive, ctx, dx, dy, stop.clone()).await?;
             let crossed = wait_crossed(&mut watch, me, Duration::from_secs(6)).await;
             if crossed {
                 tokio::time::sleep(keep_injecting).await;
             }
             stop.store(true, Ordering::Relaxed);
-            let injected = worker
-                .join()
-                .map_err(|_| anyhow::anyhow!("the injection thread died"))?;
-            injected.map_err(anyhow::Error::msg)?;
+            pusher.finish().await?;
             if crossed {
                 // The keyboard and mouse are handed back to this machine for the next direction.
                 let _ = req(&mut ui, UiCommand::SetKeyboard(me)).await;
-                return Ok(format!("crossed at edge {edge} with synthetic input"));
+                return Ok(format!("crossed at edge {edge} with {}", drive.describe()));
             }
         }
-        anyhow::bail!("no edge crossed to the other machine with synthetic motion")
+        anyhow::bail!(
+            "no edge crossed to the other machine with {}",
+            drive.describe()
+        )
     }
     .await;
     match out {
@@ -710,6 +789,15 @@ pub async fn run_tunnel(ctx: &Ctx, name: &str) -> Option<CheckResult> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// T-239: on Windows system injection never reaches the edge (the capture drops it), so the
+    /// check feeds the agent; on macOS it keeps going through the real tap.
+    #[test]
+    fn windows_pushes_through_the_agent_and_macos_through_the_system() {
+        assert_eq!(Drive::for_os("windows"), Drive::Agent);
+        assert_eq!(Drive::for_os("macos"), Drive::System);
+        assert_eq!(Drive::for_os("linux"), Drive::System);
+    }
 
     #[test]
     fn the_test_pattern_is_deterministic_and_not_constant() {

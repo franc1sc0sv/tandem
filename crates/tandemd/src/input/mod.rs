@@ -873,6 +873,9 @@ async fn new_server(sh: &Arc<Shared>, peer: Option<Os>) -> Result<Server, String
         peer,
     )
     .with_scenes(sh.agent.scene_shortcuts(sh.scene_keys.clone()));
+    if sh.agent.config().input.synthetic_motion {
+        sh.agent.set_synthetic_sink(Some(sink.clone()));
+    }
     // The session sees the keys already remapped: the shortcut, written with the physical ones, too.
     let lock_keys = sh.lock_keys.iter().map(|&k| sink.remap_key(k)).collect();
     let backends = sh.backends.clone();
