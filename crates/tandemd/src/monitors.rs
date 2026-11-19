@@ -152,14 +152,10 @@ impl MonitorHub {
         }
     }
 
-    /// What the other read from the monitors that are its own.
+    /// What the other read from the monitors that are its own: its whole list, so what is
+    /// missing from it is no longer read there.
     pub fn receive(&self, from: Machine, reports: Vec<MonitorReport>) {
-        {
-            let mut dir = lock(&self.dir);
-            for r in reports {
-                dir.set_report(from, r);
-            }
-        }
+        lock(&self.dir).set_reports(from, reports);
         self.publish();
     }
 
@@ -231,12 +227,7 @@ impl MonitorHub {
         else {
             return tick;
         };
-        {
-            let mut dir = lock(&self.dir);
-            for r in &reports {
-                dir.set_report(me, r.clone());
-            }
-        }
+        lock(&self.dir).set_reports(me, reports.clone());
         self.publish();
         let resend = self.resend.swap(false, Ordering::Relaxed);
         let mut sent = lock(&self.sent);
@@ -410,6 +401,36 @@ mod tests {
                 hub.dir
             );
         }
+    }
+
+    /// Review of #183: `B` reports while it owns the monitor alone, `A` is elected, `B` stops
+    /// reading and sends `[]`; when `A` then loses its channel, it shows no report until `B`
+    /// reads and sends again.
+    #[tokio::test]
+    async fn a_former_reading_of_the_other_is_not_shown_after_the_owner_leaves() {
+        let (a, _) = hub_with_bus(Machine::A);
+        let (b, _) = hub_with_bus(Machine::B);
+        let from_b = b.tick(true).await.reports.unwrap();
+        a.tick(true).await;
+        a.receive(Machine::B, from_b);
+        a.set_peer(Some(b.local_channels()));
+        b.set_peer(Some(a.local_channels()));
+        let id = a.views()[0].id.clone();
+        assert_eq!(a.owner(&id), Some(Machine::A));
+        a.tick(false).await;
+        let from_b = b.tick(false).await.reports.unwrap();
+        assert!(from_b.is_empty(), "B no longer owns it: {from_b:?}");
+        a.receive(Machine::B, from_b);
+        // A's channel goes away (unplugged): B is the owner.
+        lock(&a.dir).set_local(Vec::new());
+        b.set_peer(Some(Vec::new()));
+        a.publish();
+        assert_eq!(a.owner(&id), Some(Machine::B));
+        assert_eq!(a.input(&id), None, "{:?}", a.dir);
+        assert_eq!(a.views()[0].report, None);
+        let from_b = b.tick(false).await.reports.unwrap();
+        a.receive(Machine::B, from_b);
+        assert_eq!(a.input(&id), Some(MonitorInput::DisplayPort));
     }
 
     #[tokio::test]

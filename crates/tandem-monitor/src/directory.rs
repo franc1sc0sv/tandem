@@ -95,6 +95,17 @@ impl Directory {
         self.reports.insert((report.id.clone(), from), report);
     }
 
+    /// Everything `from` reads now (each `ControlMsg::Monitors` carries the sender's whole
+    /// list): what it no longer reads is forgotten. A reading from a machine that is not the
+    /// owner here is kept only while that machine still reads it, so it is never shown later as
+    /// current if that machine becomes the owner.
+    pub fn set_reports(&mut self, from: Machine, reports: Vec<MonitorReport>) {
+        self.reports.retain(|(_, m), _| *m != from);
+        for r in reports {
+            self.set_report(from, r);
+        }
+    }
+
     fn channel_of(&self, machine: Machine, id: &str) -> Option<&MonitorChannel> {
         let list = if machine == self.me {
             Some(&self.local)
@@ -302,6 +313,46 @@ mod tests {
         b.set_peer(Some(vec![std]));
         assert_eq!(b.owner("std"), Some(Machine::A), "a tie goes to A");
         assert_eq!(b.input("std"), Some(MonitorInput::DisplayPort));
+    }
+
+    /// Review of #183: `B`'s early claim reaches `A`, then `A` is elected. If `A` later loses
+    /// its channel, `B`'s old reading must not show as current. `B` stopped reading once `A`
+    /// was elected, and its next list (empty) clears it.
+    #[test]
+    fn a_reading_the_other_no_longer_sends_is_not_shown_when_it_becomes_the_owner() {
+        let std = ch("std", true, 5);
+        let mut a = Directory::new(Machine::A);
+        a.set_local(vec![std.clone()]);
+        a.set_reports(Machine::A, vec![report("std", MonitorInput::DisplayPort)]);
+        a.set_reports(Machine::B, vec![report("std", MonitorInput::Hdmi)]);
+        a.set_peer(Some(vec![std.clone()]));
+        assert_eq!(a.input("std"), Some(MonitorInput::DisplayPort));
+        a.set_reports(Machine::B, vec![]);
+        a.set_local(vec![]);
+        assert_eq!(a.owner("std"), Some(Machine::B));
+        assert_eq!(
+            a.input("std"),
+            None,
+            "B's reading is from before A was elected"
+        );
+        a.set_reports(Machine::B, vec![report("std", MonitorInput::DisplayPort)]);
+        assert_eq!(a.input("std"), Some(MonitorInput::DisplayPort));
+    }
+
+    #[test]
+    fn a_new_list_replaces_the_senders_previous_one() {
+        let mut d = Directory::new(Machine::A);
+        d.set_peer(Some(vec![ch("std", true, 5), ch("two", true, 5)]));
+        d.set_reports(
+            Machine::B,
+            vec![
+                report("std", MonitorInput::Hdmi),
+                report("two", MonitorInput::Hdmi),
+            ],
+        );
+        d.set_reports(Machine::B, vec![report("two", MonitorInput::DisplayPort)]);
+        assert_eq!(d.input("std"), None);
+        assert_eq!(d.input("two"), Some(MonitorInput::DisplayPort));
     }
 
     #[test]
