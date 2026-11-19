@@ -79,8 +79,24 @@ fn git(dir: &Path, args: &[&str]) -> String {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_repo_goes_to_the_other_machine_and_comes_back_as_a_branch_over_quic() {
     let dir = tempfile::tempdir().unwrap();
-    let mac = agent(dir.path(), Machine::A);
-    let pc = agent(dir.path(), Machine::B);
+    round_trip(dir.path(), dir.path()).await;
+}
+
+/// T-197: with a relative `--data-dir`, git runs in another cwd and could not find the bundles.
+/// The temporary directory lives under the test's cwd so it can be named relatively.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn workspace_works_with_a_relative_data_directory() {
+    let dir = tempfile::tempdir_in(".").unwrap();
+    let name = dir.path().file_name().unwrap();
+    let relative = Path::new(".").join(name).join("data");
+    assert!(relative.is_relative());
+    fs::create_dir_all(&relative).unwrap();
+    round_trip(&dir.path().canonicalize().unwrap(), &relative).await;
+}
+
+async fn round_trip(root: &Path, data: &Path) {
+    let mac = agent(data, Machine::A);
+    let pc = agent(data, Machine::B);
     let (mac_id, pc_id) = (Identity::from_seed([1; 32]), Identity::from_seed([2; 32]));
     let trust = |id: &Identity| Arc::new(Keys(BTreeSet::from([id.public_key()])));
     let loopback = SocketAddr::from((Ipv4Addr::LOCALHOST, 0));
@@ -101,7 +117,7 @@ async fn the_repo_goes_to_the_other_machine_and_comes_back_as_a_branch_over_quic
     let mut ui = ipc(&mac, Peer::Ui, &mut stops).await;
 
     // A's repo, with an uncommitted change and a new file.
-    let repo = dir.path().join("project");
+    let repo = root.join("project");
     fs::create_dir_all(&repo).unwrap();
     git(&repo, &["init", "-q", "-b", "main"]);
     git(&repo, &["config", "user.email", "yo@example.com"]);
@@ -133,7 +149,7 @@ async fn the_repo_goes_to_the_other_machine_and_comes_back_as_a_branch_over_quic
     );
     // A repo that does not exist does not leave a tunnel open.
     let bad = WorkspaceSpec {
-        repo_path: dir.path().join("missing").display().to_string(),
+        repo_path: root.join("missing").display().to_string(),
         keep: false,
         include: vec![],
     };
