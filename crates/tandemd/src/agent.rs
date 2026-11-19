@@ -115,6 +115,9 @@ pub struct Agent {
     sync: Mutex<SyncClock>,
     /// Notices that the other machine changed the desk (D5), for the UI.
     desk_changes: broadcast::Sender<DeskChanged>,
+    /// This machine's module switches as its start-up migration left them, while no version
+    /// newer than the migration holds (T-322).
+    moved_here: Mutex<Option<MovedHere>>,
     /// The `tandem.toml` desk was edited by hand: once the file is known the new
     /// version is written to it.
     hand_edited: bool,
@@ -158,6 +161,18 @@ pub struct Agent {
     net: net::NetState,
     /// The live cursor, while someone is watching it (T-128).
     cursor: cursor::CursorState,
+}
+
+/// What a start-up migration moved from this machine into the desk (review of #74): its
+/// module switches, with the `rev` of the version that carries them. Both machines can migrate
+/// the same old desk at once (the default scenes on both): the two new versions have the same
+/// `rev` and the later one wins whole, so without this the switch moved on the other one would be
+/// lost and the machines would never agree on it (T-322).
+#[derive(Debug, Clone)]
+struct MovedHere {
+    rev: u64,
+    side: Machine,
+    modules: std::collections::BTreeMap<String, bool>,
 }
 
 #[derive(Debug, Clone)]
@@ -341,6 +356,12 @@ impl Agent {
         } else {
             saved
         };
+        let mine = cfg.desk.modules.of(me);
+        let moved_here = (cfg.local_to_desk && !mine.is_empty()).then(|| MovedHere {
+            rev: stamp.rev,
+            side: me,
+            modules: mine.clone(),
+        });
         let sync = SyncClock {
             stamp,
             history: DeskHistory::new(DeskVersion {
@@ -390,6 +411,7 @@ impl Agent {
             announce: capabilities::Debounce::new(capabilities::ANNOUNCE_DEBOUNCE),
             sync: Mutex::new(sync),
             desk_changes: broadcast::channel(DESK_EVENT_BUFFER).0,
+            moved_here: Mutex::new(moved_here),
             hand_edited,
             key_probe: watch::Sender::new(KeyProbeStatus::default()),
             keyboard: watch::Sender::new(cfg.input.keyboard),
@@ -479,6 +501,14 @@ impl Agent {
             });
         }
         self.record_current();
+        if let Some(moved) = self
+            .moved_here
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .as_mut()
+        {
+            moved.side = moved.side.other();
+        }
         self.keyboard.send_modify(|k| *k = k.map(Machine::other));
         self.key_probe.send_modify(|p| {
             p.heard = p.heard.map(Machine::other);
@@ -808,6 +838,43 @@ impl Agent {
         // This machine's name and color may come from the other.
         self.refresh_capabilities();
         self.settle_scene();
+        self.keep_moved_here();
+    }
+
+    /// If the version that holds is the other machine's simultaneous one (the same `rev` as this
+    /// one's migration, so made without seeing it), what the migration moved goes back on top, as
+    /// a new change that reaches the other. Once a newer version holds it is forgotten: from then
+    /// on the desk wins whole, as always, and a later change by the other is not undone (T-322).
+    fn keep_moved_here(&self) {
+        let _editing = self.edit();
+        let current = self.desk_sync();
+        let desk = {
+            let mut moved = self
+                .moved_here
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            let Some(m) = moved.as_ref() else {
+                return;
+            };
+            if current.stamp.rev == m.rev && current.stamp.by == self.machine() {
+                // This machine's version holds: the other adopts it.
+                return;
+            }
+            let mut desk = current.desk.clone();
+            if current.stamp.rev == m.rev {
+                for (module, &on) in &m.modules {
+                    desk.modules.set(m.side, module, on);
+                }
+            }
+            *moved = None;
+            desk
+        };
+        if desk != current.desk {
+            tracing::info!(
+                "the other machine's simultaneous desk lost this machine's switches: putting them back"
+            );
+            self.commit_desk(desk);
+        }
     }
 
     /// What this machine says about itself: its system and, from the desk, its name and color.
@@ -2167,6 +2234,97 @@ pub(crate) mod tests {
         // Starting again it is no longer a change.
         let again = Agent::new(saved, StateStore::new(dir.path().join("state.json")));
         assert_eq!(again.desk_sync().stamp.rev, 4);
+    }
+
+    /// A peer that keeps the desks it is sent, to deliver them by hand.
+    #[derive(Default)]
+    struct DeskOutbox(Mutex<Vec<DeskVersion>>);
+
+    impl PeerLink for DeskOutbox {
+        fn execute<'a>(&'a self, _step: &'a Step) -> crate::orchestrator::StepFuture<'a> {
+            Box::pin(async { Ok(()) })
+        }
+        fn publish_state(&self, _state: &State) {}
+        fn send(&self, msg: ControlMsg) {
+            if let ControlMsg::Desk(v) = msg {
+                self.0.lock().unwrap().push(*v);
+            }
+        }
+    }
+
+    impl DeskOutbox {
+        fn taken(&self) -> Vec<DeskVersion> {
+            std::mem::take(&mut *self.0.lock().unwrap())
+        }
+    }
+
+    /// T-322: both machines start with the same pre-T-099 desk and both migrate it at once (the
+    /// default scenes on each, plus B's turned-off clipboard on B). The two new versions have the
+    /// same `rev`, and the later one wins whole: if A's is later, B's moved switch was lost and
+    /// the machines never agreed on it. B puts it back on top of A's version, as a new change.
+    #[test]
+    fn a_moved_setting_survives_the_other_machines_simultaneous_migration() {
+        let before_t099 = |machine: &str, input: &str| {
+            format!(
+                "machine = \"{machine}\"\ndesk_rev = 3\ndesk_origin = \"a\"\n\
+                 desk_sum = \"0123456789abcdef\"\n\n\
+                 [machines.a]\nos = \"macos\"\nname = \"Mac\"\ncolor = \"#7aa7e6\"\n\n\
+                 [machines.b]\nos = \"windows\"\nname = \"PC\"\ncolor = \"#a99be8\"\n\n\
+                 [input]\nlock_shortcut = [\"ScrollLock\"]\n{input}\n"
+            )
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let start = |machine: &str, input: &str| {
+            let cfg = AgentConfig::from_toml(&before_t099(machine, input)).unwrap();
+            assert!(cfg.local_to_desk);
+            let store = StateStore::new(dir.path().join(format!("{machine}.json")));
+            Agent::new(cfg, store)
+        };
+        let a = start("a", "");
+        let b = start("b", "clipboard = false");
+        let to_a = Arc::new(DeskOutbox::default());
+        b.set_peer(to_a.clone());
+        to_a.taken();
+        let mine = b.desk_sync();
+        assert_eq!(mine.desk.modules.get(Machine::B, "clipboard"), Some(false));
+        // A's migration, made at the same time and a little later: same `rev`, it wins.
+        let at_a = a.desk_sync();
+        let theirs = DeskVersion {
+            stamp: DeskStamp {
+                at: mine.stamp.at + 1,
+                ..at_a.stamp
+            },
+            desk: at_a.desk,
+        };
+        assert_eq!(theirs.stamp.rev, mine.stamp.rev);
+        assert!(theirs.stamp.wins_over(&mine.stamp));
+        assert_eq!(theirs.desk.modules.get(Machine::B, "clipboard"), None);
+
+        b.receive_desk(theirs.clone());
+        let now = b.desk_sync();
+        assert_eq!(now.desk.modules.get(Machine::B, "clipboard"), Some(false));
+        assert_eq!(
+            (now.stamp.rev, now.stamp.by),
+            (mine.stamp.rev + 1, Machine::B)
+        );
+        // The rest is A's version.
+        let mut expected = theirs.desk.clone();
+        expected.modules.set(Machine::B, "clipboard", false);
+        assert_eq!(now.desk, expected);
+        assert!(!b.module_on(ModuleId::Clipboard));
+        // And it goes to A, which adopts it.
+        assert_eq!(to_a.taken(), std::slice::from_ref(&now));
+        a.receive_desk(theirs);
+        a.receive_desk(now.clone());
+        assert_eq!(a.desk_sync(), now);
+
+        // From there on the desk wins whole, as always: A turning B's clipboard back on holds.
+        let mut on = now.desk.clone();
+        on.modules.set(Machine::B, "clipboard", true);
+        let later = now.change(on, Machine::A, now.stamp.at + 1);
+        b.receive_desk(later.clone());
+        assert_eq!(b.desk_sync(), later);
+        assert!(to_a.taken().is_empty());
     }
 
     /// A pre-T-099 `tandem.toml` (shortcut in `[input]`, offset in the arrangement)
