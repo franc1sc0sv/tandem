@@ -1,79 +1,64 @@
 # Glossary
 
-The repository is entirely in English (see `CLAUDE.md`, "Language"). This file fixes the terms so the UI, the mockups, the code and the docs say the same thing. When translating older Spanish text, use these terms; for anything not listed, pick the plain, short English word a desktop app would use and stay consistent within your change.
+The repository is entirely in English (see `CLAUDE.md`, "Language"). This file fixes the terms so the UI, the mockups, the code and the docs say the same thing. For anything not listed, pick the plain, short English word a desktop app would use and stay consistent within your change. `scripts/ci/english.sh` fails the build if Spanish comes back.
 
 ## Domain terms
 
-| Spanish (old) | English | Notes |
-|---|---|---|
-| puesto | desk | The pair of machines working as one. "Mi puesto" → "My desk". |
-| máquina | machine | Never "host" or "computer" in the UI. |
-| la otra (máquina) | the other machine | In code: `peer`. |
-| acomodo | arrangement | Screen layout of both machines. Screen title: "Arrangement". |
-| escena | scene | |
-| túnel / túneles | tunnel / tunnels | "1 tunnel", "2 tunnels". |
-| cómputo remoto | remote compute | |
-| entorno | environment | WSL, zsh, PowerShell… |
-| enlace | link | USB4, Ethernet, Wi-Fi. |
-| red | network | |
-| emparejar / emparejamiento | pair / pairing | "Pair the other machine". |
-| código de emparejamiento | pairing code | |
-| llave / credencial | key / credential | |
-| salir del puesto | leave desk | "Leave desk". |
-| cruce / cruzar | crossing / cross | The cursor moving to the other machine. |
-| probar cruce / prueba de cruce | test crossing / crossing test | Button: "Test crossing". |
-| borde | edge | |
-| teclado y mouse | keyboard and mouse | |
-| actividad detectada | activity detected | |
-| bandeja | tray | |
-| paleta (de comandos) | command palette | |
-| asistente (de configuración) | setup | UI: "Setup"; code keeps `wizard`. |
-| ajustes | settings | |
-| energía | power | Power on / power off / Wake-on-LAN. |
-| encender / apagar | power on / power off | |
-| módulos | modules | |
-| monitores | monitors | |
-| entrada (de un monitor) | input | |
-| portapapeles | clipboard | |
-| archivos / arrastre | files / drag | |
-| bloquear / bloqueado | lock / locked | |
-| avisos | notices | |
-| transacción / vuelta atrás | transaction / rollback | |
-| estados / estados difíciles | states / trouble states | |
-| permisos | permissions | |
-| progreso | progress | |
-| actualizaciones | updates | |
-| atajos | shortcuts | |
-| agente | agent | `tandemd`. |
-| no disponible | unavailable | |
-| apagado (módulo) | off | |
+| Term | Meaning or usage |
+|---|---|
+| desk | The pair of machines working as one. "My desk". |
+| machine | One of the two computers. Never "host" or "computer" in the UI. |
+| peer | The other machine, in code. In the UI: "the other machine". |
+| arrangement | The screen layout of both machines. Screen title: "Arrangement". |
+| scene | A saved combination of monitor inputs and settings for the desk. |
+| tunnel | A forwarded connection to the other machine. "1 tunnel", "2 tunnels". |
+| remote compute | Running work on the other machine. |
+| environment | WSL, zsh, PowerShell... |
+| link | The connection between the machines: USB4, Ethernet, Wi-Fi. |
+| network | The network screen and the paths the link can take. |
+| pair / pairing | Trusting the other machine. "Pair the other machine". |
+| pairing code | The short code compared on both machines when pairing. |
+| key / credential | The identity of a machine and what it trusts. |
+| leave desk | The action that takes a machine out of the desk. Label: "Leave desk". |
+| crossing / cross | The cursor moving to the other machine. |
+| crossing test | The check that the cursor crosses the marked edge. Button: "Test crossing". |
+| edge | The border of a screen where the cursor crosses. |
+| keyboard and mouse | The shared input devices. |
+| activity detected | The input indicator shown when a device is used. |
+| tray | The menu bar / system tray entry. |
+| command palette | The Ctrl/Cmd+K window to run actions. |
+| setup | The first-run flow. UI: "Setup"; code keeps `wizard`. |
+| settings | The preferences screen. |
+| power | Power on / power off / Wake-on-LAN. |
+| modules | The parts of a machine that can be turned on or off. |
+| monitors | The external displays. |
+| input (of a monitor) | The video input a monitor shows. |
+| clipboard | The shared clipboard module. |
+| files / drag | Dragging files between machines. |
+| lock / locked | Keeping the cursor on one machine. |
+| notices | Toasts and messages shown in the UI. |
+| transaction / rollback | A multi-step change that is undone if a step fails. |
+| trouble states | The screens that show what is wrong. |
+| permissions | The operating system permissions the app asks for. |
+| progress | The screen with changes in progress. |
+| updates | The update check and install. |
+| shortcuts | Keyboard shortcuts (the lib module is `hotkeys.ts`). |
+| agent | The background process, `tandemd`. |
+| unavailable | A module or action that cannot be used right now. |
+| off | A module that is turned off. |
 
 ## Docs and tasks
 
-| Spanish (old) | English |
+| Term | Usage |
 |---|---|
-| Contexto | Context |
-| Criterios de aceptación | Acceptance criteria |
-| Corrección esperada | Expected fix |
-| Notas | Notes |
-| Verificación en hardware pendiente | Pending hardware verification |
-| Tareas abiertas | Open tasks |
-| PASA / FALLA | PASS / FAIL |
-| capturas | screenshots |
-| similitud | similarity |
-| peor cuadro | worst tile |
-| máscara | mask |
-
-## File and job renames
-
-Renames happen in the task that owns the directory (see `docs/tasks/T-200.md`); every reference is updated in the same PR.
-
-| Old | New |
-|---|---|
-| `src/screens/Acomodo.svelte`, `Ajustes`, `Escena`, `Estados`, `Maquina`, `Monitores`, `Progreso`, `Puesto`, `Red`, `Tuneles` | `Arrangement.svelte`, `Settings`, `Scene`, `States`, `Machine`, `Monitors`, `Progress`, `Desk`, `Network`, `Tunnels` |
-| `src/lib/acomodo.ts`, `puesto.ts`, `atajos.ts` | `arrangement.ts`, `desk.ts`, `hotkeys.ts` (it must not clash with `shortcuts.ts`) |
-| `mockups/v03/V3-Acomodo`, `V3-Asistente`, `V3-Bandeja`, `V3-Computo`, `V3-Estados`, `V3-Maquina`, `V3-Monitores`, `V3-Puesto`, `V3-Red` | `V3-Arrangement`, `V3-Setup`, `V3-Tray`, `V3-Compute`, `V3-States`, `V3-Machine`, `V3-Monitors`, `V3-Desk`, `V3-Network` |
-| `mockups/v03/F-AgregarHost`, `F-Ajustes`, `F-Asis1…6`, `F-Avisos`, `F-MaquinaMac`, `F-NuevaEscena`, `F-Paleta`, `F-PruebaCruce`, `F-Transacciones` | `F-AddHost`, `F-Settings`, `F-Setup1…6`, `F-Notices`, `F-MachineMac`, `F-NewScene`, `F-Palette`, `F-CrossingTest`, `F-Transactions` (`F-ClaudeMCP` stays) |
-| `docs/screenshots/v03/similitud.json` and Spanish screenshot names | `similarity.json` and English names |
-| `scripts/ci/privacidad.sh`, `tareas.sh` | `privacy.sh`, `tasks.sh` |
-| CI jobs `ui (capturas)`, `cobertura`, `instalador (windows)`, `preparar` | `ui (screenshots)`, `coverage`, `installer (windows)`, `prepare` |
+| Context | Task section: why the task exists. |
+| Acceptance criteria | Task section: the checklist. |
+| Expected fix | Task section of a finding: what should change. |
+| Notes | Task section: what was done or left out. |
+| Pending hardware verification | Task section: checks only the real machine can do. |
+| Open tasks | The list of tasks not done yet. |
+| PASS / FAIL | Result of an acceptance item. |
+| screenshots | Images of the app, in `docs/screenshots`. |
+| similarity | Share of matching pixels between a screenshot and its mockup. |
+| worst tile | The lowest similarity of any tile of the compared image. |
+| mask | A covered region left out of a comparison. |

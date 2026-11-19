@@ -1104,7 +1104,7 @@ mod tests {
     }
 
     #[test]
-    fn merge_scroll_satura() {
+    fn merge_scroll_saturates() {
         let big = Scroll::Wheel {
             dx_v120: i32::MAX,
             dy_v120: 0,

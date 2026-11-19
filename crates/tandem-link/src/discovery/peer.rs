@@ -178,7 +178,7 @@ mod tests {
     }
 
     #[test]
-    fn ignora_otros_anuncios() {
+    fn ignores_other_announcements() {
         let mut r = resolver();
         let otros = [
             // Another Tandem agent, unpaired.

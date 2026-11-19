@@ -381,7 +381,7 @@ mod tests {
 
     proptest! {
         #[test]
-        fn inversa_deshace(r in any_remap(), bits in any::<u8>()) {
+        fn inverse_undoes(r in any_remap(), bits in any::<u8>()) {
             let m = Modifiers::from_bits(bits);
             prop_assert_eq!(r.inverse().map_modifiers(r.map_modifiers(m)), m);
             prop_assert_eq!(r.inverse().inverse(), r);
@@ -409,7 +409,7 @@ mod tests {
     }
 
     #[test]
-    fn win_a_mac_deshace_mac_a_win() {
+    fn win_to_mac_undoes_mac_to_win() {
         let p = RemapPolicy::default();
         for k in ModifierKey::ALL {
             assert_eq!(p.win_to_mac.map(p.mac_to_win.map(k)), k);

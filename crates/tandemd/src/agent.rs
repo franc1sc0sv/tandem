@@ -2009,13 +2009,13 @@ pub(crate) mod tests {
         let file = dir.path().join("tandem.toml");
         let t099 = "machine = \"a\"\ndesk_rev = 7\ndesk_origin = \"b\"\n\
                     [machines.a]\nos = \"macos\"\nname = \"MacBook Pro\"\ncolor = \"#7aa7e6\"\n\
-                    [machines.b]\nos = \"windows\"\nname = \"PC-Escritorio\"\ncolor = \"#a99be8\"\n\
+                    [machines.b]\nos = \"windows\"\nname = \"PC-Desktop\"\ncolor = \"#a99be8\"\n\
                     [shortcuts]\nlock = [\"ControlLeft\", \"AltLeft\", \"Digit1\"]\n";
         std::fs::write(&file, t099).unwrap();
         let cfg = AgentConfig::load(&file).unwrap();
         let a = Agent::new(cfg, StateStore::new(dir.path().join("state.json")));
         let names: Vec<String> = a.desk().scenes.iter().map(|s| s.name.clone()).collect();
-        assert_eq!(names, ["Work", "Only MacBook Pro", "Only PC-Escritorio"]);
+        assert_eq!(names, ["Work", "Only MacBook Pro", "Only PC-Desktop"]);
         assert!(a.desk().scenes[0].shortcut.is_empty(), "⌃⌥1 is the lock");
         assert_eq!(a.desk_sync().stamp.rev, 8, "a change by this machine");
         assert_eq!(a.desk_sync().stamp.by, Machine::A);

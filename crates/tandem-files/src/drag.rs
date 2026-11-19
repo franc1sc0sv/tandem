@@ -425,7 +425,7 @@ mod tests {
         let (tmp, _f, din, _s) = fixture(Some(DragEnd::Dropped));
         assert!(din.begin(&["..".into()]).is_err());
         assert!(din.begin(&["a/b".into()]).is_err());
-        assert!(din.begin(&["con".into()]).is_err());
+        assert!(din.begin(&["nul".into()]).is_err());
         let dup = vec![PathBuf::from("/x/a.txt"), PathBuf::from("/y/A.TXT")];
         let r = out(&din, CopyUpload, None)
             .run(&dup, std::future::pending(), &|_| {})

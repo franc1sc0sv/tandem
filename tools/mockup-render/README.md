@@ -76,7 +76,7 @@ import { capture, compareWithMockup, launchBrowser } from '@tandem/mockup-render
 
 const browser = await launchBrowser();              // same arguments as the mockups
 const page = await browser.newPage({ viewport: { width: 1280, height: 860 }, deviceScaleFactor: 1 });
-await page.goto('http://127.0.0.1:1420/?demo=puesto');
+await page.goto('http://127.0.0.1:1420/?demo=desk');
 const png = await capture(page, 'docs/screenshots/v03/desk.png'); // settle + capture
 
 const r = compareWithMockup(png, {

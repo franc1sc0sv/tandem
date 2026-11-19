@@ -32,6 +32,6 @@ try {
   // Update only
   await p.getByRole("switch", { name: "Update only" }).click(); await L.sleep(800);
   const f = join(m1.cfg, "Tandem", "update.toml");
-  L.record(F, "\"Update only\" is saved in update.toml", existsSync(f) && /auto\s*=\s*(true|false)/.test(readFileSync(f, "utf8")), existsSync(f) ? readFileSync(f, "utf8").replace(/\n/g, " ") : "(sin file)");
+  L.record(F, "\"Update only\" is saved in update.toml", existsSync(f) && /auto\s*=\s*(true|false)/.test(readFileSync(f, "utf8")), existsSync(f) ? readFileSync(f, "utf8").replace(/\n/g, " ") : "(no file)");
   console.log(p.errors); srv.close(); await L.closeBrowser();
 } catch (e) { console.log("ERROR", e); srv.close(); await L.closeBrowser(); }

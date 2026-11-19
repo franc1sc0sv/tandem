@@ -19,7 +19,7 @@ Part A of 3: visual parity, animations and visible text of every screen. Base: `
 - Reduced motion: all 66 `index.html` screenshots with `prefers-reduced-motion: reduce`: zero animations, zero transitions, zero running animations.
 - Animations: computed and running animations and transitions of each mockup state compared with the app after the same clicks, plus the `@keyframes` of the app source. Every family the mockups draw exists in the app (card entrances, pulses, pipes, flash, palette entrance `pal-up`, notices `life` and `sl`, network `grow`, setup cursor `wz-mvx`, crossing `nud`/`gl`). Remaining differences are the minor duration ones already noted in round 1 (pipe speeds, `grow` 1.1 s vs 1.2 s, svg buttons .25 s vs .3 s). The Desk cursor (T-140) was sampled for 10 s: it travels from 16 % to 80 % of the desk, crosses and returns, and the edge flashes.
 - `pnpm test` (48 files, 682 tests) and `pnpm check` (0 errors, 0 warnings) pass.
-- Repository text: a search for `[áéíóúñ¿¡]` and a Spanish stop-word scan over every tracked file outside `docs/reports/acceptance`.
+- Repository text: a search for accented Spanish characters and a Spanish stop-word scan over every tracked file outside `docs/reports/acceptance`.
 
 ## Global rules
 
@@ -142,6 +142,6 @@ Part A of 3: visual parity, animations and visible text of every screen. Base: `
 |---|---|
 | [T-211](../tasks/T-211.md) | `docs/examples/*.toml` (4 files, about 400 lines) have all their comments in Spanish. |
 | [T-212](../tasks/T-212.md) | Spanish comments in `apps/tandem-ui/vite.config.ts`, `.gitignore` and `mockups/main.html`; no guard against Spanish creeping back. |
-| [T-213](../tasks/T-213.md) | 53 old `docs/screenshots` PNGs (Spanish names and Spanish UI) and dead Spanish-era names in task files (`V3-Puesto`, `Puesto.svelte`...). |
+| [T-213](../tasks/T-213.md) | 53 old `docs/screenshots` PNGs (Spanish names and Spanish UI) and dead Spanish-era names in task files. |
 
-Documented data exceptions, accepted: Spanish keyboard labels in the `tandem-input` test table, `netsh` words in `tandem-link`, the `wsl -l -v` header test, `ñ` as test input, the legacy ids read by `tandem_core::legacy`, and `docs/GLOSSARY.md`.
+Documented data exceptions, accepted: Spanish keyboard labels in the `tandem-input` test table, `netsh` words in `tandem-link`, the `wsl -l -v` header test, Unicode test input, the legacy ids read by `tandem_core::legacy`, and `docs/GLOSSARY.md`.

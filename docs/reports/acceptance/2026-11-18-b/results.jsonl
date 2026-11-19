@@ -38,7 +38,7 @@
 {"flow":"F4-monitors","item":"factory monitor shows \"Unsupported\" with its reason","ok":true,"detail":""}
 {"flow":"F4-monitors","item":"factory monitor: no DDC write on the bus","ok":true,"detail":"Set seen: 0; total ops 41"}
 {"flow":"F4-monitors","item":"the monitor's owner powers off: the other agent becomes the owner","ok":true,"detail":"owner before a, after b"}
-{"flow":"F9-shared-config","item":"renaming a machine on A reaches B (agent and tandem.toml)","ok":true,"detail":"[[\"Escritorio-PC\",\"Mac\"],[\"Escritorio-PC\",\"Mac\"]]"}
+{"flow":"F9-shared-config","item":"renaming a machine on A reaches B (agent and tandem.toml)","ok":true,"detail":"[[\"Desk-PC\",\"Mac\"],[\"Desk-PC\",\"Mac\"]]"}
 {"flow":"F9-shared-config","item":"B shows the notice \"Changed from … · Undo\"","ok":true,"detail":"Changed from Mac | Machines and scenes "}
 {"flow":"F9-shared-config","item":"\"Undo\" restores the name on both machines","ok":true,"detail":"{\"before\":[\"PC\",\"Mac\"],\"after\":[[\"PC\",\"Mac\"],[\"PC\",\"Mac\"]]}"}
 {"flow":"F9-shared-config","item":"changing a machine's color on A reaches B","ok":true,"detail":"{\"before\":[\"#a99be8\",\"#7aa7e6\"],\"after\":[[\"#5fbfb0\",\"#7aa7e6\"],[\"#5fbfb0\",\"#7aa7e6\"]]}"}
@@ -70,7 +70,7 @@
 {"flow":"F5-tunnels-mcp","item":"cut the link and recover it without losing output (24 consecutive lines)","ok":true,"detail":"lines 24; during the cut: responded"}
 {"flow":"F5-tunnels-mcp","item":"bring_back creates the branch tandem/<name> in the project","ok":true,"detail":"{\"branch\":\"tandem/ret\",\"commits\":[{\"author\":\"t\",\"id\":\"10db97f04cbe287e245f09272ba0e135f09669f1\",\"summary\":\"from-b\"}],\"committed_pending\":false} | branches: tandem/ret"}
 {"flow":"F5-tunnels-mcp","item":"bring_back: the branch carries the change made on the other machine","ok":true,"detail":""}
-{"flow":"F10-power","item":"power off the other machine: transaction with steps in the agent (PowerOff) and state off","ok":true,"detail":"steps: [[],[\"{\\\"step\\\":\\\"power_off\\\",\\\"machine\\\":\\\"a\\\"}\"]] state {\"on\":{\"a\":false,\"b\":true},\"scene\":\"trabajo\"}"}
+{"flow":"F10-power","item":"power off the other machine: transaction with steps in the agent (PowerOff) and state off","ok":true,"detail":"steps: [[],[\"{\\\"step\\\":\\\"power_off\\\",\\\"machine\\\":\\\"a\\\"}\"]] state {\"on\":{\"a\":false,\"b\":true},\"scene\":\"work\"}"}
 {"flow":"F10-power","item":"power on the other machine (simulated Wake-on-LAN over Ethernet): PowerOn step and state on","ok":true,"detail":"steps: [[\"{\\\"step\\\":\\\"power_on\\\",\\\"machine\\\":\\\"a\\\"}\"],[\"{\\\"step\\\":\\\"power_off\\\",\\\"machine\\\":\\\"a\\\"}\"]] state {\"on\":{\"a\":true,\"b\":true},\"scene\":null}"}
 {"flow":"F11-modules","item":"turn a module of the other machine on/off from its page (Clipboard)","ok":true,"detail":"other: active → off; (this: active)"}
 {"flow":"F11-modules","item":"turn \"Keyboard and mouse\" of the other machine off and on again","ok":true,"detail":"active → off → active"}

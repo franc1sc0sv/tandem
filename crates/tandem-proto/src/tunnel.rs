@@ -371,6 +371,7 @@ mod tests {
             tunnel: TunnelId(1),
             spec: ExecSpec {
                 cmd: "cargo test".into(),
+                // A non-ASCII argument (Unicode test data).
                 args: vec!["--".into(), "ñ".into()],
                 shell: Some("wsl:Ubuntu-24.04".into()),
                 cwd: Some("/src".into()),
@@ -389,8 +390,9 @@ mod tests {
             base: "abc".into(),
             commits: vec![crate::CommitInfo {
                 id: "def".into(),
+                // A non-ASCII summary (Unicode test data).
                 summary: "ñ".into(),
-                author: "yo".into(),
+                author: "me".into(),
             }],
             committed_pending: false,
         });

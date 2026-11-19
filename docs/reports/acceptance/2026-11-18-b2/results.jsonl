@@ -37,7 +37,7 @@
 {"flow": "F4-monitors", "item": "factory monitor shows \"Unsupported\" with its reason", "ok": true, "detail": ""}
 {"flow": "F4-monitors", "item": "factory monitor: no DDC write on the bus", "ok": true, "detail": "Set seen: 0; total ops 44"}
 {"flow": "F4-monitors", "item": "the monitor's owner powers off: the other agent becomes the owner", "ok": true, "detail": "owner before a, after b"}
-{"flow": "F9-shared-config", "item": "renaming a machine on A reaches B (agent and tandem.toml)", "ok": true, "detail": "[[\"Mac\",\"Escritorio-PC\"],[\"Mac\",\"Escritorio-PC\"]]"}
+{"flow": "F9-shared-config", "item": "renaming a machine on A reaches B (agent and tandem.toml)", "ok": true, "detail": "[[\"Mac\",\"Desk-PC\"],[\"Mac\",\"Desk-PC\"]]"}
 {"flow": "F9-shared-config", "item": "B shows the notice \"Changed from … · Undo\"", "ok": true, "detail": "Changed from Mac | Machines and scenes "}
 {"flow": "F9-shared-config", "item": "\"Undo\" restores the name on both machines", "ok": true, "detail": "{\"before\":[\"Mac\",\"PC\"],\"after\":[[\"Mac\",\"PC\"],[\"Mac\",\"PC\"]]}"}
 {"flow": "F9-shared-config", "item": "changing a machine's color on A reaches B", "ok": true, "detail": "{\"before\":[\"#7aa7e6\",\"#a99be8\"],\"after\":[[\"#7aa7e6\",\"#5fbfb0\"],[\"#7aa7e6\",\"#5fbfb0\"]]}"}
