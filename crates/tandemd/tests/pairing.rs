@@ -800,3 +800,130 @@ async fn pair_two_fresh_agents(x: u8, y: u8) {
     pc.stop().await;
     mac.stop().await;
 }
+
+/// The other machine's normal endpoint while it has not saved the pairing yet: it rejects every
+/// key and counts the rejections.
+struct NotSavedYet(tokio::sync::watch::Sender<usize>);
+
+impl tandem_link::transport::PeerTrust for NotSavedYet {
+    fn is_trusted(&self, _key: &tandem_link::identity::PublicKey) -> bool {
+        self.0.send_modify(|n| *n += 1);
+        false
+    }
+}
+
+/// T-291: each side saves trust on its own once both codes are confirmed, and nothing orders
+/// the other side's save before this side's first dial. On a slow runner the Mac finished first,
+/// dialled the PC, was rejected and took it as "the PC forgot me" (T-152): it unpaired for good
+/// and its input session never opened. Here the PC's pairing is run by hand and its normal
+/// endpoint rejects the Mac until the test lets the PC (now trusting it) take its place.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_rejection_before_the_other_saves_the_pairing_does_not_unpair() {
+    let (mac_id, pc_id) = sides(
+        Identity::from_seed([120; 32]),
+        Identity::from_seed([121; 32]),
+    );
+    let (mac_port, pc_port) = (free_pair(), free_pair());
+    let mut mac = start(
+        Machine::A,
+        &mac_id,
+        mac_port,
+        pc_port,
+        PairingTimeouts::default(),
+    )
+    .await
+    .unwrap_or_else(|_| panic!("port {mac_port} taken"));
+
+    let (rejections, mut rejected) = tokio::sync::watch::channel(0usize);
+    let gate = tandem_link::transport::Endpoint::bind(
+        loopback(pc_port),
+        &pc_id,
+        Arc::new(NotSavedYet(rejections)),
+    )
+    .unwrap();
+    let gate = Arc::new(gate);
+    let serving = {
+        let gate = gate.clone();
+        tokio::spawn(async move { while gate.accept().await.is_some() {} })
+    };
+
+    // The PC's side of the pairing, with a trust its endpoint does not read yet.
+    let dir = tempfile::tempdir().unwrap();
+    let text = format!(
+        "machine = \"b\"\n[network]\nport = {pc_port}\n\
+         peers = [{{ kind = \"usb4\", addr = \"{}\" }}]\n\
+         [machines.b]\nos = \"windows\"\nname = \"PC\"\ncolor = \"#7aa7e6\"\n",
+        loopback(mac_port)
+    );
+    let pc_agent = Arc::new(Agent::new(
+        AgentConfig::from_toml(&text).unwrap(),
+        tandemd::StateStore::new(dir.path().join("state.json")),
+    ));
+    let ctx = tandemd::pairing::Ctx {
+        agent: pc_agent,
+        identity: pc_id.clone(),
+        trust: Arc::new(std::sync::RwLock::new(
+            TrustStore::open(dir.path().join("trust.json")).unwrap(),
+        )),
+        bind_ip: Ipv4Addr::LOCALHOST.into(),
+        port: pc_port,
+        fallback_ports: Vec::new(),
+        mdns: false,
+        timeouts: PairingTimeouts::default(),
+    };
+    let (answers, mut answered) = tokio::sync::mpsc::unbounded_channel();
+    let pc_pairing = tokio::spawn(async move {
+        let mut status = ctx.agent.subscribe_pairing();
+        let run = tandemd::pairing::run(&ctx, &mut answered);
+        let confirm = async {
+            status.wait_for(comparing).await.unwrap();
+            answers.send(tandemd::pairing::Answer::Confirm).unwrap();
+            std::future::pending::<()>().await
+        };
+        tokio::select! {
+            out = run => out,
+            () = confirm => unreachable!(),
+        }
+    });
+
+    assert_eq!(mac.ask(UiCommand::StartPairing).await, Reply::Done);
+    mac.until_pairing(comparing).await;
+    assert_eq!(mac.ask(UiCommand::ConfirmPairing).await, Reply::Done);
+    let out = within_for("the PC's pairing", pc_pairing).await.unwrap();
+    assert!(
+        matches!(out, tandemd::pairing::Outcome::Paired(_)),
+        "{out:?}"
+    );
+    mac.until_pairing(|s| matches!(s, PairingStatus::Done { .. }))
+        .await;
+
+    // The Mac dials, is rejected and dials again: the rejection did not make it forget the PC.
+    within_for(
+        "the Mac dialling the PC again after a rejection",
+        rejected.wait_for(|n| *n >= 2),
+    )
+    .await
+    .unwrap();
+    assert!(mac.trusted(&pc_id));
+    assert_ne!(mac.agent.peer_status(), PeerStatus::Unpaired);
+
+    // The PC has saved it: its agent takes the port and the two link.
+    serving.abort();
+    gate.close();
+    within_for("the gate releasing its port", gate.wait_idle()).await;
+    drop(gate);
+    let pc = start_trusting(Machine::B, &pc_id, &mac_id, (pc_port, mac_port))
+        .await
+        .unwrap_or_else(|_| panic!("port {pc_port} taken"));
+    until_peer(
+        &mac.agent,
+        PeerStatus::Paired {
+            name: "PC".into(),
+            link: Some(Link::Usb4),
+        },
+    )
+    .await;
+    assert!(mac.trusted(&pc_id));
+    pc.stop().await;
+    mac.stop().await;
+}

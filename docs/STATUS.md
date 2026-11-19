@@ -1,6 +1,6 @@
 # Tandem — Project status
 
-> **v0.3** cut: 2026-11-18 · `develop` branch, status as of 2026-11-19 (after T-290) · `develop` CI passes on Linux, Windows and macOS. One rare macOS flake is still unexplained (T-190, blocked; the last 20 full `tandemd` suite runs on each OS had 0 failures).
+> **v0.3** cut: 2026-11-18 · `develop` branch, status as of 2026-11-19 (after T-291) · `develop` CI passes on Linux, Windows and macOS. The rare macOS flake of `pairing_hot_opens_the_input_session` (T-190) is explained and fixed by T-291.
 > Design in `DESIGN.md` (v0.3) and `DECISIONS.md`; definition of done in `ACCEPTANCE.md`; autonomous work in `dev/night-run.md`; acceptance reports in `reports/`.
 
 ## In one line
@@ -9,8 +9,8 @@
 
 | | |
 |---|---|
-| Tasks | **171 done of 176** (`T-001`…`T-290`; open ones below) |
-| Tests | **1621 Rust + 732 UI (vitest)**, 0 failures, 11 ignored (`#[ignore = "hardware"]` and latency benches) |
+| Tasks | **173 done of 177** (`T-001`…`T-291`; open ones below) |
+| Tests | **1623 Rust + 732 UI (vitest)**, 0 failures, 11 ignored (`#[ignore = "hardware"]` and latency benches) |
 | Quality | `fmt`, `clippy -D warnings`, `svelte-check` and `pnpm build` with no warnings |
 | CI per PR | Linux · Windows · macOS · UI x3 · coverage · `.dmg` · Windows installer |
 
@@ -36,9 +36,7 @@
 |---|---|---|
 | T-088, T-095, T-096 | blocked | Ignored monitors, own firmware for the 34" and live UI |
 | T-124 | todo | End-to-end acceptance |
-| T-190 | blocked | `pairing_hot_opens_the_input_session` failed once on macOS CI (not reproducible; every wait now names what hung, see T-230) |
-| T-290 | in this PR | Brings this file back in line with the backlog after acceptance round 5 (closed by the same PR that adds this row) |
-| T-140…T-165, T-191…T-280 | done | Failures from the acceptance and hardware runs, personal data out of the repo, CI time limits, English migration (T-200…T-208), one-way links (T-237), macOS and Windows input fixes (T-239, T-241), UI reply races (T-250, T-251), monitor report race after pairing (T-280) |
+| T-140…T-165, T-190…T-291 | done | Failures from the acceptance and hardware runs, personal data out of the repo, CI time limits, English migration (T-200…T-208), one-way links (T-237), macOS and Windows input fixes (T-239, T-241), UI reply races (T-250, T-251), monitor report race after pairing (T-280), this file brought up to date (T-290), a rejection right after pairing no longer unpairs (T-291, supersedes T-190) |
 
 ## Pending hardware verification
 
@@ -53,7 +51,6 @@ Each task with hardware has its list in `docs/tasks/T-xxx.md`, section `## Pendi
 ## Known risks and limitations
 
 - **Hardware testing is under way, not finished.** Two real-cable runs between the Mac and the PC (the first in `reports/hw-2026-11-18-cable.md`, the second on 2026-11-19 at `develop` facf263, after T-196, T-197 and T-237) have found and closed real bugs. What passed on real hardware: pairing over USB4, ping (p50 and p99 of 1 ms), and the process, file, port and workspace tunnels in both directions; the Mac's `input-latency` check (PC to Mac input, p50 251 µs, p99 735 µs over 307 events, with Accessibility granted); and the monitor input round-trip and watchdog checks (2026-11-18, 11.6 s and 14.5 s). What failed: the PC's `input-cross`, because Windows capture ignored injected motion (fixed by T-239, to be re-verified). **Open: an overnight soak lost the link after about 45 minutes and never recovered; the evidence was lost (T-242 now keeps the logs), the cause is unknown and the soak must be re-run.** Wake-on-LAN, the SYSTEM service and the UI have not been exercised on real hardware. ssh to the Mac is disabled by company policy (T-198), so the Mac half is run by hand.
-- **One unexplained CI flake** (`pairing_hot_opens_the_input_session` on macOS, T-190): T-160, T-195 and T-230 closed the proven causes; if it reappears, the timeout message now names the exact wait.
 - **Private macOS APIs** (`SetsCursorInBackground`, `CGSConfigureDisplayEnabled`): they may change between versions.
 - **Signing:** macOS with ad-hoc signing (TCC permissions may be requested again on reinstall); Windows without Authenticode (SmartScreen warns).
 - **Windows SYSTEM service (T-027):** implemented and tested with doubles, but never installed on the real PC (its checklist is pending), and the installer is not Authenticode-signed.
