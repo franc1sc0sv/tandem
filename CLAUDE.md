@@ -25,6 +25,7 @@ If the code, the task and the design disagree, **stop and report it**; do not im
 - One task = one branch `task/T-<id>` = one PR to `develop`.
 - **Autonomous merge to `develop`** (authorized by the user): `gh pr merge <n> --squash --delete-branch`, only if all three CI jobs are green and the reviewer agent approved. If `develop` moved, rebase on `origin/develop` and `git push --force-with-lease origin task/T-<id>` (only `task/*` branches).
 - In your PR, set `status: done` in the task file and check the criteria you met.
+- A PR that changes `PROTOCOL_VERSION`, `CAPABILITIES_SINCE` or `SIDES_SINCE` in `tandem-proto` also updates "Protocol versioning" in `docs/DESIGN.md` §4.5; `scripts/ci/protocol.sh` fails otherwise.
 - If you cannot meet a non-hardware criterion, set `status: blocked` with the reason under `## Notes`.
 - Only edit your own task file, not others'.
 

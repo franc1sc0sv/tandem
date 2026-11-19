@@ -70,29 +70,33 @@ The UI is **beautiful, visual and animated**: understand the state at a glance, 
 - **`tandemd` agent:** Rust, edition 2024, tokio. Direct FFI to each system.
 - **UI:** Tauri 2 + **Svelte 5 + Vite + TypeScript** (A3). Tokens, buttons, icons and animations from the v0.3 mockups.
 - **Protocol:** typed messages (serde) over QUIC (quinn + rustls), Ed25519 identities.
-- **Claude clients:** `tandem mcp` (MCP server over stdio) and `tandem` (CLI), both talk to the local `tandemd` over IPC.
+- **Claude clients:** `tandem mcp` (MCP server over stdio) and `tandem` (CLI), both from `tandem-cli`, both talk to the local `tandemd` over IPC.
 
 ### 4.2 Workspace
 
 ```
 crates/
   tandem-core        domain model: Machine {A,B}, shared config, scenes, transactions
-  tandem-proto       messages between agents and with the UI/CLI, versioned
+  tandem-proto       messages between agents and with the UI/CLI, versioned (§4.5)
   tandem-link        discovery, paths, health, priority and QoS
   tandem-input       keyboard and mouse engine
   tandem-clipboard   clipboard
-  tandem-files       file drag and transfers (chunks, hash, resume)
-  tandem-tunnel      tunnels: sessions, processes, files, ports, git workspaces
+  tandem-files       file drag and transfers (chunks, hash, resume), tunnel files and ports
+  tandem-tunnel      tunnels: sessions that survive the link, processes with per-byte output position
+  tandem-workspace   per-tunnel git workspaces: the repo travels as a bundle plus a patch and comes back as a branch (`bring_back`)
   tandem-env         detected environments (shells, WSL, Docker, toolchains) and live resources
   tandem-monitor     monitor-ddc integration: owner, events, changes with verdict
   tandem-peripherals keyboard and mouse detection (activity)
   tandem-power       Wake-on-LAN, power off
-  tandem-sim         simulated desk for tests
-  tandemd            agent binary + `tandem` (CLI) + `tandem mcp`
+  tandem-cli         `tandem` (CLI) and `tandem mcp` (MCP server over stdio): clients of the agent's IPC
+  tandem-sim         simulated desk for tests: two agents in one process over loopback
+  tandem-hw          hardware test suite (never in CI): provisions test agents, runs the checks over IPC, builds the report
+  tandemd            agent binary (launchd service / Windows Service), including the secure-desktop service and helper
 apps/
   tandem-ui          Tauri 2 + Svelte 5
 tools/
   mockup-render      local renderer of mockups/v03 to compare screenshots
+  windows/installer  builds the Windows NSIS installer (`build-installer.ps1`) and tests it (`test-installer.ps1`)
 ```
 
 Own external dependency: `monitor-ddc` (repo `monitor-firmware`, A5), pinned by commit.
@@ -109,6 +113,15 @@ Own external dependency: `monitor-ddc` (repo `monitor-firmware`, A5), pinned by 
 - The UI edits over IPC (`UiCommand::EditDesk { patch }`); the agent applies it, bumps the version, saves to `tandem.toml` and sends it to the other machine.
 - **Last write wins** (D5). The other UI shows "Changed from <machine>" with **Undo** (history of the last 20 versions).
 - Each machine's local data (paths, permissions, environments) is not synced.
+
+### 4.5 Protocol versioning
+
+- **Current version: `PROTOCOL_VERSION = 41`** (`crates/tandem-proto/src/lib.rs`, last bumped by T-240, `KeyProbeMsg::Armed`).
+- **Rule: only the same version talks.** The two agents and the UI ship together; an agent that sees another version refuses the link and says to install the same Tandem version on both machines. Bump `PROTOCOL_VERSION` on any incompatible change to the messages (almost every release does).
+- **Hints for older peers** (only to word the refusal; they do not make anything compatible): `CAPABILITIES_SINCE = 10` is the first version where each agent announces its capabilities on connecting (T-084); `SIDES_SINCE = 16` is the first where the two sides are `A`/`B` ordered by public key (T-097), instead of "Mac" and "PC".
+- **History:** the entries of [DECISIONS.md](DECISIONS.md) that say "Protocol vN" record what each bump changed (for example v18, v30, v33, v35, v39).
+- **Independent versions:** the secure-desktop pipe between the session agent and the helper has its own version, currently 1 (`PROTOCOL_VERSION` in `crates/tandemd/src/secure/protocol.rs`), because the service's copy of `tandemd` is only refreshed by an elevated install; see [dev/secure-desktop.md](dev/secure-desktop.md). It does not move with the agent protocol.
+- **Keeping this section true:** a PR that changes any of these constants must update the numbers above; `scripts/ci/protocol.sh` (run in CI) fails if they differ from the code.
 
 ## 5. Scenes and power
 
@@ -144,7 +157,7 @@ Own external dependency: `monitor-ddc` (repo `monitor-firmware`, A5), pinned by 
 - **Geometry: declared arrangement** (D18). Each machine declares its screens (rectangles in native cursor coordinates and scale); the arrangement says on which side (top, bottom, left, right) the other's desktop is and with what alignment (start, center, end). The crossing edge is the shared stretch. By default, the limits the system already gives when injecting.
 - **Scenes and geometry:** screens that show the other machine in the active scene are left out of the geometry.
 - **Clipboard:** text, HTML and image. **Files:** dragging a file across the edge transfers it (`tandem-files`) and drops it at the destination (§9).
-- **Windows, secure desktop** (T-027, needs the user): SYSTEM service + helper for UAC and the sign-in screen.
+- **Windows, secure desktop** (T-027, done: implemented and tested in CI; verification on the real PC with UAC pending): SYSTEM service + helper for UAC and the lock screen. Design and manual test: [dev/secure-desktop.md](dev/secure-desktop.md).
 - Engine design: [research/input-engine.md](research/input-engine.md).
 
 ### 7.1 Latency and reliability
@@ -225,7 +238,7 @@ Measurement always available (monotonic timestamps, offset estimated with the he
 | S5 | USB4 network Mac↔Windows (ASM4242) | Negative with the 10 Gbps cable; try a TB4/USB4 40 Gbps cable |
 | S6 | Wake-on-LAN from power-off on the X870 | Pending (needs wired LAN) |
 | S7 | macOS permissions | Done (T-090) |
-| S9 | Windows secure desktop | Needs the user (T-027) |
+| S9 | Windows secure desktop | Implemented (T-027); hardware verification with UAC pending, and the Authenticode decision |
 | S11 | Real capture → injection latency | T-093 |
 | S12 | DDC from the Mac over HDMI (`IOAVService`) | Only with active HDMI; to be tested |
 | S13 | File drag between systems (start a synthetic drag at the destination) | T-121 |

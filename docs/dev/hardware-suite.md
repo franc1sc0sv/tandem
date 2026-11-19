@@ -16,15 +16,15 @@ scripts/hw/run.sh --sim              # everything on Linux, simulated backends: 
 scripts/hw/run.sh --plan             # prints the steps
 ```
 
-Options: `--only link,tunnels,input,monitors`, `--mac-link DIR`, `--ref REF` (by default `origin/develop`; the suite's code has to be in that ref), `--skip-build`, `--mac HOST`, `--pc-ip`, `--mac-ip`. Exit: 0 with no failures, 1 with failures, 2 if the environment could not be set up. The report is left in `docs/reports/hw-<date>.md`.
+Options: `--only link,tunnels,input,monitors`, `--mac-link DIR`, `--ref REF` (by default `origin/develop`; the suite's code has to be in that ref), `--skip-build` (reuses the Windows and macOS binaries; the Linux `tandem-hw` that writes the report is always rebuilt from the ref), `--mac HOST`, `--pc-ip`, `--mac-ip`. Exit: 0 with no failures, 1 with failures, 2 if the environment could not be set up. The report is left in `docs/reports/hw-<date>.md`.
 
 ## What it does
 
 1. Aborts if a real `tandemd` is running on either machine (Windows's named pipe is one per user and would clash). It never stops it.
-2. Extracts `REF` with `git archive`, builds for Windows in WSL (`x86_64-pc-windows-gnu`, requires `mingw-w64`) and on the Mac over ssh (`~/.cache/tandem-hw-src` and `~/.cache/tandem-hw-target`; deleted at the end except with `--keep-cache`).
+2. Extracts `REF` with `git archive`, builds for Windows in WSL (`x86_64-pc-windows-gnu`, requires `mingw-w64`) and on the Mac over ssh (`~/.cache/tandem-hw-src` and `~/.cache/tandem-hw-target`; deleted at the end except with `--keep-cache`, and never while a `mac-side.sh` run is alive).
 3. Copies the binaries to a temporary folder per run (`%TEMP%\tandem-hw-<time>` and `/tmp/tdhw-<time>`), provisions test identities (constant seeds, unrelated to the real ones) with mutual trust already loaded and starts an agent on UDP port 47871 (different from the real 52000).
 4. Runs the `tandem-hw run` checks on each machine and gathers one JSON line per result.
-5. `trap`: whatever happens it kills the agents and the processes of the run folder, and deletes the temporary folders on both machines.
+5. `trap`: whatever happens it kills the agents and the processes of the run folder, and deletes the temporary folders on both machines. Before deleting them it copies the agents' logs (`agent.out`, `agent.err`, `data/logs`) to `<run>/out/final-logs/`.
 
 | Check | Covers | What it verifies |
 |---|---|---|
@@ -60,6 +60,6 @@ A real run hung for more than an hour; these are the causes and what the script 
 - **Nothing without a timeout or stdin.** Every call to `powershell.exe` and `ssh` carries `< /dev/null` and `timeout -k 5` (60 s by default, `TANDEM_HW_TIMEOUT`; 900 s per `tandem-hw` run, `TANDEM_HW_STEP_TIMEOUT`; 3600 s per build, `TANDEM_HW_BUILD_TIMEOUT`). Only the copying `tar | ssh` reads stdin.
 - **Mac over cable.** If `ssh mac-runner` does not respond (Wi-Fi), with `--mac-link DIR` or `TANDEM_HW_MAC_LINK` it retries with `-o HostName=DIR` (same user and key as the alias). Over the cable, the link IP between agents is that link-local address and the PC's is taken from its `169.254.*` adapter (or `--pc-ip`). There are no fixed IPs in the repo (D10); without `--mac-link`, the failure remains an environment error (code 2).
 - **Git dependencies without credentials on the Mac.** The Mac has no access to GitHub (T-130) and must stay that way. If `Cargo.lock` carries `git+` sources, before copying the code `cargo vendor --locked` is run in WSL (where there is access) inside the extracted copy; its output is `.cargo/config.toml` and `vendor/` travels in the tar. The Mac's build does not use the network.
-- **Cleanup and signals.** Long steps (builds, `tandem-hw run`) run in the background and the script waits with `wait`; this way Ctrl-C and SIGTERM run the trap immediately. Cleanup kills the whole tree of each background process (`killtree`), not just its subshell.
+- **Cleanup and signals.** Long steps (builds, `tandem-hw run`) run in the background and the script waits with `wait`; this way Ctrl-C, SIGTERM and SIGHUP run the trap immediately (they exit with 130, 143 and 129). The cleanup prints to the saved original stderr, so it shows even when the signal arrives while a step has its output redirected. `scripts/hw/test-cleanup.sh` checks this by hand (not in CI). Cleanup kills the whole tree of each background process (`killtree`), not just its subshell.
 
 `TANDEM_HW_TARGET` changes the build directory (by default `~/.cache/tandem-target-hw`). Validation without hardware: `bash -n`, `--plan` and `--sim --ref HEAD`.
