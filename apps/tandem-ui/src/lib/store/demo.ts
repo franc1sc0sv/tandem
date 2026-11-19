@@ -1202,11 +1202,12 @@ export class DemoSource implements Source {
   }
 
   // Simulated updates (`F-Settings`): both on 0.3.0 and, when searching, 0.3.1 appears.
-  private upd: UpdateView = { here: "0.3.0", peer: "0.3.0", paired: true, available: null, checking: false, step: null, error: null, auto: true };
+  private upd: UpdateView = { seq: 0, here: "0.3.0", peer: "0.3.0", paired: true, available: null, checking: false, step: null, error: null, auto: true };
   private onUpd: ((v: UpdateView) => void) | null = null;
 
   private setUpd(v: UpdateView): UpdateView {
-    this.upd = v;
+    this.upd = { ...v, seq: this.upd.seq + 1 };
+    v = this.upd;
     this.onUpd?.(v);
     return v;
   }

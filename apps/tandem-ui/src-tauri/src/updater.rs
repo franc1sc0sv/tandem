@@ -67,6 +67,7 @@ impl Updater {
         Updater {
             state: Mutex::new(State {
                 view: UpdateView {
+                    seq: 0,
                     here: HERE.to_owned(),
                     peer: None,
                     paired: false,
@@ -89,13 +90,26 @@ impl Updater {
     }
 
     fn change(&self, app: &AppHandle, f: impl FnOnce(&mut State)) -> UpdateView {
-        let view = {
-            let mut s = lock(&self.state);
-            f(&mut s);
-            s.view.clone()
-        };
+        let view = self.mutate(f);
         let _ = app.emit(UPDATE_EVENT, &view);
         view
+    }
+
+    /// Applies `f` and numbers the result, under the same lock: the order of the numbers is
+    /// the order of the changes, whichever channel reaches the window first.
+    fn mutate(&self, f: impl FnOnce(&mut State)) -> UpdateView {
+        let mut s = lock(&self.state);
+        f(&mut s);
+        update::renumber(&mut s.view);
+        s.view.clone()
+    }
+
+    /// Takes the install for "Update all" ([`update::take_install`]). `None` if another
+    /// install is in progress.
+    fn take(&self, first: Option<Step>) -> Option<UpdateView> {
+        let mut taken = false;
+        let view = self.mutate(|s| taken = update::take_install(&mut s.view, &mut s.busy, first));
+        taken.then_some(view)
     }
 
     /// What `tandemd` just said. If the other machine asked to install a newer version, this
@@ -169,17 +183,10 @@ impl Updater {
             .ok_or("there is no new version: check first")?;
         let steps =
             update::plan(&parse(HERE), &self.peer(app), &target).map_err(|e| e.to_string())?;
-        let mut taken = false;
-        let view = self.change(app, |s| {
-            if !s.busy {
-                s.busy = true;
-                taken = true;
-                s.view.error = None;
-            }
-        });
-        if !taken {
-            return Err("an update is already in progress".into());
-        }
+        let view = self
+            .take(steps.first().copied())
+            .ok_or("an update is already in progress")?;
+        let _ = app.emit(UPDATE_EVENT, &view);
         let (me, app) = (self.clone(), app.clone());
         tauri::async_runtime::spawn(async move {
             let mut fleet = AppFleet {

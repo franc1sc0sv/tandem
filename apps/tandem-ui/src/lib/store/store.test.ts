@@ -562,7 +562,7 @@ describe("real source", () => {
     expect(await src.measureLink("usb4")).toEqual({ ok: true, text: "USB-C: 410 Mbps" });
     expect(act).toHaveBeenLastCalledWith({ kind: "measure_link", path: "usb4" });
     act.mockResolvedValueOnce({ kind: "accepted", txn: 2 } as never);
-    expect(await src.applyScene("game")).toEqual({ ok: true });
+    expect(await src.applyScene("game")).toEqual({ ok: true, txn: 2 });
     expect(act).toHaveBeenLastCalledWith({ kind: "apply_scene", id: "game" });
     act.mockResolvedValueOnce({ kind: "rejected", reason: "hdmi no signal" } as never);
     expect(await src.switchMonitor("g34", "hdmi")).toEqual({ ok: false, reason: "hdmi no signal" });

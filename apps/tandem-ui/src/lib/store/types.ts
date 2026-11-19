@@ -397,8 +397,11 @@ export type CursorEvent = Extract<Notice, { kind: "cursor" | "crossed" }>;
 
 export type PairActionKind = "start_pairing" | "confirm_pairing" | "cancel_pairing" | "unpair";
 
-/** Result of an action requested from the UI. */
-export type ActResult = { ok: true; text?: string } | { ok: false; reason: string };
+/**
+ * Result of an action requested from the UI. `txn`: the transaction the agent opened for it; its
+ * notices travel on another channel and can arrive before or after this reply.
+ */
+export type ActResult = { ok: true; text?: string; txn?: number } | { ok: false; reason: string };
 
 /**
  * Where the data comes from. The store tells it which topics it wants (those of the visible screen)

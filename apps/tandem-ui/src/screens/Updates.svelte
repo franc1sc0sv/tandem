@@ -14,6 +14,9 @@
   let view = $state<UpdateView | null>(null);
   let checkedOnce = $state(false);
   let error = $state<string | null>(null);
+  /** "Update all" was pressed and its reply has not come yet: it is not pressed twice. */
+  let starting = $state(false);
+  const updating = $derived(starting || (view !== null && view.step !== null));
 
   const version = $derived(view ? versionRow(view) : null);
   const found = $derived(view ? availableRow(view) : null);
@@ -42,11 +45,15 @@
   }
 
   async function updateAll() {
+    if (updating) return;
     error = null;
+    starting = true;
     try {
       view = await store.updateAll();
     } catch (e) {
       error = message(e);
+    } finally {
+      starting = false;
     }
   }
 
@@ -64,12 +71,12 @@
 {#if view && version}
   <div class="row first">
     <span class="fill col">{version.title}<span class="mut sub">{version.detail}</span></span>
-    <Button icon="refresh" size="sm" style={B34} motion="spin" disabled={view.checking || view.step !== null} onclick={check}>{checkLabel(view, checkedOnce)}</Button>
+    <Button icon="refresh" size="sm" style={B34} motion="spin" disabled={view.checking || updating} onclick={check}>{checkLabel(view, checkedOnce)}</Button>
   </div>
   {#if found}
     <div class="row appear">
       <span class="fill col">{found.title}<span class="mut sub">{found.detail}</span></span>
-      <Button icon="download" variant="pri" size="sm" style={B34} disabled={view.step !== null} onclick={updateAll}>Update all</Button>
+      <Button icon="download" variant="pri" size="sm" style={B34} disabled={updating} onclick={updateAll}>Update all</Button>
     </div>
   {:else if upToDate(view, checkedOnce)}
     <div class="row appear"><span class="fill mut">There are no new versions.</span></div>
