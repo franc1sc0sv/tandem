@@ -32,15 +32,35 @@ export const KIND_NAME: Record<LinkKind, string> = { usb4: "USB-C", ethernet: "E
 
 const nameOf = (d: DeskView, m: Machine) => d.machines[m]?.name ?? `machine ${m.toUpperCase()}`;
 
+/** Where a tunnel's processes run on `m`, as the notice names it: "WSL", "zsh", "Docker". */
+function envLabel(d: DeskView, m: Machine): string | null {
+  const envs = d.machines[m]?.environments ?? [];
+  const env = envs.find((e) => e.kind === "wsl" && e.default) ?? envs.find((e) => e.kind === "shell" && e.default) ?? envs[0];
+  if (!env) return null;
+  return env.kind === "wsl" ? "WSL" : env.kind === "docker" ? "Docker" : env.name;
+}
+
 /**
  * Sample notices of demo mode (`?demo&notices`): the three `F-Notices` opens with, from newest
- * to oldest. They are seeded only on request, to see and capture the stack. The "Send over Wi-Fi anyway" button does nothing: the agent has no such function and the real app does not show it; it is here so the stack measures the same as the mockup.
+ * to oldest. They are seeded only on request, to see and capture the stack. The names come from
+ * the desk (each pair has its own machines and environments); with the mockup's pair they read
+ * exactly as the mockup. The "Send over Wi-Fi anyway" button does nothing: the agent has no such function and the real app does not show it; it is here so the stack measures the same as the mockup.
  */
-export const DEMO_NOTICES: ToastSpec[] = [
-  { text: "The USB-C cable was unplugged", body: "Keyboard and mouse carry on over Wi-Fi. Data transfers wait for the cable.", tone: "warn", action: { label: "Send over Wi-Fi anyway", run: () => {} } },
-  { text: "Scene “Work” applied", body: '34" confirmed on PC-Desktop in 1.8 s.', tone: "ok" },
-  { text: "Claude opened the tunnel “tandem”", body: "MacBook Pro → PC-Desktop · WSL.", tone: "claude" },
-];
+export function demoNotices(d: DeskView): ToastSpec[] {
+  const scene = d.scenes.find((s) => s.id === "work") ?? d.scenes[0];
+  const first = scene?.monitors[0];
+  const monitor = d.monitors.find((m) => m.id === first?.monitor)?.name;
+  // "Odyssey G5 34\"" is shown as `34"`, like the mockup; a name without a size is kept whole.
+  const size = monitor?.match(/\d+(?:\.\d+)?"/)?.[0] ?? monitor ?? "The monitor";
+  const shown = first ? nameOf(d, first.machine) : nameOf(d, d.here === "a" ? "b" : "a");
+  const peer: Machine = d.here === "a" ? "b" : "a";
+  const env = envLabel(d, peer);
+  return [
+    { text: "The USB-C cable was unplugged", body: "Keyboard and mouse carry on over Wi-Fi. Data transfers wait for the cable.", tone: "warn", action: { label: "Send over Wi-Fi anyway", run: () => {} } },
+    { text: `Scene “${scene?.name ?? "Work"}” applied`, body: `${size} confirmed on ${shown} in 1.8 s.`, tone: "ok" },
+    { text: "Claude opened the tunnel “tandem”", body: `${nameOf(d, d.here)} → ${nameOf(d, peer)}${env ? ` · ${env}` : ""}.`, tone: "claude" },
+  ];
+}
 
 /** Readable bytes: "1.4 GB", "320 MB", "12 KB". */
 export function bytesText(n: number): string {

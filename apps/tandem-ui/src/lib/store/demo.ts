@@ -19,6 +19,7 @@
 //   changes the active scene: so screenshots do not depend on the clock.
 
 import { exitSide, isVertical, type Arrangement, type LayoutScreen, type LayoutView } from "../arrangement";
+import { perUserAdminNote, isSwitchable } from "../capabilities";
 import type { CrossSample } from "../crossing";
 import type { AdminView, Bindings, MonitorInput, PairingView, Permission, SceneJson, SetupView, ShortcutsView, Step, TxnView } from "../model";
 import { measuredText } from "../network";
@@ -272,25 +273,25 @@ function modulesOf(os: Os, name: string, otherName: string, envs: number, adminP
   // With a macOS permission missing, the page shows it in its own row ("Permissions", like
   // `F-MachineMac`); the module goes on with what it can do.
   const list: ModuleView[] = [
-    { id: "input", name: "Keyboard and mouse", state: "active", detail: mac ? "Capture with CGEventTap and injection with CGEventPost" : "Capture and injection (low-level hooks, SendInput)", switchable: true },
-    { id: "clipboard", name: "Clipboard", state: "active", detail: "Text, HTML and image", switchable: true },
+    { id: "input", name: "Keyboard and mouse", state: "active", detail: mac ? "Capture with CGEventTap and injection with CGEventPost" : "Capture and injection (low-level hooks, SendInput)", switchable: isSwitchable("input") },
+    { id: "clipboard", name: "Clipboard", state: "active", detail: "Text, HTML and image", switchable: isSwitchable("clipboard") },
     mac
-      ? { id: "monitors", name: "Monitors", state: "off", detail: `Over HDMI there is a DDC channel only while the monitor shows ${shown}. Today ${otherName} controls them.`, switchable: true }
-      : { id: "monitors", name: "Monitors", state: "active", detail: 'DDC channel over DisplayPort to 2 monitors. Owner of the 34".', switchable: true },
+      ? { id: "monitors", name: "Monitors", state: "off", detail: `Over HDMI there is a DDC channel only while the monitor shows ${shown}. Today ${otherName} controls them.`, switchable: isSwitchable("monitors") }
+      : { id: "monitors", name: "Monitors", state: "active", detail: 'DDC channel over DisplayPort to 2 monitors. Owner of the 34".', switchable: isSwitchable("monitors") },
     {
       id: "power",
       name: "Power",
       state: mac ? "off" : "active",
       detail: mac ? "It can wake the others over Wake-on-LAN. It does not power itself off." : `It powers itself off. It wakes over Wake-on-LAN from ${otherName}.`,
-      switchable: false,
+      switchable: isSwitchable("power"),
     },
     mac
       ? adminPending
-        ? { id: "tunnels", name: "Remote compute", state: "off", detail: `${envs} environments · the administrator service still needs installing`, switchable: true }
-        : { id: "tunnels", name: "Remote compute", state: "active", detail: `${envs} environments · admin (LaunchDaemon installed)`, switchable: true }
-      : { id: "tunnels", name: "Tunnels", state: "active", detail: `Receives Claude tunnels in ${envs} environments, as administrator.`, switchable: true },
+        ? { id: "tunnels", name: "Remote compute", state: "off", detail: `${envs} environments · the administrator service still needs installing`, switchable: isSwitchable("tunnels") }
+        : { id: "tunnels", name: "Remote compute", state: "active", detail: `${envs} environments · admin (LaunchDaemon installed)`, switchable: isSwitchable("tunnels") }
+      : { id: "tunnels", name: "Tunnels", state: "active", detail: `Receives Claude tunnels in ${envs} environments, as administrator.`, switchable: isSwitchable("tunnels") },
   ];
-  if (!mac) list.push({ id: "secure_desktop", name: "Protected screens", state: "active", detail: "The mouse and keyboard also work on UAC prompts and at the sign-in screen.", switchable: true });
+  if (!mac) list.push({ id: "secure_desktop", name: "Protected screens", state: "active", detail: "The mouse and keyboard also work on UAC prompts and at the sign-in screen.", switchable: isSwitchable("secure_desktop") });
   return list;
 }
 
@@ -1160,7 +1161,7 @@ export class DemoSource implements Source {
   async adminStatus(): Promise<AdminView> {
     const off = this.opts.admin === "off";
     const state: AdminView["state"] = this.adminDone ? "ok" : (this.opts.admin ?? "ok");
-    return { state, canInstall: state !== "ok" && !off, note: off ? "per-user install: install Tandem under Program Files for the service" : "" };
+    return { state, canInstall: state !== "ok" && !off, note: off ? perUserAdminNote(this.desk.machines[this.desk.here]?.os ?? "windows") : "" };
   }
 
   async installAdmin(): Promise<AdminView> {

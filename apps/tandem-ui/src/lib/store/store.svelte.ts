@@ -10,7 +10,7 @@ import type { Bindings, DragStatus, Permission, ShortcutsView } from "../model";
 import { dragNotice } from "../drag";
 import { HOME, SCREEN_TOPICS, formatHash, parseHash, sameRoute, type Route } from "../routes";
 import { EMPTY_DESK, deskFromError } from "./live";
-import { changeToast, deskEvents, transferToast, type ToastSpec, type ToastTone } from "../notices";
+import { changeToast, demoNotices, deskEvents, transferToast, type ToastSpec, type ToastTone } from "../notices";
 import type { ActResult, Capability, CursorEvent, DeskView, FilesView, LinkKind, OutputChunk, OutputCursor, PairActionKind, ProcessRow, Source, Topic } from "./types";
 import type { UpdateView } from "../updates";
 import type { Arrangement } from "../arrangement";
@@ -540,6 +540,11 @@ export class Store implements CommandContext {
     const t: Toast = { ...spec, id: at >= 0 ? this.toasts[at].id : this.nextToast++, auto };
     this.toasts = at >= 0 ? this.toasts.map((x, i) => (i === at ? t : x)) : [t, ...this.toasts].slice(0, TOAST_MAX);
     if (t.auto) setTimeout(() => this.dismiss(t.id), TOAST_MS);
+  }
+
+  /** Demo (`?notices`): the sample stack, oldest first so the newest ends up on top. */
+  seedDemoNotices(): void {
+    for (const spec of [...demoNotices(this.desk)].reverse()) this.notify({ ...spec, hold: true });
   }
 
   /** "Undo" of the change notice: returns the desk to the version it had. */
