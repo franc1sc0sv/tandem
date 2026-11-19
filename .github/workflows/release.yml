@@ -227,6 +227,7 @@ jobs:
     name: checksums and latest.json
     needs: [prepare, macos, windows]
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
@@ -277,6 +278,7 @@ jobs:
     needs: [prepare, artifacts]
     if: needs.prepare.outputs.publish == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: write
     steps:
