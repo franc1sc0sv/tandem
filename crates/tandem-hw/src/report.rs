@@ -1,4 +1,4 @@
-//! Resultados de las comprobaciones y el informe en Markdown.
+//! Check results and the Markdown report.
 
 use serde::{Deserialize, Serialize};
 
@@ -7,20 +7,20 @@ use serde::{Deserialize, Serialize};
 pub enum Outcome {
     Pass,
     Fail,
-    /// No se pudo comprobar (falta algo en esta máquina); no cuenta como fallo.
+    /// Could not be checked (something is missing on this machine); it does not count as a failure.
     Skip,
 }
 
-/// Una comprobación en una máquina. Una por línea de JSON.
+/// One check on one machine. One per JSON line.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CheckResult {
     pub check: String,
-    /// `pc` o `mac`: lo pone el orquestador.
+    /// `pc` or `mac`: set by the orchestrator.
     pub machine: String,
     pub outcome: Outcome,
     pub detail: String,
     pub millis: u64,
-    /// Tareas e hitos que cubre («T-104», «H2»).
+    /// Tasks and milestones it covers ("T-104", "H2").
     pub covers: Vec<String>,
 }
 
@@ -55,32 +55,32 @@ impl CheckResult {
     }
 
     pub fn to_line(&self) -> String {
-        // Una línea: los saltos del detalle quedan escapados por JSON.
+        // One line: line breaks in the detail are escaped by JSON.
         serde_json::to_string(self).unwrap_or_default()
     }
 }
 
-/// Lee las líneas de resultados; ignora las que no son JSON (ruido de los programas).
+/// Reads the result lines; ignores those that are not JSON (program noise).
 pub fn parse_lines(text: &str) -> Vec<CheckResult> {
     text.lines()
         .filter_map(|l| serde_json::from_str(l.trim()).ok())
         .collect()
 }
 
-/// Lo que ninguna suite automática puede comprobar: se dice en el informe para que nadie
-/// crea que quedó cubierto.
+/// What no automatic suite can check: stated in the report so nobody
+/// thinks it was covered.
 pub const MANUAL: &[&str] = &[
-    "Una hora de uso normal sin teclas pegadas (T-093).",
-    "Distribución ES/LatAm: ñ, teclas muertas, AltGr (T-093).",
-    "Escalas distintas entre pantallas: velocidad física del cursor (T-093).",
-    "Pérdida real del hook en Windows y `kCGEventTapDisabledBy*` en macOS (T-093).",
-    "Arrastrar un archivo entre Finder y Explorador (T-121).",
-    "Instalador elevado de Windows y tarea programada (T-104).",
-    "Cable USB4/Thunderbolt (H5, T-094): pendiente del cable.",
-    "Sesión real de Claude Code con `tandem mcp` (T-108).",
+    "An hour of normal use with no stuck keys (T-093).",
+    "ES/LatAm layout: ñ, dead keys, AltGr (T-093).",
+    "Different scales between screens: physical cursor speed (T-093).",
+    "Real hook loss on Windows and `kCGEventTapDisabledBy*` on macOS (T-093).",
+    "Dragging a file between Finder and Explorer (T-121).",
+    "Elevated Windows installer and scheduled task (T-104).",
+    "USB4/Thunderbolt cable (H5, T-094): waiting on the cable.",
+    "Real Claude Code session with `tandem mcp` (T-108).",
 ];
 
-/// Cola de un registro: las últimas `lines` líneas y como mucho `max_bytes`.
+/// Tail of a log: the last `lines` lines and at most `max_bytes`.
 pub fn tail(text: &str, lines: usize, max_bytes: usize) -> String {
     let all: Vec<&str> = text.lines().collect();
     let from = all.len().saturating_sub(lines);
@@ -100,13 +100,13 @@ pub struct Log {
     pub text: String,
 }
 
-/// El informe de `docs/reports/hw-<fecha>.md`.
+/// The report in `docs/reports/hw-<date>.md`.
 pub fn render(date: &str, results: &[CheckResult], logs: &[Log]) -> String {
     let count = |o: Outcome| results.iter().filter(|r| r.outcome == o).count();
     let mut out = format!(
-        "# Informe de hardware {date}\n\n\
-         Pasaron {}, fallaron {}, omitidas {}.\n\n\
-         | Comprobación | Máquina | Resultado | Cubre | Detalle |\n|---|---|---|---|---|\n",
+        "# Hardware report {date}\n\n\
+         Passed {}, failed {}, skipped {}.\n\n\
+         | Check | Machine | Result | Covers | Detail |\n|---|---|---|---|---|\n",
         count(Outcome::Pass),
         count(Outcome::Fail),
         count(Outcome::Skip),
@@ -114,8 +114,8 @@ pub fn render(date: &str, results: &[CheckResult], logs: &[Log]) -> String {
     for r in results {
         let mark = match r.outcome {
             Outcome::Pass => "ok",
-            Outcome::Fail => "FALLÓ",
-            Outcome::Skip => "omitida",
+            Outcome::Fail => "FAILED",
+            Outcome::Skip => "skipped",
         };
         out.push_str(&format!(
             "| {} | {} | {mark} | {} | {} |\n",
@@ -125,12 +125,12 @@ pub fn render(date: &str, results: &[CheckResult], logs: &[Log]) -> String {
             r.detail.replace('|', "/").replace('\n', " "),
         ));
     }
-    out.push_str("\n## Ítems que esta suite no cubre\n\n");
+    out.push_str("\n## Items this suite does not cover\n\n");
     for m in MANUAL {
         out.push_str(&format!("- {m}\n"));
     }
     if !logs.is_empty() {
-        out.push_str("\n## Registros recortados\n");
+        out.push_str("\n## Trimmed logs\n");
         for l in logs {
             out.push_str(&format!(
                 "\n### {}\n\n```\n{}\n```\n",
@@ -142,7 +142,7 @@ pub fn render(date: &str, results: &[CheckResult], logs: &[Log]) -> String {
     out
 }
 
-/// `true` si hay comprobaciones de monitor y todas salieron omitidas.
+/// `true` if there are monitor checks and all of them came out skipped.
 pub fn monitors_all_skipped(results: &[CheckResult]) -> bool {
     let mut it = results
         .iter()
@@ -151,8 +151,8 @@ pub fn monitors_all_skipped(results: &[CheckResult]) -> bool {
     it.peek().is_some() && it.all(|r| r.outcome == Outcome::Skip)
 }
 
-/// Quita de un registro las IPv4 y los ids de monitor (`id=...`, `monitor=...`) antes de que
-/// llegue al informe versionado.
+/// Strips IPv4 addresses and monitor ids (`id=...`, `monitor=...`) from a log before it
+/// reaches the versioned report.
 pub fn redact(text: &str) -> String {
     text.lines().map(redact_line).collect::<Vec<_>>().join("\n")
 }
@@ -183,7 +183,7 @@ fn redact_line(line: &str) -> String {
     out
 }
 
-/// Largo de una IPv4 al inicio de `s`, si no va pegada a otro dígito por detrás.
+/// Length of an IPv4 at the start of `s`, if it is not glued to another digit behind it.
 fn ipv4_len(s: &str) -> Option<usize> {
     let b = s.as_bytes();
     let mut i = 0;
@@ -212,7 +212,7 @@ fn id_key(s: &str) -> Option<(&'static str, usize)> {
         .map(|k| (k, k.len()))
 }
 
-/// `true` si no hay ningún fallo (las omitidas no cuentan).
+/// `true` if there is no failure (skipped ones do not count).
 pub fn all_green(results: &[CheckResult]) -> bool {
     results.iter().all(|r| r.outcome != Outcome::Fail)
 }
@@ -223,10 +223,10 @@ mod tests {
 
     fn sample() -> Vec<CheckResult> {
         vec![
-            CheckResult::new("pair", "pc", &["H1"]).pass("conectado por Wi-Fi"),
+            CheckResult::new("pair", "pc", &["H1"]).pass("connected over Wi-Fi"),
             CheckResult::new("tunnel-files", "mac", &["T-106"])
-                .fail("falta | un byte\nsegunda línea"),
-            CheckResult::new("monitor-roundtrip", "pc", &["H3"]).skip("sin --with-monitors"),
+                .fail("missing | a byte\nsecond line"),
+            CheckResult::new("monitor-roundtrip", "pc", &["H3"]).skip("no --with-monitors"),
         ]
     }
 
@@ -243,7 +243,7 @@ mod tests {
     fn noise_between_results_is_ignored() {
         let r = sample();
         let text = format!(
-            "hola\n{}\n\n{{no json\n{}\n",
+            "hello\n{}\n\n{{no json\n{}\n",
             r[0].to_line(),
             r[1].to_line()
         );
@@ -253,9 +253,9 @@ mod tests {
     #[test]
     fn the_report_counts_and_escapes_table_cells() {
         let md = render("2026-01-01", &sample(), &[]);
-        assert!(md.contains("Pasaron 1, fallaron 1, omitidas 1."));
-        assert!(md.contains("falta / un byte segunda línea"));
-        assert!(md.contains("no cubre"));
+        assert!(md.contains("Passed 1, failed 1, skipped 1."));
+        assert!(md.contains("missing / a byte second line"));
+        assert!(md.contains("does not cover"));
         assert!(!all_green(&sample()));
         assert!(all_green(&sample()[..1]));
     }
@@ -270,10 +270,10 @@ mod tests {
 
     #[test]
     fn redact_removes_lan_ips_and_monitor_ids() {
-        let t = "conectado a 192.168.1.20:52000 monitor=DEL4321-XYZ ok id=abc123, fin 1.2.3";
+        let t = "connected to 192.168.1.20:52000 monitor=DEL4321-XYZ ok id=abc123, end 1.2.3";
         assert_eq!(
             redact(t),
-            "conectado a <ip>:52000 monitor=<id> ok id=<id>, fin 1.2.3"
+            "connected to <ip>:52000 monitor=<id> ok id=<id>, end 1.2.3"
         );
         assert!(!redact("10.0.0.5\n172.16.0.1").contains("0.5"));
     }
@@ -281,14 +281,14 @@ mod tests {
     #[test]
     fn tail_keeps_the_end_within_the_limits() {
         let text = (0..100)
-            .map(|i| format!("línea {i}"))
+            .map(|i| format!("line {i}"))
             .collect::<Vec<_>>()
             .join("\n");
         let t = tail(&text, 3, 1000);
-        assert_eq!(t, "línea 97\nlínea 98\nlínea 99");
+        assert_eq!(t, "line 97\nline 98\nline 99");
         let t = tail(&text, 100, 20);
         assert!(t.len() <= 20 + '…'.len_utf8());
-        assert!(t.ends_with("línea 99"));
+        assert!(t.ends_with("line 99"));
     }
 
     #[test]

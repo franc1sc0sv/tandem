@@ -1,22 +1,22 @@
-//! Sesión de entrada sobre el enlace (DESIGN §7, docs/research/input-engine.md).
+//! Input session over the link (DESIGN §7, docs/research/input-engine.md).
 //!
-//! El **servidor** es la máquina con el teclado y el mouse: captura, decide con la
-//! geometría cuándo el cursor cruza y manda la entrada al **cliente**, que la
-//! inyecta. El movimiento y el scroll van en datagramas coalescidos con número de
-//! secuencia y resincronización absoluta; teclas, botones, entrar y salir van por
-//! un stream confiable y ordenado ([`msg`]).
+//! The **server** is the machine with the keyboard and mouse: it captures, decides with the
+//! geometry when the cursor crosses and sends the input to the **client**, which
+//! injects it. Movement and scroll go in coalesced datagrams with a sequence
+//! number and absolute resynchronization; keys, buttons, entering and leaving go over
+//! a reliable ordered stream ([`msg`]).
 //!
-//! - [`ServerSession`] y [`ClientSession`]: máquinas de estados sin E/S, que se
-//!   prueban evento por evento.
-//! - [`Capture`] e [`Injector`]: lo que cada plataforma implementa (T-022 a T-025);
-//!   [`fake`] tiene los dobles de prueba.
-//! - [`ServerDriver`] y [`ClientDriver`]: las conectan con una conexión QUIC de
-//!   `tandem-link`, con latido de 1 s. Cuando el enlace cae o cambia, el driver
-//!   termina: el servidor devuelve el foco a su máquina y el cliente suelta todo
-//!   lo que tenía presionado.
+//! - [`ServerSession`] and [`ClientSession`]: state machines without I/O, tested
+//!   event by event.
+//! - [`Capture`] and [`Injector`]: what each platform implements (T-022 to T-025);
+//!   [`fake`] has the test doubles.
+//! - [`ServerDriver`] and [`ClientDriver`]: connect them to a QUIC connection of
+//!   `tandem-link`, with a 1 s heartbeat. When the link drops or changes, the driver
+//!   ends: the server gives the focus back to its machine and the client releases everything
+//!   it had pressed.
 //!
-//! Las posiciones son coordenadas nativas del cursor de cada máquina (las de sus
-//! [`Screen`](crate::geometry::Screen)); los deltas que viajan, puntos lógicos.
+//! Positions are native cursor coordinates of each machine (those of their
+//! [`Screen`](crate::geometry::Screen)s); the deltas that travel, logical points.
 
 mod client;
 pub mod cursor;
@@ -46,52 +46,52 @@ pub use server::{ServerOutput, ServerSession};
 use crate::event::InputEvent;
 use crate::geometry::Point;
 
-/// Control de la captura del servidor. Los eventos capturados no pasan por aquí:
-/// la captura corre en su propio hilo (CGEventTap, hooks de Windows) y los manda
-/// por un canal al driver.
+/// Control of the server's capture. Captured events do not pass through here:
+/// the capture runs on its own thread (CGEventTap, Windows hooks) and sends them
+/// over a channel to the driver.
 ///
-/// Los movimientos que captura son `MotionRelative` en unidades nativas locales,
-/// sin aceleración; puede mandar `MotionAbsolute` con la posición real del cursor
-/// local para corregir el seguimiento mientras el foco es local.
+/// The movements it captures are `MotionRelative` in local native units,
+/// without acceleration; it may send `MotionAbsolute` with the real position of the local
+/// cursor to correct tracking while the focus is local.
 pub trait Capture: Send {
     type Error: Display;
 
-    /// `true`: tragar la entrada local y congelar y ocultar el cursor, porque el
-    /// foco está en la otra máquina. `false`: devolverla.
+    /// `true`: swallow local input and freeze and hide the cursor, because the
+    /// focus is on the other machine. `false`: give it back.
     fn set_grab(&mut self, grab: bool) -> Result<(), Self::Error>;
 
-    /// Poner el cursor local en `pos` (al volver de la otra máquina).
+    /// Put the local cursor at `pos` (when coming back from the other machine).
     fn warp(&mut self, pos: Point) -> Result<(), Self::Error>;
 }
 
-/// Inyección en el cliente. Recibe teclas y botones, `MotionAbsolute` en
-/// coordenadas nativas locales y scroll.
+/// Injection on the client. It receives keys and buttons, `MotionAbsolute` in
+/// local native coordinates and scroll.
 pub trait Injector: Send {
     type Error: Display;
 
     fn inject(&mut self, event: &InputEvent) -> Result<(), Self::Error>;
 
-    /// Las pantallas de esta máquina cambiaron: volver a leerlas.
+    /// This machine's screens changed: read them again.
     fn refresh(&mut self) -> Result<(), Self::Error> {
         Ok(())
     }
 }
 
-/// Tiempos de la sesión.
+/// Session timings.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SessionConfig {
-    /// Cada cuánto manda cada lado un latido (DESIGN §6 y research: ~1 s).
+    /// How often each side sends a heartbeat (DESIGN §6 and research: ~1 s).
     pub heartbeat_interval: Duration,
-    /// Silencio del otro lado que cuenta como enlace caído. Es el último recurso:
-    /// normalmente el gestor de enlaces avisa antes y el driver se detiene.
+    /// Silence from the other side that counts as a dropped link. It is the last resort:
+    /// normally the link manager notifies first and the driver stops.
     pub heartbeat_timeout: Duration,
-    /// Cuánto tiene que estar quieto el mouse para mandar la posición absoluta.
+    /// How long the mouse has to be still to send the absolute position.
     pub resync_idle: Duration,
-    /// Cada cuántos datagramas va uno con la posición absoluta aunque el mouse
-    /// no pare.
+    /// How many datagrams apart one goes with the absolute position even if the mouse
+    /// does not stop.
     pub resync_every: u32,
-    /// Ventana de la medición de latencia: cada cuánto el cliente publica p50/p99/máx,
-    /// lo registra y se lo manda al servidor (T-093: 5 s).
+    /// Window of the latency measurement: how often the client publishes p50/p99/max,
+    /// records it and sends it to the server (T-093: 5 s).
     pub latency_every: Duration,
 }
 

@@ -1,6 +1,6 @@
-//! Gestor de enlaces con QUIC real por loopback. Cada enlace es un relé UDP
-//! en su propio puerto delante del mismo agente: "desconectar el cable" es que
-//! el relé tire los paquetes en los dos sentidos, sin avisar a nadie.
+//! Link manager with real QUIC over loopback. Each link is a UDP relay
+//! on its own port in front of the same agent: "disconnecting the cable" is the
+//! relay dropping packets in both directions, without telling anyone.
 
 use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
@@ -19,7 +19,7 @@ use tokio::sync::mpsc;
 
 const LOOPBACK: SocketAddr = SocketAddr::new(std::net::IpAddr::V4(Ipv4Addr::LOCALHOST), 0);
 const TIMEOUT: Duration = Duration::from_secs(10);
-/// Criterio de la tarea.
+/// The task's criterion.
 const MAX_SWITCH: Duration = Duration::from_millis(1500);
 
 struct Only(PublicKey);
@@ -30,8 +30,8 @@ impl PeerTrust for Only {
     }
 }
 
-/// Relé UDP de un solo cliente: lo que llega a `addr` va al agente desde un
-/// socket propio, y las respuestas vuelven al último cliente visto.
+/// Single-client UDP relay: what arrives at `addr` goes to the agent from its own
+/// socket, and the replies go back to the last client seen.
 struct Relay {
     addr: SocketAddr,
     plugged: Arc<AtomicBool>,
@@ -96,7 +96,7 @@ struct Desk {
 }
 
 impl Desk {
-    /// La PC contesta pings; la Mac corre el gestor con un enlace por relé.
+    /// The PC answers pings; the Mac runs the manager with one link per relay.
     async fn new(kinds: &[LinkKind]) -> Self {
         let mac_id = Identity::from_seed([1; 32]);
         let pc_id = Identity::from_seed([2; 32]);
@@ -153,8 +153,8 @@ impl Desk {
         loop {
             let e = tokio::time::timeout(TIMEOUT, self.events.recv())
                 .await
-                .expect("no llegó el cambio de enlace")
-                .expect("el gestor se detuvo");
+                .expect("the link change did not arrive")
+                .expect("the manager stopped");
             self.seen.push(e);
             if e.to == kind {
                 return start.elapsed();
@@ -164,26 +164,26 @@ impl Desk {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn caída_y_vuelta_del_enlace_preferido() {
+async fn drop_and_return_of_the_preferred_link() {
     use LinkKind::*;
     let mut desk = Desk::new(&[Usb4, Ethernet, Wifi]).await;
     desk.until_active(Some(Usb4)).await;
     let usb4 = desk.manager.active().unwrap();
     assert_eq!(usb4.addr, desk.relay(Usb4).addr);
-    // La conexión entregada sirve para tráfico real.
+    // The delivered connection works for real traffic.
     assert!(usb4.handle.max_datagram_size().is_some());
 
     desk.relay(Usb4).plug(false);
     let took = desk.until_active(Some(Ethernet)).await;
-    println!("USB4 → Ethernet en {took:?}");
-    assert!(took < MAX_SWITCH, "conmutó en {took:?}");
+    println!("USB4 → Ethernet in {took:?}");
+    assert!(took < MAX_SWITCH, "switched in {took:?}");
 
     desk.relay(Usb4).plug(true);
     let took = desk.until_active(Some(Usb4)).await;
-    println!("Ethernet → USB4 en {took:?}");
+    println!("Ethernet → USB4 in {took:?}");
     assert_eq!(desk.manager.active().unwrap().kind, Usb4);
 
-    // Ethernet nunca cayó: los eventos fueron exactamente estos, en orden.
+    // Ethernet never dropped: the events were exactly these, in order.
     let tail: Vec<_> = desk.seen[desk.seen.len() - 2..]
         .iter()
         .map(|e| (e.from, e.to))
@@ -199,12 +199,12 @@ async fn caída_y_vuelta_del_enlace_preferido() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn con_solo_wifi_todo_va_por_wifi() {
+async fn with_only_wifi_everything_goes_over_wifi() {
     use LinkKind::*;
     let mut desk = Desk::new(&[Ethernet, Wifi]).await;
     desk.relay(Ethernet).plug(false);
     desk.until_active(Some(Wifi)).await;
-    // Ethernet nunca respondió, así que Wi-Fi sigue activo, y para todo (DECISIONS A2).
+    // Ethernet never answered, so Wi-Fi stays active, and for everything (DECISIONS A2).
     let wifi = desk.manager.active().unwrap();
     assert_eq!(wifi.kind, Wifi);
     assert!(wifi.handle.max_datagram_size().is_some());

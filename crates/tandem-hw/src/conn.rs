@@ -1,5 +1,5 @@
-//! Conexión a la IPC de un agente que ya corre (Unix: socket en el directorio de datos;
-//! Windows: tubería con nombre del usuario).
+//! Connection to the IPC of an agent that is already running (Unix: socket in the data
+//! directory; Windows: the user's named pipe).
 
 use std::path::Path;
 use std::time::{Duration, Instant};
@@ -26,8 +26,8 @@ async fn open(data_dir: &Path) -> anyhow::Result<Box<dyn Io>> {
     }
 }
 
-/// Conecta como `peer`, esperando hasta `wait` a que el agente levante su socket. Si no
-/// llega, el error dice el último motivo.
+/// Connects as `peer`, waiting up to `wait` for the agent to bring up its socket. If it
+/// never arrives, the error gives the last reason.
 pub async fn connect(data_dir: &Path, peer: Peer, wait: Duration) -> anyhow::Result<Conn> {
     let start = Instant::now();
     loop {
@@ -39,13 +39,13 @@ pub async fn connect(data_dir: &Path, peer: Peer, wait: Duration) -> anyhow::Res
             Err(e) => e,
         };
         if start.elapsed() >= wait {
-            anyhow::bail!("el agente no contesta en su IPC: {last}");
+            anyhow::bail!("the agent does not answer on its IPC: {last}");
         }
         tokio::time::sleep(Duration::from_millis(200)).await;
     }
 }
 
-/// Quien abre túneles: un cliente de terminal, no la UI.
+/// Whoever opens tunnels: a terminal client, not the UI.
 pub fn client() -> Peer {
     Peer::Client(ClientKind::Cli)
 }

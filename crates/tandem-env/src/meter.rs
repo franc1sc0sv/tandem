@@ -1,22 +1,22 @@
-//! CPU, RAM, disco y temperaturas, detrás de [`Meter`]. En la máquina real va
-//! [`SysinfoMeter`]; las pruebas usan [`crate::fake::FakeMeter`].
+//! CPU, RAM, disk and temperatures, behind [`Meter`]. On the real machine
+//! [`SysinfoMeter`] is used; tests use [`crate::fake::FakeMeter`].
 
 use tandem_proto::{CpuLoad, DiskSpace, GpuLoad, MemoryUse, Resources};
 
 use crate::Platform;
 use crate::parse::tenths;
 
-/// Lo fijo del equipo.
+/// The fixed facts of the machine.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct MeterInfo {
     pub cpu: Option<String>,
-    /// Núcleos lógicos.
+    /// Logical cores.
     pub cores: u32,
-    /// RAM total, en bytes.
+    /// Total RAM, in bytes.
     pub memory: u64,
 }
 
-/// Un volumen montado.
+/// A mounted volume.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DiskReading {
     pub mount: String,
@@ -24,30 +24,30 @@ pub struct DiskReading {
     pub total: u64,
 }
 
-/// Una lectura de los contadores del sistema.
+/// A reading of the system counters.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Reading {
-    /// Uso total, 0–100.
+    /// Total usage, 0–100.
     pub cpu: f32,
-    /// Uso de cada núcleo lógico, 0–100.
+    /// Usage of each logical core, 0–100.
     pub cores: Vec<f32>,
-    /// Sensores de temperatura (etiqueta, °C).
+    /// Temperature sensors (label, °C).
     pub temperatures: Vec<(String, f32)>,
     pub memory_used: u64,
     pub memory_total: u64,
     pub disks: Vec<DiskReading>,
 }
 
-/// Los contadores del sistema.
+/// The system counters.
 pub trait Meter: Send {
     fn info(&mut self) -> MeterInfo;
-    /// El uso de CPU es desde la lectura anterior.
+    /// CPU usage is since the previous reading.
     fn read(&mut self) -> Reading;
 }
 
-/// La temperatura de la CPU: el sensor más caliente de los que son de la CPU
-/// (`Tctl`/`Tdie` en AMD, `Package` en Intel, `PMU tdie` en Apple Silicon). Los valores
-/// imposibles se descartan.
+/// The CPU temperature: the hottest of the sensors that belong to the CPU
+/// (`Tctl`/`Tdie` on AMD, `Package` on Intel, `PMU tdie` on Apple Silicon). Impossible
+/// values are discarded.
 pub fn cpu_temperature(sensors: &[(String, f32)]) -> Option<i16> {
     const CPU: [&str; 6] = ["tctl", "tdie", "package", "cpu", "core", "soc"];
     sensors
@@ -64,8 +64,8 @@ pub fn cpu_temperature(sensors: &[(String, f32)]) -> Option<i16> {
         .map(|t| t.round() as i16)
 }
 
-/// El volumen del sistema: `C:\` (o el de `SystemDrive`) en Windows, el de datos en macOS
-/// (en APFS el de sistema es de solo lectura), `/` en Linux. Si no aparece, el más grande.
+/// The system volume: `C:\` (or the `SystemDrive` one) on Windows, the data one on macOS
+/// (on APFS the system one is read-only), `/` on Linux. If it does not appear, the largest.
 pub fn system_disk(
     disks: &[DiskReading],
     platform: Platform,
@@ -89,7 +89,7 @@ pub fn system_disk(
         })
 }
 
-/// La muestra que viaja, a partir de una lectura y de las GPU.
+/// The sample that travels, from a reading and the GPUs.
 pub fn resources(
     reading: &Reading,
     gpus: Vec<GpuLoad>,
@@ -111,7 +111,7 @@ pub fn resources(
     }
 }
 
-/// Los contadores de verdad, con `sysinfo`.
+/// The real counters, with `sysinfo`.
 pub struct SysinfoMeter {
     system: Option<sysinfo::System>,
     disks: Option<sysinfo::Disks>,
@@ -136,7 +136,7 @@ impl Default for SysinfoMeter {
 impl SysinfoMeter {
     pub fn new() -> Self {
         let system = sysinfo::System::new()
-            .map_err(|e| tracing::warn!("no se pueden leer la CPU ni la RAM: {e:?}"))
+            .map_err(|e| tracing::warn!("cannot read the CPU or RAM: {e:?}"))
             .ok();
         SysinfoMeter {
             system,
@@ -171,7 +171,7 @@ impl Meter for SysinfoMeter {
             return Reading::default();
         };
         if !self.primed {
-            // El uso de CPU sale de dos lecturas separadas por al menos este intervalo.
+            // CPU usage comes from two readings separated by at least this interval.
             sys.refresh_cpu_usage();
             std::thread::sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL);
             self.primed = true;

@@ -4,11 +4,11 @@ use tandem_core::{Machine, Os};
 
 use super::NetInterface;
 
-/// Prefijo de la red de respaldo: `10.77.1.0/30`.
+/// Prefix of the fallback network: `10.77.1.0/30`.
 pub const FALLBACK_PREFIX: u8 = 30;
 
-/// Dirección de respaldo de cada lado en `10.77.1.0/30`: `.1` para el lado A y `.2` para el B.
-/// Son los lados del puesto (A/B), que los dos agentes conocen igual.
+/// Fallback address of each side in `10.77.1.0/30`: `.1` for side A and `.2` for B.
+/// They are the desk's sides (A/B), which both agents know the same way.
 pub fn fallback_ip(side: Machine) -> Ipv4Addr {
     match side {
         Machine::A => Ipv4Addr::new(10, 77, 1, 1),
@@ -20,7 +20,7 @@ fn is_link_local(ip: &Ipv6Addr) -> bool {
     ip.segments()[0] & 0xffc0 == 0xfe80
 }
 
-/// La IPv6 link-local de la interfaz, si el sistema se la dio.
+/// The interface's link-local IPv6, if the system gave it one.
 pub fn link_local_of(iface: &NetInterface) -> Option<Ipv6Addr> {
     iface.addrs.iter().find_map(|a| match a {
         IpAddr::V6(v6) if is_link_local(v6) => Some(*v6),
@@ -28,8 +28,8 @@ pub fn link_local_of(iface: &NetInterface) -> Option<Ipv6Addr> {
     })
 }
 
-/// Dirección para conectar a `ip` por la interfaz `scope_id`. Una link-local solo vale con
-/// su `scope_id` (sin él, el sistema no sabe por qué interfaz salir).
+/// Address to connect to `ip` through interface `scope_id`. A link-local one is only valid with
+/// its `scope_id` (without it, the system does not know which interface to leave through).
 pub fn scoped_addr(ip: IpAddr, scope_id: u32, port: u16) -> SocketAddr {
     match ip {
         IpAddr::V6(v6) if is_link_local(&v6) => {
@@ -39,8 +39,8 @@ pub fn scoped_addr(ip: IpAddr, scope_id: u32, port: u16) -> SocketAddr {
     }
 }
 
-/// La orden exacta para asignar `ip` a la interfaz, para mostrarla cuando el agente no tiene
-/// permisos de hacerlo solo.
+/// The exact command to assign `ip` to the interface, to show it when the agent has no
+/// permission to do it itself.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AssignOrder {
     pub command: String,
@@ -56,23 +56,23 @@ pub fn assign_order(os: Os, iface: &str, ip: Ipv4Addr) -> AssignOrder {
     AssignOrder { command }
 }
 
-/// Dónde está cada punta del cable.
+/// Where each end of the cable is.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AddrPlan {
-    /// La dirección de esta máquina en el enlace.
+    /// This machine's address on the link.
     pub local: IpAddr,
-    /// Dónde está el otro agente; `None` si todavía no se sabe (su link-local sale de
-    /// mDNS en la interfaz).
+    /// Where the other agent is; `None` if not yet known (its link-local comes from
+    /// mDNS on the interface).
     pub peer: Option<SocketAddr>,
-    /// Si hay que asignar la IP de respaldo a mano: la orden.
+    /// Whether the fallback IP has to be assigned by hand: the command.
     pub assign: Option<AssignOrder>,
 }
 
-/// Direcciones del enlace por `iface`. `peer` es la del otro agente (con el puerto que
-/// anuncia) si el descubrimiento ya la dio.
+/// Link addresses through `iface`. `peer` is the other agent's (with the port it
+/// announces) if discovery already gave it.
 ///
-/// 1. Si la interfaz tiene IPv6 link-local, se usa con su `scope_id`.
-/// 2. Si no, o si ya tiene la IP de `10.77.1.0/30`, se usa el respaldo: A es `.1` y B `.2`.
+/// 1. If the interface has a link-local IPv6, it is used with its `scope_id`.
+/// 2. Otherwise, or if it already has the IP of `10.77.1.0/30`, the fallback is used: A is `.1` and B `.2`.
 pub fn plan(
     iface: &NetInterface,
     side: Machine,

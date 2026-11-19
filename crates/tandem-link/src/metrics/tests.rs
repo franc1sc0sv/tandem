@@ -22,11 +22,11 @@ fn states(m: &NetMetrics) -> Vec<PathState> {
 }
 
 #[test]
-fn los_estados_siguen_al_gestor() {
+fn the_states_follow_the_manager() {
     let mut m = NetMetrics::default();
     use PathState::*;
     assert_eq!(states(&m), [Unplugged, Unplugged, Unplugged]);
-    // Ethernet configurado pero sin cable; USB-C y Wi-Fi responden.
+    // Ethernet configured but without a cable; USB-C and Wi-Fi answer.
     let links = [
         status(LinkKind::Usb4, Some(1)),
         status(LinkKind::Ethernet, None),
@@ -34,7 +34,7 @@ fn los_estados_siguen_al_gestor() {
     ];
     m.observe(&links, Some(LinkKind::Usb4));
     assert_eq!(states(&m), [Primary, Unplugged, Backup]);
-    // Se corta el USB-C: caído, no «sin cable».
+    // USB-C is cut: down, not "no cable".
     let links = [
         status(LinkKind::Usb4, None),
         status(LinkKind::Ethernet, None),
@@ -50,7 +50,7 @@ fn los_estados_siguen_al_gestor() {
 }
 
 #[test]
-fn la_entrada_y_el_historial_van_por_segundo() {
+fn input_and_history_go_per_second() {
     let mut m = NetMetrics::default();
     m.observe(&[status(LinkKind::Wifi, Some(3))], Some(LinkKind::Wifi));
     m.set_input(LinkKind::Wifi, Some((ms(2), ms(9))));
@@ -71,12 +71,12 @@ fn la_entrada_y_el_historial_van_por_segundo() {
             LatencySample::default()
         ]
     );
-    // Cada camino tiene su historial, también el que nunca respondió.
+    // Each path has its history, also the one that never answered.
     assert_eq!(s.path(Link::Ethernet).unwrap().history.len(), 2);
 }
 
 #[test]
-fn los_cambios_quedan_del_más_nuevo_al_más_viejo() {
+fn changes_stay_from_newest_to_oldest() {
     let mut m = NetMetrics::default();
     m.switched(
         &LinkEvent {
@@ -110,7 +110,7 @@ fn los_cambios_quedan_del_más_nuevo_al_más_viejo() {
 }
 
 #[test]
-fn una_medición_a_la_vez_y_llega_al_tope_de_los_datos() {
+fn one_measurement_at_a_time_and_it_reaches_the_data_cap() {
     let metrics = Metrics::default();
     let qos = LinkQos::default();
     let first = metrics.begin_measure(LinkKind::Wifi).unwrap();
@@ -127,16 +127,16 @@ fn una_medición_a_la_vez_y_llega_al_tope_de_los_datos() {
         .unwrap();
     assert_eq!(bw.bytes_per_sec, 40_000_000);
     assert!(bw.at_ms > 0);
-    // El 50 % de lo medido (T-101).
+    // 50 % of what was measured (T-101).
     assert_eq!(qos.get(LinkKind::Wifi).cap(), Some(20_000_000));
     assert!(metrics.begin_measure(LinkKind::Usb4).is_some());
 }
 
 proptest! {
-    /// Con cualquier historia: a lo sumo un principal (y es el activo), 60 muestras y 50
-    /// cambios.
+    /// With any history: at most one primary (and it is the active one), 60 samples and 50
+    /// changes.
     #[test]
-    fn la_vista_queda_acotada_y_coherente(
+    fn the_view_stays_bounded_and_coherent(
         steps in prop::collection::vec((any::<[bool; 3]>(), 0usize..4, any::<bool>()), 0..300)
     ) {
         let mut m = NetMetrics::default();

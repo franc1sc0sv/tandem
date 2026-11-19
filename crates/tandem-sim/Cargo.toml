@@ -1,6 +1,6 @@
 [package]
 name = "tandem-sim"
-description = "Simulación del puesto para pruebas: dos agentes en un proceso con backends simulados y fallos inyectados"
+description = "Desk simulation for tests: two agents in one process with simulated backends and injected faults"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

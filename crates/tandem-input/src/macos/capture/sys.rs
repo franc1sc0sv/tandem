@@ -1,4 +1,4 @@
-//! La parte que habla con macOS: el tap, su hilo y el cursor.
+//! The part that talks to macOS: the tap, its thread and the cursor.
 
 use std::ffi::c_void;
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -27,23 +27,23 @@ use super::{CaptureError, Permissions};
 use crate::event::InputEvent;
 use crate::geometry::Point;
 
-/// `NSEventTypeSystemDefined`: volumen, brillo y teclas multimedia.
+/// `NSEventTypeSystemDefined`: volume, brightness and media keys.
 const SYSTEM_DEFINED: CGEventType = CGEventType(14);
 
-/// Cada cuánto el hilo del tap mira si tiene que terminar, por si el aviso de
-/// parar llegó antes de que entrara al run loop.
+/// How often the tap thread checks whether it has to end, in case the stop
+/// signal arrived before it entered the run loop.
 const RUN_SLICE_SECONDS: f64 = 0.5;
 
 #[link(name = "ApplicationServices", kind = "framework")]
-// SAFETY: firmas verificadas contra el SDK (ApplicationServices); las funciones solo
-// leen estado del sistema y los punteros pasados no sobreviven la llamada.
+// SAFETY: signatures verified against the SDK (ApplicationServices); the functions only
+// read system state and the pointers passed do not outlive the call.
 unsafe extern "C" {
     fn AXIsProcessTrusted() -> u8;
     fn AXIsProcessTrustedWithOptions(options: Option<&CFDictionary>) -> u8;
     static kAXTrustedCheckOptionPrompt: &'static CFString;
-    // API privada de CoreGraphics (SkyLight): sin `SetsCursorInBackground`,
-    // `CGDisplayHideCursor` no oculta el cursor si Tandem no es la app activa,
-    // que es siempre (es un agente sin ventana).
+    // Private CoreGraphics API (SkyLight): without `SetsCursorInBackground`,
+    // `CGDisplayHideCursor` does not hide the cursor if Tandem is not the active app,
+    // which is always the case (it is an agent without a window).
     fn _CGSDefaultConnection() -> i32;
     fn CGSSetConnectionProperty(
         connection: i32,
@@ -54,14 +54,14 @@ unsafe extern "C" {
 }
 
 #[link(name = "Carbon", kind = "framework")]
-// SAFETY: firma verificada contra el SDK (Carbon); no recibe punteros ni modifica estado.
+// SAFETY: signature verified against the SDK (Carbon); it takes no pointers and modifies no state.
 unsafe extern "C" {
     fn IsSecureEventInputEnabled() -> u8;
 }
 
-/// Estado actual de los permisos de TCC, sin preguntar nada al usuario.
+/// Current state of the TCC permissions, without asking the user anything.
 pub fn permissions() -> Permissions {
-    // SAFETY: sin argumentos; solo consulta TCC.
+    // SAFETY: no arguments; it only queries TCC.
     let accessibility = unsafe { AXIsProcessTrusted() } != 0;
     Permissions {
         accessibility,
@@ -69,20 +69,20 @@ pub fn permissions() -> Permissions {
     }
 }
 
-/// Pide los permisos que falten: macOS muestra su diálogo (una sola vez por
-/// binario) y lleva al usuario a Ajustes. Devuelve el estado después de pedir;
-/// lo concedido suele valer recién al reiniciar el proceso.
+/// Asks for the missing permissions: macOS shows its dialog (only once per
+/// binary) and takes the user to Settings. Returns the state after asking;
+/// what was granted usually only takes effect on restarting the process.
 pub fn request_permissions() -> Permissions {
     let before = permissions();
     if !before.accessibility {
-        // SAFETY: `kAXTrustedCheckOptionPrompt` es una constante de
-        // ApplicationServices, válida durante todo el proceso.
+        // SAFETY: `kAXTrustedCheckOptionPrompt` is a constant of
+        // ApplicationServices, valid for the whole process.
         let key: &CFString = unsafe { kAXTrustedCheckOptionPrompt };
-        // SAFETY: `kCFBooleanTrue` es una constante de CoreFoundation.
+        // SAFETY: `kCFBooleanTrue` is a CoreFoundation constant.
         if let Some(yes) = unsafe { kCFBooleanTrue } {
             let options = CFDictionary::<CFString, CFBoolean>::from_slices(&[key], &[yes]);
             let options: &CFDictionary = options.as_ref();
-            // SAFETY: diccionario válido con la clave y el valor documentados.
+            // SAFETY: a valid dictionary with the documented key and value.
             unsafe { AXIsProcessTrustedWithOptions(Some(options)) };
         }
     }
@@ -92,18 +92,18 @@ pub fn request_permissions() -> Permissions {
     permissions()
 }
 
-/// Si algún proceso activó Secure Event Input (un campo de contraseña).
+/// Whether some process enabled Secure Event Input (a password field).
 pub fn secure_input_active() -> bool {
-    // SAFETY: sin argumentos; solo consulta el estado global.
+    // SAFETY: no arguments; it only queries the global state.
     unsafe { IsSecureEventInputEnabled() != 0 }
 }
 
-/// "Scroll natural" de macOS (`com.apple.swipescrolldirection`). Si no está
-/// definido, macOS lo trata como activado.
+/// macOS "natural scrolling" (`com.apple.swipescrolldirection`). If it is not
+/// defined, macOS treats it as enabled.
 fn natural_scroll() -> bool {
     let key = CFString::from_static_str("com.apple.swipescrolldirection");
     let mut valid = 0u8;
-    // SAFETY: claves válidas y puntero a un `Boolean` local.
+    // SAFETY: valid keys and a pointer to a local `Boolean`.
     let value =
         unsafe { CFPreferencesGetAppBooleanValue(&key, kCFPreferencesAnyApplication, &mut valid) };
     if valid != 0 { value } else { true }
@@ -117,7 +117,7 @@ fn check(op: &'static str, err: CGError) -> Result<(), CaptureError> {
     }
 }
 
-/// El cursor real, con CoreGraphics.
+/// The real cursor, with CoreGraphics.
 #[derive(Debug)]
 pub struct SysCursor {
     background_set: bool,
@@ -135,12 +135,12 @@ impl SysCursor {
             return;
         }
         let key = CFString::from_static_str("SetsCursorInBackground");
-        // SAFETY: `kCFBooleanTrue` es una constante de CoreFoundation.
+        // SAFETY: `kCFBooleanTrue` is a CoreFoundation constant.
         let Some(yes) = (unsafe { kCFBooleanTrue }) else {
             return;
         };
-        // SAFETY: la conexión por defecto del proceso, una clave CFString y un
-        // CFBoolean válidos. Si la API privada falla, el cursor solo no se oculta.
+        // SAFETY: the process's default connection, a CFString key and a valid
+        // CFBoolean. If the private API fails, the cursor is just not hidden.
         let err = unsafe {
             let cid = _CGSDefaultConnection();
             CGSSetConnectionProperty(cid, cid, &key, yes)
@@ -192,8 +192,8 @@ impl CursorBackend for SysCursor {
 
 type Sink = Box<dyn FnMut(InputEvent) -> bool + Send>;
 
-/// Lo que ve el callback del tap. Vive en el hilo del tap mientras corre su run
-/// loop; solo ese hilo lo toca.
+/// What the tap callback sees. It lives on the tap thread while its run
+/// loop runs; only that thread touches it.
 struct TapContext {
     grab: Arc<Grab<SysCursor>>,
     natural_scroll: Arc<AtomicBool>,
@@ -219,7 +219,7 @@ impl TapContext {
             .translator
             .translate(&raw, grabbed, natural, &mut |e| alive &= sink(e));
         if !alive && grabbed {
-            // Nadie recibe lo que tragamos: devolver la Mac a su dueño.
+            // Nobody receives what we swallow: give the Mac back to its owner.
             self.grab.release();
             return TapAction::Pass;
         }
@@ -288,10 +288,10 @@ fn read_event(ty: CGEventType, event: &CGEvent) -> RawEvent {
     }
 }
 
-/// Callback del tap. Corre en el hilo del tap; tiene que ser rápido o macOS lo
-/// apaga (y entonces llega `TapDisabledByTimeout`).
-// SAFETY: la firma coincide con `CGEventTapCallBack`. Solo la invoca CoreGraphics en el
-// hilo del tap, con `user_info` nulo o el `TapContext` vigente (ver abajo) y un evento válido.
+/// Tap callback. It runs on the tap thread; it has to be fast or macOS
+/// turns it off (and then `TapDisabledByTimeout` arrives).
+// SAFETY: the signature matches `CGEventTapCallBack`. It is only invoked by CoreGraphics on the
+// tap thread, with `user_info` null or the current `TapContext` (see below) and a valid event.
 unsafe extern "C-unwind" fn tap_callback(
     _proxy: CGEventTapProxy,
     ty: CGEventType,
@@ -302,14 +302,14 @@ unsafe extern "C-unwind" fn tap_callback(
     if user_info.is_null() {
         return pass;
     }
-    // SAFETY: `user_info` es el `TapContext` que creó `tap_thread`, que lo libera
-    // recién después de invalidar el tap y salir del run loop; el callback solo
-    // corre en ese hilo, así que no hay otra referencia viva.
+    // SAFETY: `user_info` is the `TapContext` that `tap_thread` created, which frees it
+    // only after invalidating the tap and leaving the run loop; the callback only
+    // runs on that thread, so there is no other live reference.
     let ctx = unsafe { &mut *user_info.cast::<TapContext>() };
-    // SAFETY: CoreGraphics garantiza que el evento vale durante el callback.
+    // SAFETY: CoreGraphics guarantees the event is valid during the callback.
     let event = unsafe { event.as_ref() };
-    // Un pánico no puede cruzar el código de CoreGraphics: ante cualquier
-    // problema, el evento sigue su camino.
+    // A panic cannot cross CoreGraphics code: on any
+    // problem, the event goes on its way.
     match catch_unwind(AssertUnwindSafe(|| ctx.handle(ty, event))) {
         Ok(TapAction::Swallow) => ptr::null_mut(),
         _ => pass,
@@ -338,11 +338,11 @@ fn event_mask() -> CGEventMask {
     .fold(0, |m, t| m | (1 << t.0))
 }
 
-/// El run loop del hilo del tap, para pararlo desde otro hilo.
+/// The tap thread's run loop, to stop it from another thread.
 struct RunLoopHandle(CFRetained<CFRunLoop>);
 
-// SAFETY: solo se usa para `CFRunLoopStop`, que CoreFoundation documenta como
-// seguro desde cualquier hilo.
+// SAFETY: it is only used for `CFRunLoopStop`, which CoreFoundation documents as
+// safe from any thread.
 unsafe impl Send for RunLoopHandle {}
 
 fn tap_thread(
@@ -352,7 +352,7 @@ fn tap_thread(
     stop: Arc<AtomicBool>,
     ready: mpsc::SyncSender<Result<RunLoopHandle, CaptureError>>,
 ) {
-    // Se arma aquí porque el puerto del tap no puede cambiar de hilo.
+    // It is built here because the tap port cannot change threads.
     let user_info = Box::into_raw(Box::new(TapContext {
         grab,
         natural_scroll,
@@ -360,11 +360,11 @@ fn tap_thread(
         sink,
         port: None,
     }));
-    // SAFETY: lo devuelve `Box::into_raw` y se libera una sola vez, cuando el tap
-    // ya no puede llamar al callback.
+    // SAFETY: returned by `Box::into_raw` and freed only once, when the tap
+    // can no longer call the callback.
     let free = move || drop(unsafe { Box::from_raw(user_info) });
-    // SAFETY: el callback tiene la firma de `CGEventTapCallBack`; `user_info`
-    // apunta al contexto, que vive hasta después de invalidar el tap.
+    // SAFETY: the callback has the signature of `CGEventTapCallBack`; `user_info`
+    // points to the context, which lives until after the tap is invalidated.
     let port = unsafe {
         CGEvent::tap_create(
             CGEventTapLocation::HIDEventTap,
@@ -389,10 +389,10 @@ fn tap_thread(
         let _ = ready.send(Err(CaptureError::TapCreate));
         return;
     };
-    // SAFETY: el run loop todavía no corre, así que el callback no tiene una
-    // referencia al contexto; escribir a través del puntero no crea alias.
+    // SAFETY: the run loop is not running yet, so the callback holds no
+    // reference to the context; writing through the pointer creates no alias.
     unsafe { (*user_info).port = Some(port.clone()) };
-    // SAFETY: constantes de CoreFoundation, válidas durante todo el proceso.
+    // SAFETY: CoreFoundation constants, valid for the whole process.
     let (common, default) = unsafe { (kCFRunLoopCommonModes, kCFRunLoopDefaultMode) };
     run_loop.add_source(Some(&source), common);
     CGEvent::tap_enable(&port, true);
@@ -405,20 +405,20 @@ fn tap_thread(
     CGEvent::tap_enable(&port, false);
     run_loop.remove_source(Some(&source), common);
     port.invalidate();
-    // Recién ahora el contexto puede liberarse: el tap ya no llama al callback.
+    // Only now can the context be freed: the tap no longer calls the callback.
     free();
 }
 
-/// Captura de entrada en macOS.
+/// Input capture on macOS.
 ///
-/// Mientras existe, un CGEventTap ve toda la entrada de la Mac y la entrega a la
-/// función `sink` (en el hilo del tap: tiene que volver enseguida, p. ej.
-/// mandando a un canal sin límite). `sink` devuelve `false` cuando ya nadie
-/// recibe eventos; si la entrada estaba tomada, se devuelve.
+/// While it exists, a CGEventTap sees all of the Mac's input and delivers it to the
+/// `sink` function (on the tap thread: it has to return right away, e.g. by
+/// sending to an unbounded channel). `sink` returns `false` when nobody
+/// receives events anymore; if the input was taken, it is given back.
 ///
-/// Con el foco local salen `MotionRelative` (unidades nativas, con la
-/// aceleración de macOS) seguidos de `MotionAbsolute` con la posición real del
-/// cursor; con el foco remoto, solo los deltas.
+/// With local focus, `MotionRelative` comes out (native units, with macOS
+/// acceleration) followed by `MotionAbsolute` with the cursor's real
+/// position; with remote focus, only the deltas.
 pub struct MacCapture {
     grab: Arc<Grab<SysCursor>>,
     natural_scroll: Arc<AtomicBool>,
@@ -428,8 +428,8 @@ pub struct MacCapture {
 }
 
 impl MacCapture {
-    /// Arranca el tap en su hilo. Falla si falta Accesibilidad o si macOS no deja
-    /// crear el tap.
+    /// Starts the tap on its thread. Fails if Accessibility is missing or if macOS does not allow
+    /// creating the tap.
     pub fn start(
         sink: impl FnMut(InputEvent) -> bool + Send + 'static,
     ) -> Result<Self, CaptureError> {
@@ -461,25 +461,25 @@ impl MacCapture {
             }
             Err(_) => {
                 let _ = thread.join();
-                Err(CaptureError::Thread("terminó sin avisar".into()))
+                Err(CaptureError::Thread("ended without reporting".into()))
             }
         }
     }
 
-    /// `true`: tragar la entrada local y congelar y ocultar el cursor, porque el
-    /// foco pasa a la otra máquina. Falla con Secure Event Input activo.
-    /// `false`: devolverla.
+    /// `true`: swallow local input and freeze and hide the cursor, because the
+    /// focus moves to the other machine. Fails with Secure Event Input active.
+    /// `false`: give it back.
     pub fn set_grab(&mut self, grab: bool) -> Result<(), CaptureError> {
         if grab {
-            // La preferencia puede cambiar mientras corre; se relee al cruzar.
+            // The preference may change while it runs; it is reread on crossing.
             self.natural_scroll
                 .store(natural_scroll(), Ordering::Relaxed);
         }
         self.grab.set(grab)
     }
 
-    /// Pone el cursor local en `pos` (coordenadas globales en puntos, origen
-    /// arriba a la izquierda de la pantalla principal).
+    /// Puts the local cursor at `pos` (global coordinates in points, origin
+    /// at the top left of the main screen).
     pub fn warp(&mut self, pos: Point) -> Result<(), CaptureError> {
         self.grab.warp(pos)
     }
@@ -491,8 +491,8 @@ impl MacCapture {
 
 impl Drop for MacCapture {
     fn drop(&mut self) {
-        // Primero devolver teclado y cursor: pase lo que pase después, la Mac
-        // queda usable.
+        // First give back keyboard and cursor: whatever happens afterwards, the Mac
+        // stays usable.
         self.grab.release();
         self.stop.store(true, Ordering::Release);
         self.run_loop.0.stop();
@@ -507,23 +507,23 @@ mod tests {
     use super::*;
 
     #[test]
-    fn la_mascara_cubre_la_entrada() {
+    fn the_mask_covers_the_input() {
         let m = event_mask();
         for t in [1u32, 2, 3, 4, 5, 6, 7, 10, 11, 12, 14, 22, 25, 26, 27] {
-            assert_ne!(m & (1 << t), 0, "falta el tipo {t}");
+            assert_ne!(m & (1 << t), 0, "type {t} is missing");
         }
         assert_eq!(m.count_ones(), 15);
     }
 
     #[test]
-    fn consultas_sin_dispositivo() {
-        // En CI no hay permisos ni campo de contraseña; solo tiene que responder.
+    fn queries_without_a_device() {
+        // In CI there are no permissions or password field; it only has to answer.
         let _ = permissions();
         let _ = secure_input_active();
         let _ = natural_scroll();
     }
 
-    /// Captura real: requiere Accesibilidad. Mueve el mouse y escribe durante 5 s.
+    /// Real capture: requires Accessibility. Moves the mouse and types for 5 s.
     #[test]
     #[ignore = "hardware"]
     fn captura_real_cinco_segundos() {
@@ -532,6 +532,6 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_secs(5));
         drop(capture);
         let events: Vec<_> = rx.try_iter().collect();
-        assert!(!events.is_empty(), "no llegó ningún evento");
+        assert!(!events.is_empty(), "no event arrived");
     }
 }

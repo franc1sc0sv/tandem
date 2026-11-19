@@ -7,17 +7,17 @@ use serde::{Deserialize, Serialize};
 
 use super::{IdentityError, PublicKey, fsutil};
 
-/// Par emparejado: su llave y el nombre que se muestra en la UI.
+/// Paired peer: its key and the name shown in the UI.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TrustedPeer {
     pub public_key: PublicKey,
     pub name: String,
 }
 
-/// Llaves de los pares en los que esta máquina confía, persistidas en TOML.
+/// Keys of the peers this machine trusts, persisted in TOML.
 ///
-/// Es la única fuente de confianza del transporte: un par que no está aquí
-/// se rechaza.
+/// It is the transport's only source of trust: a peer that is not here
+/// is rejected.
 #[derive(Debug)]
 pub struct TrustStore {
     path: PathBuf,
@@ -34,8 +34,8 @@ struct TrustFile {
 }
 
 impl TrustStore {
-    /// Abre el trust store de `path`; si no existe, empieza vacío (se crea al
-    /// guardar).
+    /// Opens the trust store at `path`; if it does not exist, it starts empty (it is created
+    /// on save).
     pub fn open(path: impl Into<PathBuf>) -> Result<Self, IdentityError> {
         let path = path.into();
         let peers = match fs::read_to_string(&path) {
@@ -69,7 +69,7 @@ impl TrustStore {
         self.peers.contains_key(key)
     }
 
-    /// Devuelve el par si es de confianza; si no, [`IdentityError::Untrusted`].
+    /// Returns the peer if trusted; otherwise, [`IdentityError::Untrusted`].
     pub fn verify(&self, key: &PublicKey) -> Result<&TrustedPeer, IdentityError> {
         self.peers.get(key).ok_or(IdentityError::Untrusted(*key))
     }
@@ -78,19 +78,19 @@ impl TrustStore {
         self.peers.values()
     }
 
-    /// Agrega o reemplaza un par en memoria. Llamar a [`save`](Self::save)
-    /// para persistir.
+    /// Adds or replaces a peer in memory. Call [`save`](Self::save)
+    /// to persist.
     pub fn add(&mut self, peer: TrustedPeer) {
         self.peers.insert(peer.public_key, peer);
     }
 
-    /// Quita un par en memoria (olvidar emparejamiento). Devuelve si estaba.
+    /// Removes a peer in memory (forget the pairing). Returns whether it was there.
     pub fn remove(&mut self, key: &PublicKey) -> bool {
         self.peers.remove(key).is_some()
     }
 
-    /// Agrega y persiste; si no se puede guardar, la memoria queda como antes
-    /// para que nunca se confíe en un par que no sobreviviría a un reinicio.
+    /// Adds and persists; if it cannot be saved, memory is left as it was
+    /// so a peer that would not survive a restart is never trusted.
     pub fn add_and_save(&mut self, peer: TrustedPeer) -> Result<(), IdentityError> {
         let key = peer.public_key;
         let previous = self.peers.insert(key, peer);
@@ -104,9 +104,9 @@ impl TrustStore {
         Ok(())
     }
 
-    /// Quita y persiste (desemparejar); si no se puede guardar, el par sigue como
-    /// estaba, para que la memoria nunca diga algo distinto del disco. Devuelve si
-    /// estaba.
+    /// Removes and persists (unpair); if it cannot be saved, the peer stays as
+    /// it was, so memory never says anything different from disk. Returns whether
+    /// it was there.
     pub fn remove_and_save(&mut self, key: &PublicKey) -> Result<bool, IdentityError> {
         let Some(previous) = self.peers.remove(key) else {
             return Ok(false);
@@ -118,7 +118,7 @@ impl TrustStore {
         Ok(true)
     }
 
-    /// Escribe el trust store (atómico, 0600 en Unix).
+    /// Writes the trust store (atomic, 0600 on Unix).
     pub fn save(&self) -> Result<(), IdentityError> {
         let file = TrustFile {
             version: FORMAT_VERSION,
@@ -142,7 +142,7 @@ mod tests {
     }
 
     #[test]
-    fn persiste_y_recarga() {
+    fn persists_and_reloads() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("trust.toml");
         let mut store = TrustStore::open(&path).unwrap();
@@ -161,7 +161,7 @@ mod tests {
     }
 
     #[test]
-    fn quitar_persiste_y_si_no_se_puede_guardar_no_cambia_nada() {
+    fn removing_persists_and_if_it_cannot_be_saved_nothing_changes() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("trust.toml");
         let mut store = TrustStore::open(&path).unwrap();
@@ -171,7 +171,7 @@ mod tests {
         assert!(store.remove_and_save(&key).unwrap());
         assert!(!TrustStore::open(&path).unwrap().is_trusted(&key));
 
-        // Si donde iba su directorio aparece un archivo, no se puede guardar.
+        // If a file appears where its directory should go, it cannot be saved.
         let mut broken = TrustStore::open(dir.path().join("sub/trust.toml")).unwrap();
         std::fs::write(dir.path().join("sub"), b"x").unwrap();
         broken.add(peer(3, "Mac"));
@@ -181,14 +181,14 @@ mod tests {
     }
 
     #[test]
-    fn par_no_confiable_se_rechaza() {
+    fn an_untrusted_peer_is_rejected() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("trust.toml");
         let mut store = TrustStore::open(&path).unwrap();
         store.add_and_save(peer(1, "PC")).unwrap();
 
         let reloaded = TrustStore::open(&path).unwrap();
-        let stranger = peer(9, "intruso").public_key;
+        let stranger = peer(9, "intruder").public_key;
         assert!(!reloaded.is_trusted(&stranger));
         assert!(matches!(
             reloaded.verify(&stranger),
@@ -197,7 +197,7 @@ mod tests {
     }
 
     #[test]
-    fn olvidar_un_par_persiste() {
+    fn forgetting_a_peer_persists() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("trust.toml");
         let mut store = TrustStore::open(&path).unwrap();
@@ -209,7 +209,7 @@ mod tests {
     }
 
     #[test]
-    fn inexistente_empieza_vacio_sin_crear_archivo() {
+    fn a_nonexistent_one_starts_empty_without_creating_a_file() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("trust.toml");
         let store = TrustStore::open(&path).unwrap();
@@ -218,7 +218,7 @@ mod tests {
     }
 
     #[test]
-    fn archivo_invalido_es_error() {
+    fn an_invalid_file_is_an_error() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("trust.toml");
         fs::write(
@@ -238,35 +238,35 @@ mod tests {
     }
 
     #[test]
-    fn si_no_se_puede_guardar_no_queda_confiado() {
+    fn if_it_cannot_be_saved_it_is_not_left_trusted() {
         let dir = tempfile::tempdir().unwrap();
         let sub = dir.path().join("sub");
         let mut store = TrustStore::open(sub.join("trust.toml")).unwrap();
-        // "sub" pasa a ser un archivo regular: ya no se puede escribir dentro.
+        // "sub" becomes a regular file: it can no longer be written into.
         fs::write(&sub, "").unwrap();
         let p = peer(1, "PC");
         assert!(store.add_and_save(p.clone()).is_err());
         assert!(!store.is_trusted(&p.public_key));
     }
 
-    // QA ronda 1: un archivo editado a mano puede repetir un par; gana la última entrada
-    // y al guardar queda una sola.
+    // QA round 1: a hand-edited file may repeat a peer; the last entry wins
+    // and on saving only one remains.
     #[test]
-    fn par_repetido_en_el_archivo_queda_una_vez() {
+    fn a_peer_repeated_in_the_file_remains_once() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("trust.toml");
         let key = peer(1, "").public_key;
         fs::write(
             &path,
             format!(
-                "version = 1\n[[peer]]\npublic_key = \"{key}\"\nname = \"vieja\"\n\
-                 [[peer]]\npublic_key = \"{key}\"\nname = \"nueva\"\n"
+                "version = 1\n[[peer]]\npublic_key = \"{key}\"\nname = \"old\"\n\
+                 [[peer]]\npublic_key = \"{key}\"\nname = \"new\"\n"
             ),
         )
         .unwrap();
         let store = TrustStore::open(&path).unwrap();
         assert_eq!(store.peers().count(), 1);
-        assert_eq!(store.verify(&key).unwrap().name, "nueva");
+        assert_eq!(store.verify(&key).unwrap().name, "new");
         store.save().unwrap();
         assert_eq!(TrustStore::open(&path).unwrap().peers().count(), 1);
     }
@@ -276,10 +276,10 @@ mod tests {
     proptest! {
         #![proptest_config(ProptestConfig { cases: 64, ..ProptestConfig::default() })]
 
-        /// Cualquier nombre (comillas, saltos de línea, Unicode, controles) sobrevive
-        /// a guardar y abrir: el nombre del par lo elige el otro lado.
+        /// Any name (quotes, line breaks, Unicode, controls) survives
+        /// saving and opening: the peer's name is chosen by the other side.
         #[test]
-        fn cualquier_nombre_sobrevive_a_guardar_y_abrir(
+        fn any_name_survives_saving_and_opening(
             peers in prop::collection::btree_map(any::<u8>(), any::<String>(), 0..6),
         ) {
             let dir = tempfile::tempdir().unwrap();
@@ -300,7 +300,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn se_guarda_con_permisos_0600() {
+    fn is_saved_with_0600_permissions() {
         use std::os::unix::fs::PermissionsExt;
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("trust.toml");

@@ -1,13 +1,13 @@
 use std::net::SocketAddr;
 
-/// Cómo se habla con el otro agente por un enlace: abrir una sesión y medir
-/// su salud con un ping. El gestor solo conoce este trait; la implementación
-/// real es [`QuicProber`](super::QuicProber) y las pruebas usan un doble.
+/// How to talk to the other agent over a link: open a session and measure
+/// its health with a ping. The manager only knows this trait; the real
+/// implementation is [`QuicProber`](super::QuicProber) and tests use a double.
 pub trait Prober: Send + Sync + 'static {
-    /// Conexión viva por un enlace.
+    /// Live connection over a link.
     type Session: Send + 'static;
-    /// Lo que el gestor entrega de la conexión activa (por ejemplo, la
-    /// [`Connection`](crate::transport::Connection) de QUIC).
+    /// What the manager hands over of the active connection (for example, QUIC's
+    /// [`Connection`](crate::transport::Connection)).
     type Handle: Clone + Send + Sync + 'static;
     type Error: std::error::Error + Send + 'static;
 
@@ -16,8 +16,8 @@ pub trait Prober: Send + Sync + 'static {
         addr: SocketAddr,
     ) -> impl Future<Output = Result<Self::Session, Self::Error>> + Send;
 
-    /// Un ping de ida y vuelta. El gestor le pone el tiempo máximo y, si
-    /// falla o vence, descarta la sesión y vuelve a conectar.
+    /// A round-trip ping. The manager puts the maximum time on it and, if
+    /// it fails or expires, discards the session and connects again.
     fn ping(
         &self,
         session: &mut Self::Session,

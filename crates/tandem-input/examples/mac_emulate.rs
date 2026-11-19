@@ -1,9 +1,9 @@
-//! Prueba manual de la inyección en macOS (T-023).
+//! Manual test of injection on macOS (T-023).
 //!
-//! `cargo run -p tandem-input --example mac_emulate` en la Mac, con el permiso de
-//! Accesibilidad para la terminal. Abrir antes un editor de texto vacío y dejarlo
-//! en primer plano: a los 3 s el ejemplo escribe, mueve el mouse y hace scroll.
-//! Lo que hay que observar está en `docs/tasks/T-023.md`.
+//! `cargo run -p tandem-input --example mac_emulate` on the Mac, with the Accessibility
+//! permission for the terminal. Open an empty text editor beforehand and leave it
+//! in the foreground: after 3 s the example types, moves the mouse and scrolls.
+//! What to watch for is in `docs/tasks/T-023.md`.
 
 #[cfg(target_os = "macos")]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -24,10 +24,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Ok(())
         };
 
-    println!("3 s para poner un editor de texto en primer plano…");
+    println!("3 s to bring a text editor to the foreground…");
     sleep(Duration::from_secs(3));
 
-    // «tandem», luego Shift+«ñ» física (tecla ; en ANSI) y una flecha a la izquierda.
+    // "tandem", then Shift+physical "ñ" (the ; key on ANSI) and a left arrow.
     for id in [0x17, 0x04, 0x11, 0x07, 0x08, 0x10] {
         tap(&mut e, HidUsage::key(id))?;
     }
@@ -42,7 +42,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     })?;
     tap(&mut e, HidUsage::key(0x50))?;
 
-    // Repetición: «a» mantenida 10 veces.
+    // Repeat: "a" held 10 times.
     for _ in 0..10 {
         e.emit(&InputEvent::Key {
             usage: HidUsage::key(0x04),
@@ -55,7 +55,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         state: KeyState::Released,
     })?;
 
-    // Un cuadrado de 200 px con el mouse.
+    // A 200 px square with the mouse.
     for (dx, dy) in [(1.0, 0.0), (0.0, 1.0), (-1.0, 0.0), (0.0, -1.0)] {
         for _ in 0..100 {
             e.emit(&InputEvent::MotionRelative {
@@ -66,7 +66,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    // Doble clic sobre la palabra escrita (selecciona la palabra).
+    // Double click on the typed word (selects the word).
     for _ in 0..2 {
         for state in [KeyState::Pressed, KeyState::Released] {
             e.emit(&InputEvent::Button {
@@ -77,7 +77,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    // Scroll: tres muescas hacia atrás y tres hacia adelante; luego píxeles.
+    // Scroll: three notches back and three forward; then pixels.
     for dy in [-120, -120, -120, 120, 120, 120] {
         e.emit(&InputEvent::Scroll(Scroll::Wheel {
             dx_v120: 0,
@@ -90,17 +90,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         sleep(Duration::from_millis(10));
     }
 
-    // Multimedia: subir y bajar el volumen (debe aparecer el indicador).
+    // Media: volume up and down (the indicator must appear).
     tap(&mut e, HidUsage::consumer(0xE9))?;
     sleep(Duration::from_millis(300));
     tap(&mut e, HidUsage::consumer(0xEA))?;
 
     e.release_all()?;
-    println!("listo");
+    println!("done");
     Ok(())
 }
 
 #[cfg(not(target_os = "macos"))]
 fn main() {
-    eprintln!("este ejemplo solo corre en macOS");
+    eprintln!("this example only runs on macOS");
 }

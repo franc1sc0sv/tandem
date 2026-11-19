@@ -1,5 +1,5 @@
-//! Comprobaciones contra un agente de prueba que ya corre, por su IPC. Cada una devuelve un
-//! [`CheckResult`]; ninguna deja un túnel abierto ni un reenvío vivo al terminar.
+//! Checks against a test agent that is already running, through its IPC. Each one returns a
+//! [`CheckResult`]; none leaves a tunnel open or a forward alive when it ends.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -19,16 +19,16 @@ use crate::report::CheckResult;
 const IPC_WAIT: Duration = Duration::from_secs(30);
 const STEP: Duration = Duration::from_secs(20);
 
-/// Lo que cada comprobación necesita saber de su máquina y de la otra.
+/// What each check needs to know about its machine and the other one.
 #[derive(Debug, Clone)]
 pub struct Ctx {
     pub data_dir: PathBuf,
-    /// `pc` o `mac`.
+    /// `pc` or `mac`.
     pub label: String,
-    /// Ruta de `tandem-hw` en la otra máquina (los túneles lo usan como programa de
-    /// prueba: sale igual en Windows y en macOS).
+    /// Path of `tandem-hw` on the other machine (tunnels use it as the test program:
+    /// it comes out the same on Windows and macOS).
     pub peer_exe: String,
-    /// Carpeta de trabajo de la otra máquina (temporal, ya creada) y su separador.
+    /// Working directory of the other machine (temporary, already created) and its separator.
     pub remote_dir: String,
     pub remote_sep: char,
 }
@@ -43,7 +43,7 @@ impl Ctx {
     }
 }
 
-/// Todas las comprobaciones que corre `run all` en una máquina, en orden.
+/// All the checks that `run all` runs on a machine, in order.
 pub const TUNNEL_CHECKS: &[&str] = &[
     "tunnel-process",
     "tunnel-files",
@@ -53,15 +53,15 @@ pub const TUNNEL_CHECKS: &[&str] = &[
 
 async fn req(c: &mut Conn, cmd: UiCommand) -> anyhow::Result<Reply> {
     match tokio::time::timeout(STEP, c.request(cmd)).await {
-        Ok(Ok(Reply::Rejected(why))) => anyhow::bail!("el agente rechazó el pedido: {why}"),
+        Ok(Ok(Reply::Rejected(why))) => anyhow::bail!("the agent rejected the request: {why}"),
         Ok(Ok(r)) => Ok(r),
         Ok(Err(e)) => Err(e.into()),
-        Err(_) => anyhow::bail!("el agente no contestó en {STEP:?}"),
+        Err(_) => anyhow::bail!("the agent did not answer within {STEP:?}"),
     }
 }
 
 fn unexpected(r: Reply) -> anyhow::Error {
-    anyhow::anyhow!("respuesta inesperada: {r:?}")
+    anyhow::anyhow!("unexpected reply: {r:?}")
 }
 
 fn timed(mut r: CheckResult, started: Instant) -> CheckResult {
@@ -79,9 +79,9 @@ fn done(r: CheckResult, started: Instant, out: anyhow::Result<String>) -> CheckR
     )
 }
 
-// --- Enlace -----------------------------------------------------------------------------
+// --- Link -------------------------------------------------------------------------------
 
-/// H1: el agente de prueba ve a la otra máquina emparejada, con un enlace.
+/// H1: the test agent sees the other machine paired, with a link.
 pub async fn pair(ctx: &Ctx, wait: Duration) -> CheckResult {
     let started = Instant::now();
     let r = ctx.result("pair", &["H1"]);
@@ -91,12 +91,12 @@ pub async fn pair(ctx: &Ctx, wait: Duration) -> CheckResult {
             match req(&mut ui, UiCommand::GetPeer).await? {
                 Reply::Peer(PeerStatus::Paired {
                     link: Some(link), ..
-                }) => return Ok(format!("emparejada por {link:?}")),
+                }) => return Ok(format!("paired over {link:?}")),
                 Reply::Peer(_) => {}
                 other => return Err(unexpected(other)),
             }
             if started.elapsed() >= wait {
-                anyhow::bail!("no vio a la otra máquina en {wait:?}");
+                anyhow::bail!("did not see the other machine within {wait:?}");
             }
             tokio::time::sleep(Duration::from_millis(500)).await;
         }
@@ -105,8 +105,8 @@ pub async fn pair(ctx: &Ctx, wait: Duration) -> CheckResult {
     done(r, started, out)
 }
 
-/// T-093 (control): latencia del ping por el enlace. No hay tope en la tarea; falla solo si
-/// algún ping se pierde o el p99 pasa de 200 ms (un enlace roto, no uno lento).
+/// T-093 (control): ping latency over the link. The task sets no limit; it fails only if
+/// a ping is lost or p99 exceeds 200 ms (a broken link, not a slow one).
 pub async fn ping(ctx: &Ctx, count: usize) -> CheckResult {
     let started = Instant::now();
     let r = ctx.result("ping", &["T-093"]);
@@ -124,20 +124,20 @@ pub async fn ping(ctx: &Ctx, count: usize) -> CheckResult {
             }
         }
         let (p50, p99) =
-            latency::percentiles(&mut millis).ok_or_else(|| anyhow::anyhow!("sin pings"))?;
+            latency::percentiles(&mut millis).ok_or_else(|| anyhow::anyhow!("no pings"))?;
         let link = link.map_or_else(|| "?".to_string(), |l| format!("{l:?}"));
-        let said = format!("{link}: p50 {p50} ms, p99 {p99} ms en {count} pings");
-        anyhow::ensure!(p99 <= 200, "p99 demasiado alto: {said}");
+        let said = format!("{link}: p50 {p50} ms, p99 {p99} ms over {count} pings");
+        anyhow::ensure!(p99 <= 200, "p99 too high: {said}");
         Ok(said)
     }
     .await;
     done(r, started, out)
 }
 
-// --- Entrada sintética ---------------------------------------------------------------------
+// --- Synthetic input -----------------------------------------------------------------------
 
-/// Mueve el cursor del sistema con la entrada de verdad, en pasos chicos. Solo existe en
-/// Windows y macOS; en otra plataforma la comprobación se omite.
+/// Moves the system cursor with real input, in small steps. It only exists on Windows and
+/// macOS; on other platforms the check is skipped.
 fn spawn_injector(
     dx: f64,
     dy: f64,
@@ -199,7 +199,7 @@ struct Injector;
 #[cfg(not(any(windows, target_os = "macos")))]
 impl Injector {
     fn new() -> Result<Self, String> {
-        Err("sin inyección de entrada en este sistema".into())
+        Err("no input injection on this system".into())
     }
 
     fn motion(&mut self, _: f64, _: f64) -> Result<(), String> {
@@ -207,18 +207,18 @@ impl Injector {
     }
 }
 
-/// Los cuatro bordes y el vector con que se empuja contra cada uno.
+/// The four edges and the vector used to push against each one.
 const PUSHES: [(&str, f64, f64); 4] = [
-    ("derecho", 6.0, 0.0),
-    ("izquierdo", -6.0, 0.0),
-    ("inferior", 0.0, 6.0),
-    ("superior", 0.0, -6.0),
+    ("right", 6.0, 0.0),
+    ("left", -6.0, 0.0),
+    ("bottom", 0.0, 6.0),
+    ("top", 0.0, -6.0),
 ];
 
-/// H4: esta máquina tiene el teclado y el mouse; se inyecta movimiento sintético contra
-/// cada borde hasta que el agente avisa `Crossed` hacia la otra. No mueve el mouse físico.
-/// Sigue inyectando `keep_injecting` después de cruzar para que la otra máquina mida su
-/// latencia (corre `latency-watch` allá al mismo tiempo).
+/// H4: this machine owns the keyboard and mouse; synthetic motion is injected against
+/// each edge until the agent reports `Crossed` toward the other. It does not move the
+/// physical mouse. It keeps injecting for `keep_injecting` after crossing so the other
+/// machine can measure its latency (`latency-watch` runs over there at the same time).
 pub async fn input_cross(ctx: &Ctx, keep_injecting: Duration) -> CheckResult {
     let started = Instant::now();
     let r = ctx.result("input-cross", &["H4", "T-093"]);
@@ -230,15 +230,15 @@ pub async fn input_cross(ctx: &Ctx, keep_injecting: Duration) -> CheckResult {
             other => return Err(unexpected(other)),
         };
         if let Some(problem) = &status.problem {
-            anyhow::bail!("el motor de entrada no funciona aquí: {problem}");
+            anyhow::bail!("the input engine does not work here: {problem}");
         }
         if !status.session {
-            anyhow::bail!("no hay sesión de entrada con la otra máquina");
+            anyhow::bail!("no input session with the other machine");
         }
         if status.server != me {
             req(&mut ui, UiCommand::SetKeyboard(me)).await?;
         }
-        // El aviso de cruce llega por otra conexión, que se cierra al terminar.
+        // The crossing notice arrives on another connection, which is closed at the end.
         let mut watch = conn::connect(&ctx.data_dir, Peer::Ui, IPC_WAIT).await?;
         req(&mut watch, UiCommand::WatchCursor { on: true }).await?;
         for (edge, dx, dy) in PUSHES {
@@ -251,19 +251,19 @@ pub async fn input_cross(ctx: &Ctx, keep_injecting: Duration) -> CheckResult {
             stop.store(true, Ordering::Relaxed);
             let injected = worker
                 .join()
-                .map_err(|_| anyhow::anyhow!("el hilo de inyección murió"))?;
+                .map_err(|_| anyhow::anyhow!("the injection thread died"))?;
             injected.map_err(anyhow::Error::msg)?;
             if crossed {
-                // Se devuelve el teclado y el mouse a esta máquina para la dirección siguiente.
+                // The keyboard and mouse are handed back to this machine for the next direction.
                 let _ = req(&mut ui, UiCommand::SetKeyboard(me)).await;
-                return Ok(format!("cruzó por el borde {edge} con entrada sintética"));
+                return Ok(format!("crossed at edge {edge} with synthetic input"));
             }
         }
-        anyhow::bail!("ningún borde cruzó a la otra máquina con movimiento sintético")
+        anyhow::bail!("no edge crossed to the other machine with synthetic motion")
     }
     .await;
     match out {
-        Err(e) if e.to_string().contains("sin inyección") => {
+        Err(e) if e.to_string().contains("no input injection") => {
             timed(r.skip(format!("{e:#}")), started)
         }
         out => done(r, started, out),
@@ -281,8 +281,8 @@ async fn wait_crossed(watch: &mut Conn, from: Machine, wait: Duration) -> bool {
     }
 }
 
-/// T-093: la máquina que recibe la entrada mide su latencia; se queda mirando `window`
-/// y juzga la mejor ventana de 5 s que vio (la de más eventos).
+/// T-093: the machine that receives the input measures its latency; it keeps watching for
+/// `window` and judges the best 5 s window it saw (the one with the most events).
 pub async fn latency_watch(ctx: &Ctx, window: Duration) -> CheckResult {
     let started = Instant::now();
     let r = ctx.result("input-latency", &["T-093", "H4"]);
@@ -302,16 +302,16 @@ pub async fn latency_watch(ctx: &Ctx, window: Duration) -> CheckResult {
             Some(Judgement::Pass(d)) => Ok(d),
             Some(Judgement::Fail(d)) => anyhow::bail!("{d}"),
             Some(Judgement::TooFew(n)) => {
-                anyhow::bail!("solo {n} eventos medidos: la entrada no llegó (¿cruzó?)")
+                anyhow::bail!("only {n} events measured: the input did not arrive (did it cross?)")
             }
-            None => anyhow::bail!("el agente no midió ninguna latencia en {window:?}"),
+            None => anyhow::bail!("the agent did not measure any latency within {window:?}"),
         }
     }
     .await;
     done(r, started, out)
 }
 
-// --- Túneles ---------------------------------------------------------------------------------
+// --- Tunnels ---------------------------------------------------------------------------------
 
 async fn open_tunnel(
     c: &mut Conn,
@@ -356,7 +356,7 @@ async fn exec(
     }
 }
 
-/// Lee la salida de un proceso hasta que termina y devuelve stdout.
+/// Reads a process's output until it ends and returns stdout.
 async fn stdout_until_done(
     c: &mut Conn,
     t: TunnelId,
@@ -391,13 +391,13 @@ async fn stdout_until_done(
         }
         anyhow::ensure!(
             Instant::now() < deadline,
-            "el proceso no terminó en {STEP:?}"
+            "the process did not finish within {STEP:?}"
         );
         tokio::time::sleep(Duration::from_millis(200)).await;
     }
 }
 
-/// Abre un túnel, corre `body` y lo cierra siempre, aunque `body` falle.
+/// Opens a tunnel, runs `body` and always closes it, even if `body` fails.
 async fn with_tunnel<F>(
     ctx: &Ctx,
     title: &str,
@@ -422,7 +422,7 @@ where
     Ok(said)
 }
 
-/// T-104 / H2: un proceso en la otra máquina por el túnel, su salida, y matarlo con su árbol.
+/// T-104 / H2: a process on the other machine through the tunnel, its output, and killing it with its tree.
 pub async fn tunnel_process(ctx: &Ctx) -> CheckResult {
     let started = Instant::now();
     let r = ctx.result("tunnel-process", &["H2", "T-103", "T-104"]);
@@ -431,7 +431,10 @@ pub async fn tunnel_process(ctx: &Ctx) -> CheckResult {
         Box::pin(async move {
             let p = exec(c, t, &exe, &["emit", "hw-hello"]).await?;
             let text = stdout_until_done(c, t, &p).await?;
-            anyhow::ensure!(text.contains("hw-hello"), "la salida no llegó: {text:?}");
+            anyhow::ensure!(
+                text.contains("hw-hello"),
+                "the output did not arrive: {text:?}"
+            );
             let long = exec(c, t, &exe, &["sleep", "300"]).await?;
             req(
                 c,
@@ -447,9 +450,9 @@ pub async fn tunnel_process(ctx: &Ctx) -> CheckResult {
             };
             anyhow::ensure!(
                 state == Some(ProcessState::Killed),
-                "el proceso quedó en {state:?}"
+                "the process stayed in {state:?}"
             );
-            Ok("salida recibida de la otra máquina y proceso matado".into())
+            Ok("output received from the other machine and process killed".into())
         })
     })
     .await;
@@ -462,7 +465,7 @@ fn pattern(len: usize) -> Vec<u8> {
         .collect()
 }
 
-/// T-106: un archivo de 3 MiB va y vuelve por el túnel idéntico.
+/// T-106: a 3 MiB file goes there and back through the tunnel identical.
 pub async fn tunnel_files(ctx: &Ctx) -> CheckResult {
     let started = Instant::now();
     let r = ctx.result("tunnel-files", &["H2", "T-106"]);
@@ -502,18 +505,21 @@ pub async fn tunnel_files(ctx: &Ctx) -> CheckResult {
                     },
                 )
                 .await?;
-                Ok(format!("{bytes} bytes de ida y vuelta"))
+                Ok(format!("{bytes} bytes round trip"))
             })
         })
         .await?;
-        anyhow::ensure!(std::fs::read(&back)? == data, "el archivo volvió distinto");
+        anyhow::ensure!(
+            std::fs::read(&back)? == data,
+            "the file came back different"
+        );
         Ok(said)
     }
     .await;
     done(r, started, out)
 }
 
-/// T-106: un puerto reenviado por el túnel llega a un servidor de eco de la otra máquina.
+/// T-106: a port forwarded through the tunnel reaches an echo server on the other machine.
 pub async fn tunnel_port(ctx: &Ctx) -> CheckResult {
     let started = Instant::now();
     let r = ctx.result("tunnel-port", &["H2", "T-106"]);
@@ -550,7 +556,7 @@ pub async fn tunnel_port(ctx: &Ctx) -> CheckResult {
             .await;
             echoed?;
             Ok(format!(
-                "eco por el puerto reenviado ({port} en la otra máquina)"
+                "echo through the forwarded port ({port} on the other machine)"
             ))
         })
     })
@@ -565,7 +571,10 @@ async fn echo(port: u16) -> anyhow::Result<()> {
     s.write_all(b"tandem-hw-ping").await?;
     let mut buf = [0u8; 14];
     tokio::time::timeout(STEP, s.read_exact(&mut buf)).await??;
-    anyhow::ensure!(&buf == b"tandem-hw-ping", "el eco volvió distinto: {buf:?}");
+    anyhow::ensure!(
+        &buf == b"tandem-hw-ping",
+        "the echo came back different: {buf:?}"
+    );
     Ok(())
 }
 
@@ -577,11 +586,11 @@ fn git(dir: &Path, args: &[&str]) -> anyhow::Result<()> {
         .args(args)
         .stdout(std::process::Stdio::null())
         .status()?;
-    anyhow::ensure!(st.success(), "git {args:?} falló");
+    anyhow::ensure!(st.success(), "git {args:?} failed");
     Ok(())
 }
 
-/// T-107: un repo de git viaja con el túnel, se hace un commit allá y vuelve como rama.
+/// T-107: a git repo travels with the tunnel, a commit is made over there and it returns as a branch.
 pub async fn tunnel_workspace(ctx: &Ctx) -> CheckResult {
     let started = Instant::now();
     let r = ctx.result("tunnel-workspace", &["H2", "T-107"]);
@@ -589,7 +598,7 @@ pub async fn tunnel_workspace(ctx: &Ctx) -> CheckResult {
     let out = async {
         let repo = repo?;
         git(&repo, &["init", "-q"])?;
-        std::fs::write(repo.join("hola.txt"), "hola\n")?;
+        std::fs::write(repo.join("hello.txt"), "hello\n")?;
         git(&repo, &["add", "."])?;
         git(&repo, &["commit", "-q", "-m", "base"])?;
         let spec = WorkspaceSpec {
@@ -599,7 +608,7 @@ pub async fn tunnel_workspace(ctx: &Ctx) -> CheckResult {
         };
         with_tunnel(ctx, "hw-workspace", Some(spec), |c, t| {
             Box::pin(async move {
-                // El agente de la otra máquina corre `git` en la carpeta del workspace.
+                // The agent on the other machine runs `git` in the workspace folder.
                 let commit = exec(
                     c,
                     t,
@@ -613,7 +622,7 @@ pub async fn tunnel_workspace(ctx: &Ctx) -> CheckResult {
                         "-q",
                         "--allow-empty",
                         "-m",
-                        "desde la otra máquina",
+                        "from the other machine",
                     ],
                 )
                 .await?;
@@ -630,11 +639,11 @@ pub async fn tunnel_workspace(ctx: &Ctx) -> CheckResult {
                 {
                     Reply::BroughtBack(rep) if rep.branch.is_some() && !rep.commits.is_empty() => {
                         Ok(format!(
-                            "volvió la rama con {} commit(s)",
+                            "the branch came back with {} commit(s)",
                             rep.commits.len()
                         ))
                     }
-                    other => anyhow::bail!("no volvió una rama con commits: {other:?}"),
+                    other => anyhow::bail!("no branch with commits came back: {other:?}"),
                 }
             })
         })
@@ -644,7 +653,7 @@ pub async fn tunnel_workspace(ctx: &Ctx) -> CheckResult {
     done(r, started, out)
 }
 
-/// Carpeta de trabajo propia de una comprobación, dentro del directorio de datos de prueba.
+/// Working directory of a check, inside the test data directory.
 fn scratch(data_dir: &Path, name: &str) -> anyhow::Result<PathBuf> {
     let dir = data_dir.join("scratch").join(name);
     let _ = std::fs::remove_dir_all(&dir);
@@ -700,10 +709,10 @@ mod tests {
     fn scratch_starts_empty_each_time() {
         let dir = tempfile::tempdir().unwrap();
         let a = scratch(dir.path(), "x").unwrap();
-        std::fs::write(a.join("viejo"), "1").unwrap();
+        std::fs::write(a.join("old"), "1").unwrap();
         let b = scratch(dir.path(), "x").unwrap();
         assert_eq!(a, b);
-        assert!(!b.join("viejo").exists());
+        assert!(!b.join("old").exists());
     }
 
     #[tokio::test]

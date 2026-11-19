@@ -1,25 +1,25 @@
-//! Simulación del puesto, solo para pruebas (docs/TESTING.md).
+//! Desk simulation, for tests only (docs/TESTING.md).
 //!
-//! Dos `tandemd` reales en el mismo proceso, cada uno con su orquestador, su gestor
-//! de enlaces y el protocolo de control real, unidos por una red en memoria con un
-//! enlace por cable (USB4, Ethernet, Wi-Fi) que se puede cortar. Los backends de
-//! plataforma se reemplazan por un puesto físico simulado:
+//! Two real `tandemd` in the same process, each with its orchestrator, its link
+//! manager and the real control protocol, joined by an in-memory network with one
+//! link per cable (USB4, Ethernet, Wi-Fi) that can be cut. Platform backends are
+//! replaced by a simulated physical desk:
 //!
-//! - [`world`]: la energía de cada máquina y el hub USB.
-//! - [`steps`]: los pasos de cada máquina sobre ese puesto.
-//! - [`net`]: los enlaces y el `PeerLink` que sigue al enlace activo.
-//! - [`fault`]: [`FaultPlan`] para fallar, colgar o tardar un paso y cortar enlaces.
-//! - [`desk`]: [`Desk`], que arma todo y comprueba el puesto contra el estado.
-//! - [`monitors`]: los dobles de `monitor-ddc` conectados a las dos máquinas (T-110).
-//! - [`wifi`]: [`SimWifi`], un Wi-Fi con ancho de banda y cola, para la prioridad de la
-//!   entrada sobre los datos (T-101).
+//! - [`world`]: each machine's power and the USB hub.
+//! - [`steps`]: each machine's steps over that desk.
+//! - [`net`]: the links and the `PeerLink` that follows the active link.
+//! - [`fault`]: [`FaultPlan`] to fail, hang or delay a step and cut links.
+//! - [`desk`]: [`Desk`], which builds everything and checks the desk against the state.
+//! - [`monitors`]: the `monitor-ddc` doubles connected to both machines (T-110).
+//! - [`wifi`]: [`SimWifi`], a Wi-Fi with bandwidth and a queue, for input priority
+//!   over data (T-101).
 //!
-//! - [`input`]: [`InputPair`], dos agentes con el motor de entrada por QUIC real en
-//!   loopback, para el banco de latencia de la entrada (T-093). Ahí el reloj es el real.
+//! - [`input`]: [`InputPair`], two agents with the input engine over real QUIC on
+//!   loopback, for the input latency bench (T-093). There the clock is the real one.
 //!
-//! Salvo [`input`], todo corre con el reloj de tokio pausado: los tiempos (arranque de la
-//! PC, pings, timeouts) son exactos y no hay esperas reales. La geometría y las sesiones
-//! del motor de entrada se prueban además en `tandemd/tests/input.rs`.
+//! Except for [`input`], everything runs with the tokio clock paused: times (PC startup,
+//! pings, timeouts) are exact and there are no real waits. The geometry and sessions
+//! of the input engine are also tested in `tandemd/tests/input.rs`.
 
 pub mod desk;
 pub mod fault;

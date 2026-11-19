@@ -1,6 +1,6 @@
-//! Estado puro del gestor: qué enlaces están sanos y cuál es el activo.
-//! Sin E/S: el tiempo y si hay una transacción en curso llegan como argumentos,
-//! para probarlo con propiedades.
+//! Pure state of the manager: which links are healthy and which is the active one.
+//! No I/O: time and whether a transaction is in progress arrive as arguments,
+//! so it can be tested with properties.
 
 use std::collections::BTreeMap;
 use std::net::SocketAddr;
@@ -10,25 +10,25 @@ use tokio::time::Instant;
 
 use super::{LinkCandidate, LinkKind, ManagerError};
 
-/// Cambio del enlace activo. `seq` crece de uno en uno desde 0, así que un
-/// consumidor puede comprobar que no se perdió ni se reordenó ninguno.
+/// Change of the active link. `seq` grows one by one from 0, so a
+/// consumer can check that none was lost or reordered.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LinkEvent {
     pub seq: u64,
     pub from: Option<LinkKind>,
     pub to: Option<LinkKind>,
-    /// Si `from` se cayó: desde su última respuesta hasta el cambio (lo que la entrada
-    /// pudo quedar sin camino, como mucho). `None` si `from` seguía sano (una subida a un
-    /// enlace mejor, o el primero).
+    /// If `from` dropped: from its last answer until the change (how long input
+    /// may have been left without a path, at most). `None` if `from` was still healthy (an upgrade to a
+    /// better link, or the first one).
     pub took: Option<Duration>,
 }
 
-/// Salud de un enlace según el último ping.
+/// Health of a link according to the last ping.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LinkStatus {
     pub kind: LinkKind,
     pub addr: SocketAddr,
-    /// Ida y vuelta del último ping; `None` si el enlace está caído.
+    /// Round trip of the last ping; `None` if the link is down.
     pub rtt: Option<Duration>,
 }
 
@@ -36,27 +36,27 @@ pub(crate) struct LinkTable<H> {
     links: BTreeMap<LinkKind, Slot<H>>,
     active: Option<LinkKind>,
     next_seq: u64,
-    /// Enlaces que se quitaron estando sanos: al volver entran con la histéresis, como los
-    /// que se caen (un cable que parpadea no arrastra el tráfico).
+    /// Links that were removed while healthy: when they return they enter with hysteresis, like those
+    /// that drop (a flickering cable does not drag traffic).
     flapped: std::collections::BTreeSet<LinkKind>,
-    /// Cuánto tiene que estar sano un enlace que ya se cayó antes de volver a él.
+    /// How long a link that already dropped before has to be healthy before going back to it.
     settle: Duration,
 }
 
 struct Slot<H> {
     addr: SocketAddr,
     up: Option<(H, Duration)>,
-    /// Primer ping bueno de la racha actual.
+    /// First good ping of the current streak.
     up_since: Option<Instant>,
-    /// Último ping bueno.
+    /// Last good ping.
     last_ok: Option<Instant>,
-    /// Se cayó alguna vez después de haber estado sano: desde entonces, para
-    /// volver a él hay que esperar `settle`.
+    /// It dropped at some point after having been healthy: since then, to
+    /// go back to it one has to wait `settle`.
     dropped: bool,
 }
 
 impl<H> Slot<H> {
-    /// Si se puede pasar a este enlace sin miedo a que parpadee.
+    /// Whether this link can be switched to without fear that it flickers.
     fn settled(&self, now: Instant, settle: Duration) -> bool {
         match self.up_since {
             Some(since) => !self.dropped || now.saturating_duration_since(since) >= settle,
@@ -95,8 +95,8 @@ impl<H> LinkTable<H> {
         })
     }
 
-    /// Un enlace nuevo (apareció su interfaz). Si ya estaba con esa dirección no hace
-    /// nada; con otra, se reemplaza. Devuelve si quedó un enlace nuevo que pingear.
+    /// A new link (its interface appeared). If it was already there with that address it does
+    /// nothing; with another, it is replaced. Returns whether a new link remains to be pinged.
     pub(crate) fn add(&mut self, c: LinkCandidate) -> bool {
         if self.links.get(&c.kind).is_some_and(|s| s.addr == c.addr) {
             return false;
@@ -115,14 +115,14 @@ impl<H> LinkTable<H> {
         true
     }
 
-    /// Quita un enlace (su interfaz bajó). Si era el activo, el cambio al siguiente sale
-    /// en el acto, haya o no una transacción en curso.
+    /// Removes a link (its interface went down). If it was the active one, the switch to the next comes out
+    /// at once, whether or not a transaction is in progress.
     pub(crate) fn remove(&mut self, kind: LinkKind, now: Instant) -> Option<LinkEvent> {
         let slot = self.links.get_mut(&kind)?;
         if slot.up.is_some() {
             self.flapped.insert(kind);
         }
-        // Primero caído, para que el evento cuente cuánto estuvo sin camino; después sale.
+        // First down, so the event counts how long it was without a path; then it leaves.
         slot.up = None;
         slot.up_since = None;
         let event = self.reevaluate(now, false);
@@ -130,13 +130,13 @@ impl<H> LinkTable<H> {
         event
     }
 
-    /// Aplica el resultado de un ping: `Some((handle, rtt))` si respondió.
-    /// Devuelve el evento si cambió el enlace activo.
+    /// Applies the result of a ping: `Some((handle, rtt))` if it answered.
+    /// Returns the event if the active link changed.
     ///
-    /// Si el activo cae, el cambio es inmediato, haya o no una transacción
-    /// (`held`). Subir a un enlace mejor solo se hace sin transacción en curso y,
-    /// si ese enlace ya se cayó alguna vez, tras `settle` de pings buenos seguidos:
-    /// así un cable que parpadea no arrastra el tráfico de un lado a otro.
+    /// If the active one drops, the switch is immediate, whether or not there is a transaction
+    /// (`held`). Going up to a better link is only done without a transaction in progress and,
+    /// if that link already dropped once, after `settle` of consecutive good pings:
+    /// that way a flickering cable does not drag traffic back and forth.
     pub(crate) fn report(
         &mut self,
         kind: LinkKind,
@@ -162,8 +162,8 @@ impl<H> LinkTable<H> {
         self.reevaluate(now, held)
     }
 
-    /// Vuelve a elegir el activo sin un ping nuevo (por ejemplo, al terminar
-    /// una transacción).
+    /// Chooses the active one again without a new ping (for example, when a
+    /// transaction ends).
     pub(crate) fn reevaluate(&mut self, now: Instant, held: bool) -> Option<LinkEvent> {
         let best = self.choose(now, held);
         if best == self.active {
@@ -198,8 +198,8 @@ impl<H> LinkTable<H> {
         match active {
             Some(a) if held => Some(a),
             Some(a) => Some(settled.filter(|b| *b < a).unwrap_or(a)),
-            // Sin activo sano: el mejor estable y, si no hay, cualquiera sano;
-            // mejor un enlace que parpadea que ninguno.
+            // Without a healthy active one: the best stable one and, if none, any healthy one;
+            // better a flickering link than none.
             None => settled.or_else(|| {
                 self.links
                     .iter()
@@ -215,8 +215,8 @@ impl<H> LinkTable<H> {
         Some((kind, handle))
     }
 
-    /// La conexión de cada enlace sano, para usar uno que no es el activo (medir su ancho
-    /// de banda).
+    /// The connection of each healthy link, to use one that is not the active one (to measure its
+    /// bandwidth).
     pub(crate) fn handles(&self) -> BTreeMap<LinkKind, H>
     where
         H: Clone,
@@ -274,7 +274,7 @@ mod tests {
         .unwrap()
     }
 
-    /// Tabla con reloj propio, para escribir las pruebas en milisegundos.
+    /// Table with its own clock, to write the tests in milliseconds.
     struct Clock<H> {
         t: LinkTable<H>,
         start: Instant,
@@ -307,7 +307,7 @@ mod tests {
     }
 
     #[test]
-    fn rechaza_config_vacía_o_repetida() {
+    fn rejects_an_empty_or_repeated_config() {
         assert!(matches!(
             LinkTable::<u32>::new(&[], SETTLE),
             Err(ManagerError::NoCandidates)
@@ -319,21 +319,21 @@ mod tests {
     }
 
     #[test]
-    fn elige_el_mejor_sano_y_vuelve_al_preferido_tras_asentarse() {
+    fn picks_the_best_healthy_one_and_returns_to_the_preferred_after_settling() {
         let mut c = Clock::new(all());
         assert_eq!(c.active(), None);
 
         let e = c.at(0, LinkKind::Wifi, Some(3)).unwrap();
         assert_eq!((e.seq, e.from, e.to), (0, None, Some(LinkKind::Wifi)));
-        // Un enlace que nunca se cayó entra enseguida (el arranque no espera).
+        // A link that never dropped enters right away (startup does not wait).
         let e = c.at(1, LinkKind::Usb4, Some(1)).unwrap();
         assert_eq!(e.to, Some(LinkKind::Usb4));
-        // Un enlace peor que sube no cambia nada.
+        // A worse link that comes up changes nothing.
         assert_eq!(c.at(2, LinkKind::Ethernet, Some(2)), None);
-        // Pings repetidos tampoco.
+        // Repeated pings neither.
         assert_eq!(c.at(1000, LinkKind::Usb4, Some(1)), None);
 
-        // La caída del activo conmuta al instante.
+        // The active one dropping switches instantly.
         let e = c.at(2000, LinkKind::Usb4, None).unwrap();
         assert_eq!(
             (e.from, e.to),
@@ -341,20 +341,20 @@ mod tests {
         );
         assert_eq!(c.t.active(), Some((LinkKind::Ethernet, &2)));
 
-        // Vuelve, pero hasta 3 s de pings buenos seguidos no se regresa.
+        // It comes back, but not until 3 s of consecutive good pings does it go back.
         for ms in [3000, 4000, 5000, 5999] {
             assert_eq!(c.at(ms, LinkKind::Usb4, Some(10)), None, "a {ms} ms");
         }
         let e = c.at(6000, LinkKind::Usb4, Some(10)).unwrap();
         assert_eq!((e.seq, e.to), (3, Some(LinkKind::Usb4)));
-        // El handle es el de la conexión nueva.
+        // The handle is that of the new connection.
         assert_eq!(c.t.active(), Some((LinkKind::Usb4, &10)));
     }
 
-    /// T-102: «pasó a Wi-Fi en 0.6 s». La duración va desde la última respuesta del que
-    /// cayó; una subida sin corte no tiene.
+    /// T-102: "switched to Wi-Fi in 0.6 s". The duration goes from the last answer of the one
+    /// that dropped; an upgrade without a cut has none.
     #[test]
-    fn el_cambio_por_caída_dice_cuánto_tardó() {
+    fn the_switch_by_a_drop_says_how_long_it_took() {
         let mut c = Clock::new(all());
         let first = c.at(0, LinkKind::Wifi, Some(3)).unwrap();
         assert_eq!(first.took, None);
@@ -370,7 +370,7 @@ mod tests {
                 Some(Duration::from_millis(600))
             )
         );
-        // Sin ningún camino: también se mide.
+        // Without any path: it is also measured.
         let gone = c.at(2000, LinkKind::Wifi, None).unwrap();
         assert_eq!(
             (gone.to, gone.took),
@@ -385,13 +385,13 @@ mod tests {
     }
 
     #[test]
-    fn un_usb4_que_parpadea_cada_700_ms_no_mueve_el_enlace() {
+    fn a_usb4_flickering_every_700_ms_does_not_move_the_link() {
         let mut c = Clock::new(all());
         c.at(0, LinkKind::Usb4, Some(1));
         c.at(0, LinkKind::Ethernet, Some(2));
         assert_eq!(c.active(), Some(LinkKind::Usb4));
 
-        // Cortado de [k·700, k·700 + 350) ms; un ping por segundo.
+        // Cut from [k·700, k·700 + 350) ms; one ping per second.
         let mut events = Vec::new();
         for ms in (1000..30_000).step_by(1000) {
             let up = (ms % 700) >= 350;
@@ -403,7 +403,7 @@ mod tests {
     }
 
     #[test]
-    fn durante_una_transacción_solo_se_cambia_si_cae_el_activo() {
+    fn during_a_transaction_it_only_switches_if_the_active_one_drops() {
         let mut c = Clock::new(all());
         c.at(0, LinkKind::Usb4, Some(1));
         c.at(0, LinkKind::Ethernet, Some(2));
@@ -412,15 +412,15 @@ mod tests {
         assert_eq!(c.active(), Some(LinkKind::Ethernet));
 
         c.held = true;
-        // USB4 vuelve y se asienta, pero hay una transacción: se queda Ethernet.
+        // USB4 comes back and settles, but there is a transaction: it stays on Ethernet.
         for ms in (2000..=9000).step_by(1000) {
             assert_eq!(c.at(ms, LinkKind::Usb4, Some(1)), None, "a {ms} ms");
         }
-        // Al terminar, se sube enseguida.
+        // When it ends, it goes up right away.
         let e = c.release(9100).unwrap();
         assert_eq!(e.to, Some(LinkKind::Usb4));
 
-        // Si el activo cae en medio de una transacción, se cambia igual.
+        // If the active one drops in the middle of a transaction, it switches anyway.
         c.held = true;
         let e = c.at(10_000, LinkKind::Usb4, None).unwrap();
         assert_eq!(e.to, Some(LinkKind::Ethernet));
@@ -428,7 +428,7 @@ mod tests {
     }
 
     #[test]
-    fn sin_activo_prefiere_un_enlace_estable_a_uno_que_parpadea() {
+    fn without_an_active_one_prefers_a_stable_link_to_a_flickering_one() {
         let mut c = Clock::new(all());
         c.at(0, LinkKind::Usb4, Some(1));
         c.at(0, LinkKind::Ethernet, Some(2));
@@ -437,13 +437,13 @@ mod tests {
         c.at(1500, LinkKind::Usb4, Some(1));
         let e = c.at(2000, LinkKind::Ethernet, None).unwrap();
         assert_eq!(e.to, Some(LinkKind::Wifi));
-        // Pero sin otra opción, se usa el que parpadea.
+        // But with no other option, the flickering one is used.
         let e = c.at(2100, LinkKind::Wifi, None).unwrap();
         assert_eq!(e.to, Some(LinkKind::Usb4));
     }
 
     #[test]
-    fn sin_enlaces_sanos_no_hay_activo() {
+    fn without_healthy_links_there_is_no_active_one() {
         let mut c = Clock::new(all());
         c.at(0, LinkKind::Ethernet, Some(2));
         let e = c.at(1, LinkKind::Ethernet, None).unwrap();
@@ -452,14 +452,14 @@ mod tests {
     }
 
     #[test]
-    fn un_enlace_no_configurado_se_ignora() {
+    fn an_unconfigured_link_is_ignored() {
         let mut c = Clock::new(LinkTable::new(&[cand(LinkKind::Wifi, 3)], SETTLE).unwrap());
         assert_eq!(c.at(0, LinkKind::Usb4, Some(1)), None);
         assert_eq!(c.active(), None);
     }
 
     #[test]
-    fn el_estado_lista_cada_enlace_en_orden_de_prioridad() {
+    fn the_state_lists_each_link_in_priority_order() {
         let mut t = all();
         t.report(
             LinkKind::Ethernet,
@@ -482,16 +482,16 @@ mod tests {
     }
 
     proptest! {
-        /// Tras cualquier secuencia de pings, con o sin transacción en curso:
-        /// - hay activo si y solo si hay algún enlace sano, y el activo está sano;
-        /// - con una transacción, el activo solo cambia si se cayó;
-        /// - sin transacción, ningún enlace mejor que el activo lleva `SETTLE`
-        ///   sano (o nunca se cayó);
-        /// - mientras ningún enlace se haya caído, el activo es el mejor sano;
-        /// - los eventos salen numerados y encadenados, y el plano de datos
-        ///   existe si y solo si el nuevo activo es de cable.
+        /// After any sequence of pings, with or without a transaction in progress:
+        /// - there is an active one if and only if some link is healthy, and the active one is healthy;
+        /// - with a transaction, the active one only changes if it dropped;
+        /// - without a transaction, no link better than the active one has `SETTLE`
+        ///   healthy (or never dropped);
+        /// - while no link has dropped, the active one is the best healthy one;
+        /// - events come out numbered and chained, and the data plane
+        ///   exists if and only if the new active one is a cable.
         #[test]
-        fn invariantes_de_la_tabla(
+        fn table_invariants(
             configured in prop::sample::subsequence(LinkKind::ALL.to_vec(), 1..=3),
             reports in prop::collection::vec(
                 (kind(), any::<bool>(), 0u64..2500, any::<bool>()),
@@ -528,7 +528,7 @@ mod tests {
                     for (b, since) in up.range(..a) {
                         prop_assert!(
                             ever_dropped.contains(b) && now - *since < SETTLE,
-                            "{:?} asentado y mejor que {:?}", b, a
+                            "{:?} settled and better than {:?}", b, a
                         );
                     }
                 }

@@ -1,19 +1,19 @@
-//! Transporte entre agentes: QUIC (quinn) con TLS 1.3 mutuo y pinning de la
-//! llave Ed25519 del par (DESIGN §4.1, §9).
+//! Transport between agents: QUIC (quinn) with mutual TLS 1.3 and pinning of the
+//! peer's Ed25519 key (DESIGN §4.1, §9).
 //!
-//! Cada agente tiene un [`Endpoint`] que escucha y conecta. Los dos lados
-//! presentan el certificado autofirmado de su [`Identity`](crate::identity::Identity)
-//! y solo se acepta a un par cuya llave esté en la confianza local
-//! ([`PeerTrust`], normalmente el [`TrustStore`](crate::identity::TrustStore)).
+//! Each agent has an [`Endpoint`] that listens and connects. Both sides
+//! present the self-signed certificate of their [`Identity`](crate::identity::Identity)
+//! and only a peer whose key is in the local trust is accepted
+//! ([`PeerTrust`], normally the [`TrustStore`](crate::identity::TrustStore)).
 //!
-//! Para emparejarse hay un endpoint aparte ([`Endpoint::bind_pairing`]), con otro ALPN,
-//! que acepta llaves desconocidas: solo vive mientras el usuario empareja.
+//! For pairing there is a separate endpoint ([`Endpoint::bind_pairing`]), with another ALPN,
+//! that accepts unknown keys: it only lives while the user pairs.
 //!
-//! Sobre una [`Connection`] hay dos canales:
-//! - el stream de control ([`ControlStream`]), confiable y ordenado, que empieza
-//!   con un intercambio de [`Hello`](tandem_proto::Hello);
-//! - datagramas no confiables, para lo que pierde valor si llega tarde (el
-//!   movimiento del mouse, DESIGN §7).
+//! Over a [`Connection`] there are two channels:
+//! - the control stream ([`ControlStream`]), reliable and ordered, which starts
+//!   with an exchange of [`Hello`](tandem_proto::Hello);
+//! - unreliable datagrams, for what loses value if it arrives late (the
+//!   mouse movement, DESIGN §7).
 
 mod control;
 mod endpoint;
@@ -22,16 +22,16 @@ mod verify;
 
 pub use control::{ControlReceiver, ControlSender, ControlStream};
 
-/// El lado de escritura de un stream de datos ([`ControlStream::into_data`]), para
-/// nombrarlo sin depender de quinn.
+/// The write side of a data stream ([`ControlStream::into_data`]), to
+/// name it without depending on quinn.
 pub type DataSender = crate::qos::DataStream<quinn::SendStream>;
 pub use endpoint::{Connection, Endpoint};
 pub use error::TransportError;
 pub use verify::{PeerTrust, peer_public_key};
 
-/// Protocolo de aplicación anunciado en ALPN; otra aplicación QUIC en el
-/// mismo puerto no llega a hablar con el agente.
+/// Application protocol announced in ALPN; another QUIC application on the
+/// same port does not get to talk to the agent.
 pub const ALPN: &[u8] = b"tandem/1";
 
-/// ALPN del endpoint de emparejamiento ([`Endpoint::bind_pairing`]).
+/// ALPN of the pairing endpoint ([`Endpoint::bind_pairing`]).
 pub const PAIRING_ALPN: &[u8] = b"tandem-pair/1";

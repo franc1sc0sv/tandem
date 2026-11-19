@@ -1,13 +1,13 @@
-//! Métricas por camino para la pantalla Red y el Puesto (T-102, DESIGN §6).
+//! Per-path metrics for the Network screen and the Desk (T-102, DESIGN §6).
 //!
-//! - [`NetMetrics`]: lógica pura. Recibe la foto del gestor de enlaces, la latencia de la
-//!   entrada de cada [`Qos`](crate::qos::Qos), los cambios de camino y las mediciones, y
-//!   arma el [`NetworkStatus`] que ve la UI: estado de cada camino, RTT, p50/p99 de la
-//!   entrada, último ancho de banda, 60 s de historial y los últimos 50 cambios.
-//! - [`Metrics`]: la misma, compartida (el agente la guarda aunque el gestor se rearme).
-//! - [`follow`]: la tarea que la alimenta desde un [`LinkManager`](crate::manager::LinkManager)
-//!   en marcha, una muestra por segundo.
-//! - [`probe`]: la prueba de ancho de banda.
+//! - [`NetMetrics`]: pure logic. It receives the link manager's snapshot, the input latency of
+//!   each [`Qos`](crate::qos::Qos), the path changes and the measurements, and
+//!   builds the [`NetworkStatus`] that the UI sees: state of each path, RTT, p50/p99 of
+//!   input, last bandwidth, 60 s of history and the last 50 changes.
+//! - [`Metrics`]: the same, shared (the agent keeps it even if the manager is rebuilt).
+//! - [`follow`]: the task that feeds it from a running [`LinkManager`](crate::manager::LinkManager),
+//!   one sample per second.
+//! - [`probe`]: the bandwidth test.
 
 pub mod probe;
 
@@ -23,10 +23,10 @@ use tokio::time::{self, MissedTickBehavior};
 use crate::manager::{LinkEvent, LinkKind, LinkStatus, Snapshot};
 use crate::qos::{LinkQos, input_p99_target};
 
-/// Cada cuánto se toma una muestra.
+/// How often a sample is taken.
 pub const SAMPLE_EVERY: Duration = Duration::from_secs(1);
 
-/// Lo que se sabe de un camino.
+/// What is known about a path.
 #[derive(Debug, Clone, Default)]
 struct PathRecord {
     rtt: Option<Duration>,
@@ -36,12 +36,12 @@ struct PathRecord {
     history: VecDeque<LatencySample>,
 }
 
-/// Las métricas de los tres caminos. Sin E/S ni reloj: el tiempo llega como argumento.
+/// The metrics of the three paths. No I/O or clock: time arrives as an argument.
 #[derive(Debug, Clone)]
 pub struct NetMetrics {
     paths: BTreeMap<LinkKind, PathRecord>,
     active: Option<LinkKind>,
-    /// Del más nuevo al más viejo.
+    /// From newest to oldest.
     switches: VecDeque<PathSwitch>,
     measuring: Option<LinkKind>,
     notices: Vec<tandem_proto::NetworkNotice>,
@@ -67,8 +67,8 @@ fn micros(d: Duration) -> u32 {
 }
 
 impl NetMetrics {
-    /// La foto del gestor: qué responde y cuál lleva el tráfico. Un camino que no está en
-    /// `links` (no configurado) cuenta como que no responde.
+    /// The manager's snapshot: what answers and which one carries the traffic. A path that is not in
+    /// `links` (not configured) counts as not answering.
     pub fn observe(&mut self, links: &[LinkStatus], active: Option<LinkKind>) {
         for (kind, p) in &mut self.paths {
             p.rtt = links.iter().find(|l| l.kind == *kind).and_then(|l| l.rtt);
@@ -77,14 +77,14 @@ impl NetMetrics {
         self.active = active;
     }
 
-    /// El p50 y el p99 de la entrada por `kind` en el último segundo.
+    /// The p50 and p99 of input per `kind` in the last second.
     pub fn set_input(&mut self, kind: LinkKind, input: Option<(Duration, Duration)>) {
         if let Some(p) = self.paths.get_mut(&kind) {
             p.input = input;
         }
     }
 
-    /// Pasó un segundo: una muestra más en el historial de cada camino.
+    /// A second went by: one more sample in each path's history.
     pub fn tick(&mut self) {
         for p in self.paths.values_mut() {
             p.history.push_back(LatencySample {
@@ -97,7 +97,7 @@ impl NetMetrics {
         }
     }
 
-    /// Un cambio del camino activo, `at_ms` en milisegundos Unix.
+    /// A change of the active path, `at_ms` in Unix milliseconds.
     pub fn switched(&mut self, event: &LinkEvent, at_ms: u64) {
         self.active = event.to;
         self.switches.push_front(PathSwitch {
@@ -111,7 +111,7 @@ impl NetMetrics {
         self.switches.truncate(MAX_SWITCHES);
     }
 
-    /// Una medición de ancho de banda de `kind`.
+    /// A bandwidth measurement of `kind`.
     pub fn measured(&mut self, kind: LinkKind, bytes_per_sec: u64, at_ms: u64) {
         if let Some(p) = self.paths.get_mut(&kind) {
             p.bandwidth = Some(Bandwidth {
@@ -156,14 +156,14 @@ impl NetMetrics {
     }
 }
 
-/// Las métricas compartidas. Se clona barato.
+/// The shared metrics. Cheap to clone.
 #[derive(Debug, Clone, Default)]
 pub struct Metrics {
     inner: Arc<Mutex<NetMetrics>>,
 }
 
-/// Mientras exista, hay una medición en curso por su camino.
-#[must_use = "la medición termina al soltarla"]
+/// While it exists, there is a measurement in progress on its path.
+#[must_use = "the measurement ends when it is dropped"]
 #[derive(Debug)]
 pub struct Measuring {
     metrics: Metrics,
@@ -175,7 +175,7 @@ impl Drop for Measuring {
     }
 }
 
-/// La hora Unix en milisegundos, para las fechas que ve la UI.
+/// The Unix time in milliseconds, for the dates the UI sees.
 pub fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -188,7 +188,7 @@ impl Metrics {
         self.inner.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// Los avisos para el usuario (los reemplaza enteros).
+    /// The notices for the user (replaced whole).
     pub fn set_notices(&self, notices: Vec<tandem_proto::NetworkNotice>) {
         self.lock().notices = notices;
     }
@@ -201,8 +201,8 @@ impl Metrics {
         f(&mut self.lock())
     }
 
-    /// Marca que se está midiendo `kind`. `None` si ya hay otra medición: dos a la vez se
-    /// reparten el camino y las dos darían la mitad.
+    /// Marks that `kind` is being measured. `None` if there is already another measurement: two at once
+    /// share the path and both would give half.
     pub fn begin_measure(&self, kind: LinkKind) -> Option<Measuring> {
         let mut m = self.lock();
         if m.measuring.is_some() {
@@ -214,17 +214,17 @@ impl Metrics {
         })
     }
 
-    /// Guarda una medición de `kind` y se la da a su `Qos`: el tope de los datos por Wi-Fi
-    /// sale de lo último medido (T-101).
+    /// Stores a measurement of `kind` and gives it to its `Qos`: the data cap over Wi-Fi
+    /// comes from the last thing measured (T-101).
     pub fn record_bandwidth(&self, kind: LinkKind, bytes_per_sec: u64, qos: &LinkQos) {
         self.lock().measured(kind, bytes_per_sec, now_ms());
         qos.get(kind).set_measured(bytes_per_sec);
     }
 }
 
-/// Alimenta `metrics` desde un gestor de enlaces en marcha (su foto y su cola de cambios)
-/// y la latencia de la entrada de cada camino (`qos`), con una muestra cada `every`.
-/// Termina cuando el gestor se suelta.
+/// Feeds `metrics` from a running link manager (its snapshot and its change queue)
+/// and the input latency of each path (`qos`), with one sample every `every`.
+/// It ends when the manager is dropped.
 pub async fn follow<H: Clone>(
     metrics: Metrics,
     mut links: watch::Receiver<Snapshot<H>>,
@@ -241,7 +241,7 @@ pub async fn follow<H: Clone>(
     tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
     loop {
         tokio::select! {
-            // Primero los cambios: la muestra del mismo instante ya los ve.
+            // The changes first: the sample of the same instant already sees them.
             biased;
             event = events.recv() => {
                 let Some(event) = event else { return };
