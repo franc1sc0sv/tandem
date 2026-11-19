@@ -27,6 +27,19 @@ pub struct QuicSession {
     nonce: u64,
 }
 
+impl QuicProber {
+    /// A session over a connection that already exists, opened by either side: an agent
+    /// the other cannot dial still pings over the connection the other opened (T-237).
+    pub async fn session_over(&self, conn: Connection) -> Result<QuicSession, TransportError> {
+        let (control, _) = conn.open_control(&self.hello).await?;
+        Ok(QuicSession {
+            conn,
+            control,
+            nonce: 0,
+        })
+    }
+}
+
 impl Prober for QuicProber {
     type Session = QuicSession;
     type Handle = Connection;

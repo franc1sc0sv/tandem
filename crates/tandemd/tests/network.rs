@@ -126,6 +126,21 @@ async fn start_with(
     peer: Option<(PublicKey, u16)>,
     extra: &str,
 ) -> Result<Running, PortTaken> {
+    start_opts(machine, identity, port, peer, extra, true, true).await
+}
+
+/// Like [`start_with`]; with `dial` off the agent never reaches the other one, as when the
+/// other machine's firewall drops inbound UDP (T-237). With `list_peer` off, the peer is
+/// trusted but its address is not in `[network] peers`.
+async fn start_opts(
+    machine: Machine,
+    identity: &Identity,
+    port: u16,
+    peer: Option<(PublicKey, u16)>,
+    extra: &str,
+    dial: bool,
+    list_peer: bool,
+) -> Result<Running, PortTaken> {
     let dir = tempfile::tempdir().unwrap();
     let paths = Paths {
         config: dir.path().join("tandem.toml"),
@@ -141,10 +156,12 @@ async fn start_with(
                 name: machine.other().to_string(),
             })
             .unwrap();
-        network.push_str(&format!(
-            "peers = [{{ kind = \"usb4\", addr = \"{}\" }}]\n",
-            loopback(peer_port)
-        ));
+        if list_peer {
+            network.push_str(&format!(
+                "peers = [{{ kind = \"usb4\", addr = \"{}\" }}]\n",
+                loopback(peer_port)
+            ));
+        }
     }
     // Both with `[power.wol]` to wake the other (the steps are simulated).
     let text = format!("machine = \"{machine}\"\n{extra}\n{network}\n{WOL}");
@@ -172,6 +189,7 @@ async fn start_with(
             // Without reservation: a taken port fails right away and others are chosen.
             fallback_ports: Vec::new(),
             health: common::health(),
+            dial,
             ..NetOptions::default()
         },
     );
@@ -300,6 +318,153 @@ async fn paired_agents_find_each_other_and_shut_down_the_pc() {
     pc.stop().await;
     until_peer(&mac_agent, paired("B", None)).await;
     assert!(!*mac_agent.orchestrator().peer_connected().borrow());
+    mac.stop().await;
+}
+
+/// Starts the Mac and the PC paired over one fixed USB4 link; `mac_dials` and `pc_dials`
+/// say which of the two can reach the other (T-237).
+async fn one_way_pair(seed: u8, mac_dials: bool, pc_dials: bool) -> (Running, Running) {
+    pair_with(seed, mac_dials, pc_dials, true).await
+}
+
+/// Like [`one_way_pair`]; with `pc_lists_mac` off the PC trusts the Mac but has no address
+/// for it.
+async fn pair_with(
+    seed: u8,
+    mac_dials: bool,
+    pc_dials: bool,
+    pc_lists_mac: bool,
+) -> (Running, Running) {
+    let (mac_id, pc_id) = sides(
+        Identity::from_seed([seed; 32]),
+        Identity::from_seed([seed + 1; 32]),
+    );
+    tandemd::start_pair!(
+        |mac_port, pc_port| start_opts(
+            Machine::A,
+            &mac_id,
+            mac_port,
+            Some((pc_id.public_key(), pc_port)),
+            "",
+            mac_dials,
+            true,
+        ),
+        start_opts(
+            Machine::B,
+            &pc_id,
+            pc_port,
+            Some((mac_id.public_key(), mac_port)),
+            "",
+            pc_dials,
+            pc_lists_mac,
+        )
+    )
+}
+
+/// `from` sees `to` as a working peer: the UI says the link is up, the wizard's ping
+/// answers and a step reaches `to` over the link.
+async fn works_towards(from: &mut Running, to: &Running, to_machine: Machine) {
+    works_over(from, to, to_machine, Link::Usb4).await;
+}
+
+async fn works_over(from: &mut Running, to: &Running, to_machine: Machine, link: Link) {
+    let name = to_machine.to_string();
+    until_peer(&from.agent, paired(&name, Some(link))).await;
+    assert_eq!(
+        from.ui.request(UiCommand::GetPeer).await.unwrap(),
+        Reply::Peer(paired(&name, Some(link)))
+    );
+    let pong = from.ui.request(UiCommand::PingPeer).await.unwrap();
+    assert!(
+        matches!(pong, Reply::Pong { link: l, .. } if l == link),
+        "the ping did not answer: {pong:?}"
+    );
+    let mut connected = from.agent.orchestrator().peer_connected();
+    within(connected.wait_for(|c| *c)).await.unwrap();
+    let step = Step::PowerOff {
+        machine: to_machine,
+    };
+    within(async {
+        loop {
+            match from.agent.orchestrator().peer().execute(&step).await {
+                Ok(()) => break,
+                // The other side may be busy noting this one as on: retried.
+                Err(why) if why.contains("busy") => {
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                }
+                Err(why) => panic!("the step did not reach the other machine: {why}"),
+            }
+        }
+    })
+    .await;
+    assert!(to.steps.steps().contains(&step), "{:?}", to.steps.steps());
+}
+
+/// The cable run of 2026-11-18: the Mac's firewall drops what the PC sends, so only
+/// the Mac's connection exists. The PC must adopt it as its path too (T-237).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_pc_that_cannot_dial_the_mac_links_over_the_macs_connection() {
+    let (mut mac, mut pc) = one_way_pair(40, true, false).await;
+    works_towards(&mut pc, &mac, Machine::A).await;
+    works_towards(&mut mac, &pc, Machine::B).await;
+    pc.stop().await;
+    mac.stop().await;
+}
+
+/// The same the other way round: only the PC can dial.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_mac_that_cannot_dial_the_pc_links_over_the_pcs_connection() {
+    let (mut mac, mut pc) = one_way_pair(42, false, true).await;
+    works_towards(&mut mac, &pc, Machine::B).await;
+    works_towards(&mut pc, &mac, Machine::A).await;
+    pc.stop().await;
+    mac.stop().await;
+}
+
+/// A PC that knows the Mac only by its key (no address configured, no discovery) still
+/// links when the Mac reaches it: the path the Mac came over enters its link manager.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_pc_without_the_macs_address_links_over_the_macs_connection() {
+    let (mut mac, mut pc) = pair_with(46, true, true, false).await;
+    let kind = within(async {
+        loop {
+            if let PeerStatus::Paired {
+                link: Some(link), ..
+            } = pc.agent.peer_status()
+            {
+                break link;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await;
+    works_over(&mut pc, &mac, Machine::A, kind).await;
+    works_towards(&mut mac, &pc, Machine::B).await;
+    pc.stop().await;
+    mac.stop().await;
+}
+
+/// With both directions open, both dial: neither closes the other's connection and the
+/// link does not flap once up (T-237).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn when_both_dial_the_link_stays_up_without_flapping() {
+    let (mac, pc) = one_way_pair(44, true, true).await;
+    until_peer(&mac.agent, paired("B", Some(Link::Usb4))).await;
+    until_peer(&pc.agent, paired("A", Some(Link::Usb4))).await;
+    let mut seen = [mac.agent.subscribe_peer(), pc.agent.subscribe_peer()];
+    for rx in &mut seen {
+        rx.borrow_and_update();
+    }
+    tokio::time::sleep(Duration::from_secs(4)).await;
+    for (rx, name) in seen.iter_mut().zip(["B", "A"]) {
+        assert!(
+            !rx.has_changed().unwrap(),
+            "the peer status changed: {:?}",
+            *rx.borrow()
+        );
+        assert_eq!(*rx.borrow(), paired(name, Some(Link::Usb4)));
+    }
+    pc.stop().await;
     mac.stop().await;
 }
 
