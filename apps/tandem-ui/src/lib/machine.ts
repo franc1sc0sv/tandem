@@ -155,7 +155,7 @@ export function missingPermission(missing: Permission[]): { id: Permission; text
   return id ? { id, text: PERMISSION_TEXT[id] } : null;
 }
 
-export const MODULE_TEXT: Record<ModuleState, string> = { active: "active", off: "idle", unavailable: "unavailable" };
+export const MODULE_TEXT: Record<ModuleState, string> = { active: "active", off: "off", unavailable: "unavailable" };
 
 // ---- Líneas de tendencia ------------------------------------------------------------------
 

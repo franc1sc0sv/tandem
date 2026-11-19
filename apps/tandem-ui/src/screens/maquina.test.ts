@@ -162,7 +162,7 @@ describe("V3-Machine (the other machine)", () => {
     expect(clip).toHaveAttribute("aria-checked", "true");
     await userEvent.click(clip);
     await vi.waitFor(() => expect(store.desk.machines.b?.modules.find((m) => m.id === "clipboard")?.state).toBe("off"));
-    expect(mods.getByRole("switch", { name: "Clipboard" })).toHaveTextContent("idle");
+    expect(mods.getByRole("switch", { name: "Clipboard" })).toHaveTextContent("off");
     await userEvent.click(mods.getByRole("switch", { name: "Clipboard" }));
     await vi.waitFor(() => expect(store.desk.machines.b?.modules.find((m) => m.id === "clipboard")?.state).toBe("active"));
     expect(mods.queryByRole("switch", { name: "Power" })).toBeNull();
