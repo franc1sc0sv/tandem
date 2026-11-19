@@ -25,7 +25,7 @@
 
 use std::collections::BTreeMap;
 use std::net::{IpAddr, Ipv6Addr, SocketAddr};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, RwLock, Weak};
 use std::time::Duration;
 
@@ -46,6 +46,7 @@ use tandem_link::transport::{Connection, Endpoint, TransportError};
 use tandem_proto::{ControlMsg, Hello, Link, NetworkNotice, PairingStatus, Peer, PeerStatus};
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
+use tokio::time::Instant;
 
 use crate::agent::{Agent, NO_NETWORK, PairingControl};
 use crate::config::FALLBACK_PORTS;
@@ -481,7 +482,7 @@ impl Network {
         });
         agent.set_pairing(Arc::new(Pairer(Arc::downgrade(&shared))));
         match paired {
-            Some(peer) => shared.follow(peer),
+            Some(peer) => shared.follow(peer, Settled::from_disk()),
             None => {
                 tracing::info!("no paired peer: the agent works alone");
                 agent.set_peer_status(PeerStatus::Unpaired);
@@ -536,7 +537,8 @@ impl Shared {
 
     /// Starts following `peer`: mDNS, link manager and the peer watch (`peer_watch`).
     /// First, this machine's side is set to what the two keys say (DECISIONS A1).
-    fn follow(self: &Arc<Self>, peer: TrustedPeer) {
+    /// `settled` says when a rejection from the other agent means it forgot this one.
+    fn follow(self: &Arc<Self>, peer: TrustedPeer, settled: Settled) {
         let TrustedPeer { public_key, name } = peer;
         tracing::info!(peer = %name, key = %public_key.to_hex(), "peer paired");
         let agent = &self.agent;
@@ -585,6 +587,7 @@ impl Shared {
                     conns: self.conns.clone(),
                     key: public_key,
                     dial: self.opts.dial,
+                    settled: Arc::new(settled),
                 },
                 name,
                 discovery,
@@ -696,7 +699,7 @@ impl Shared {
             let status = match outcome {
                 pairing::Outcome::Paired(peer) => {
                     let name = peer.name.clone();
-                    shared.follow(peer);
+                    shared.follow(peer, Settled::just_paired());
                     PairingStatus::Done { peer: name }
                 }
                 pairing::Outcome::Cancelled => PairingStatus::Idle,
@@ -999,7 +1002,12 @@ async fn supervise(
                         .map(|m| m.links.links().iter().map(|l| l.kind).collect())
                         .unwrap_or_default();
                     let mut rebuild = false;
-                    for c in peer.conns.inbound_paths(&peer.key) {
+                    let inbound = peer.conns.inbound_paths(&peer.key);
+                    // It dialled this side with its pinning: it trusts this machine.
+                    if !inbound.is_empty() {
+                        peer.settled.accepted();
+                    }
+                    for c in inbound {
                         if followed.contains(&c.kind) || extra.iter().any(|e| e.kind == c.kind) {
                             continue;
                         }
@@ -1190,6 +1198,52 @@ struct PeerSide {
     key: PublicKey,
     /// See [`NetOptions::dial`].
     dial: bool,
+    settled: Arc<Settled>,
+}
+
+/// How long, after pairing here, a rejection from the other agent is still taken as "it has not
+/// saved the pairing yet" if it never accepted this side: past that, the other side most likely
+/// failed to save it, and both are left unpaired instead of one waiting forever.
+const PAIRING_SETTLE: Duration = Duration::from_secs(60);
+
+/// Whether a rejection from the other agent means it forgot this machine (T-152) or only that
+/// it has not saved the pairing yet (T-291). The two sides save trust on their own once both
+/// codes are confirmed, and nothing orders one save before the other side's first dial: on a slow
+/// machine the side that finished first dialled the other, was rejected and unpaired for good.
+#[derive(Debug)]
+struct Settled {
+    /// The other agent took a connection with this side's key since it was followed.
+    accepted: AtomicBool,
+    /// When it was paired here; `None` if it came from trust on disk (it was settled long ago).
+    paired_at: Option<Instant>,
+}
+
+impl Settled {
+    fn from_disk() -> Self {
+        Settled {
+            accepted: AtomicBool::new(false),
+            paired_at: None,
+        }
+    }
+
+    fn just_paired() -> Self {
+        Settled {
+            accepted: AtomicBool::new(false),
+            paired_at: Some(Instant::now()),
+        }
+    }
+
+    fn accepted(&self) {
+        self.accepted.store(true, Ordering::Relaxed);
+    }
+
+    /// A rejection now means the other agent no longer trusts this one.
+    fn rejection_means_forgotten(&self, now: Instant) -> bool {
+        self.accepted.load(Ordering::Relaxed)
+            || self
+                .paired_at
+                .is_none_or(|t| now.saturating_duration_since(t) >= PAIRING_SETTLE)
+    }
 }
 
 /// What lets the prober serve and adopt connections (T-237).
@@ -1366,6 +1420,9 @@ impl Prober for AgentProber {
         // The other agent's connection first: it is the only one when this side's packets
         // never reach the other, and dialling would only find that out at the timeout.
         if let Some(s) = self.adopt(addr, self.kind_of(addr)).await {
+            if let Some(a) = &self.adoption {
+                a.peer.settled.accepted();
+            }
             return Ok(s);
         }
         if self.adoption.as_ref().is_some_and(|a| !a.peer.dial) {
@@ -1373,13 +1430,29 @@ impl Prober for AgentProber {
             return std::future::pending().await;
         }
         let opened = self.open(addr).await;
-        if let Err(PeerError::Transport(e)) = &opened {
-            tracing::debug!(%addr, error = ?e, "connection to the other agent failed");
-            if e.is_peer_rejection()
-                && let Some(rejected) = &self.rejected
-            {
-                rejected();
+        let settled = self.adoption.as_ref().map(|a| &a.peer.settled);
+        match &opened {
+            Ok(_) => {
+                if let Some(s) = settled {
+                    s.accepted();
+                }
             }
+            Err(PeerError::Transport(e)) => {
+                tracing::debug!(%addr, error = ?e, "connection to the other agent failed");
+                if e.is_peer_rejection() {
+                    if settled.is_none_or(|s| s.rejection_means_forgotten(Instant::now())) {
+                        if let Some(rejected) = &self.rejected {
+                            rejected();
+                        }
+                    } else {
+                        tracing::info!(
+                            %addr,
+                            "the other machine does not accept this one yet: it is still saving the pairing"
+                        );
+                    }
+                }
+            }
+            Err(_) => {}
         }
         opened
     }
@@ -1454,6 +1527,22 @@ impl PeerLink for ManagedPeer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// T-291: a rejection right after pairing here is the other side still saving the pairing;
+    /// from a peer on disk, or once the other accepted this side, it means it forgot this one.
+    #[test]
+    fn a_rejection_means_forgotten_only_once_the_pairing_settled() {
+        let now = Instant::now();
+        assert!(Settled::from_disk().rejection_means_forgotten(now));
+        let fresh = Settled::just_paired();
+        let paired = fresh.paired_at.unwrap();
+        assert!(!fresh.rejection_means_forgotten(paired));
+        assert!(!fresh.rejection_means_forgotten(paired + PAIRING_SETTLE / 2));
+        // The other side never saved it: both end up unpaired instead of one waiting forever.
+        assert!(fresh.rejection_means_forgotten(paired + PAIRING_SETTLE));
+        fresh.accepted();
+        assert!(fresh.rejection_means_forgotten(paired));
+    }
 
     fn link(kind: LinkKind, addr: &str) -> LinkCandidate {
         LinkCandidate {
