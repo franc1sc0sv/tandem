@@ -179,7 +179,7 @@ function pairStep(o: Onboarding, snap: Snapshot): StepView {
       v.verified = ping !== null;
       v.blocker = ping ? null : "test the link";
     } else {
-      v.checks.push({ state: "fail", label: "It does not see it right now", detail: "power it on and wait for it to appear; USB-C, Ethernet or Wi-Fi" });
+      v.checks.push({ state: "fail", label: "It cannot see it right now", detail: "power it on and wait for it to appear; USB-C, Ethernet or Wi-Fi" });
       v.blocker = "the other machine does not respond";
     }
     return v;
@@ -197,8 +197,8 @@ function pairStep(o: Onboarding, snap: Snapshot): StepView {
     case "comparing":
       v.checks.push({ state: "wait", label: `Found ${pairing.peer}`, detail: pairing.confirmed ? "waiting for the other one to confirm" : "is it the same code on both screens?" });
       v.code = pairing.code;
-      if (!pairing.confirmed) v.buttons.push({ id: "pair:confirm", label: "It is the same", kind: "primary", enabled: true });
-      v.buttons.push({ id: "pair:cancel", label: "It does not match", kind: "danger", enabled: true });
+      if (!pairing.confirmed) v.buttons.push({ id: "pair:confirm", label: "They match", kind: "primary", enabled: true });
+      v.buttons.push({ id: "pair:cancel", label: "They do not match", kind: "danger", enabled: true });
       break;
     case "done":
       v.checks.push({ state: "ok", label: `Paired with ${pairing.peer}` });

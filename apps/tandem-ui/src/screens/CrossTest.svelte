@@ -157,7 +157,7 @@
         ><circle cx="12" cy="12" r="10"></circle><path d="m7.5 12.5 3 3 6-6.5"></path></svg
       >
       <div class="txt">
-        <b>Crossed fine</b><span class="mut sub"
+        <b>Crossed correctly</b><span class="mut sub"
           >It entered {peerM?.name ?? "the other machine"}{#if s.of > 0}{" "}{vertical ? "at the right height" : "at the right place"} ({vertical ? "y" : "x"} = {s.at} of {s.of}){/if}.{#if s.ms !== null}{" "}Crossing latency: {formatMs(s.ms)}.{/if}</span
         >
       </div>
