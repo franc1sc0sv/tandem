@@ -4,6 +4,8 @@
 //! What matters: after migrating, both machines have the same desk (each screen
 //! on its machine's side, the arrangement the same) whichever one ended up as `A`.
 
+mod common;
+
 use std::sync::Arc;
 
 use tandem_core::{Machine, Side};
@@ -100,6 +102,7 @@ async fn an_agent_rewrites_an_old_file_with_the_sides_of_its_keys() {
             bind: Some("127.0.0.1:0".parse().unwrap()),
             mdns: false,
             fallback_ports: Vec::new(),
+            health: common::health(),
             ..NetOptions::default()
         };
         let backends = Backends::Custom {

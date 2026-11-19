@@ -61,14 +61,24 @@ fn unix_sockets_allowed() -> bool {
     }
 }
 
-/// A free loopback UDP port. It is released right away for the agent to take it:
-/// each one needs to know the other's before starting.
+/// A free UDP port. It is released right away for the agent to take it: each one needs
+/// to know the other's before starting. It probes all interfaces, like the agent, and is
+/// never handed out twice in the process: with tests in parallel, the OS can return the
+/// same port to two of them before anyone binds it.
 fn free_port() -> u16 {
-    UdpSocket::bind((Ipv4Addr::LOCALHOST, 0))
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port()
+    static GIVEN: std::sync::Mutex<Vec<u16>> = std::sync::Mutex::new(Vec::new());
+    loop {
+        let port = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0))
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let mut given = GIVEN.lock().unwrap();
+        if !given.contains(&port) {
+            given.push(port);
+            return port;
+        }
+    }
 }
 
 /// The identity of each side: from two fixed seeds, the one with the lower key is A's

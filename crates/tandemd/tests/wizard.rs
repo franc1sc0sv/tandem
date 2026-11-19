@@ -3,6 +3,8 @@
 //! and its permissions, (2) pair and see the link ping, (3) "press a key" and (4)
 //! the summary. Only each machine's steps are simulated.
 
+mod common;
+
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -113,6 +115,7 @@ async fn start(
             mdns: false,
             // Without reservation: a taken port fails right away and others are chosen.
             fallback_ports: Vec::new(),
+            health: common::health(),
             ..NetOptions::default()
         },
     );

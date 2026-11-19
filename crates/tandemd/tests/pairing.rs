@@ -5,13 +5,14 @@
 //! The machines are called "Mac" and "PC" (their `[machines]`, as the UI would set them); the code
 //! does not assume it: the sides come from the keys.
 
+mod common;
+
 use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
 
 use tandem_core::Machine;
 use tandem_input::geometry::{Rect, Screen};
-use tandem_input::session::SessionConfig;
 use tandem_link::identity::{Identity, TrustStore};
 use tandem_proto::{
     AgentToUi, InputStatus, Link, PairingStatus, PeerStatus, Reply, TxnEvent, UiCommand,
@@ -228,6 +229,7 @@ async fn start_inner(
             bind: Some(loopback(port)),
             mdns: false,
             pairing: timeouts,
+            health: common::health(),
             ..NetOptions::default()
         },
     );
@@ -702,11 +704,7 @@ fn input_setup(id: &str) -> InputSetup {
     InputSetup {
         backends: Arc::new(FakeInputBackends::new(vec![screen])),
         opts: InputOptions {
-            session: SessionConfig {
-                heartbeat_interval: Duration::from_millis(100),
-                heartbeat_timeout: Duration::from_millis(1500),
-                ..SessionConfig::default()
-            },
+            session: common::session(),
             report_every: Duration::from_millis(200),
             screens_every: Duration::from_millis(200),
             permissions_every: Duration::from_millis(50),

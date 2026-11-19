@@ -3,6 +3,8 @@
 //! the other to scan again, and the other's live resources arrive while the UI
 //! watches and stop being sampled when it stops watching.
 
+mod common;
+
 use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
@@ -179,6 +181,7 @@ async fn start(
             mdns: false,
             // Without reservation: a taken port fails right away and others are chosen.
             fallback_ports: Vec::new(),
+            health: common::health(),
             ..NetOptions::default()
         },
     );

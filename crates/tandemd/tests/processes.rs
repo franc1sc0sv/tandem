@@ -2,6 +2,8 @@
 //! `Spawner` double on the destination: five processes at once with interleaved output, the kill of
 //! one without touching the others and the list of running processes on both UIs.
 
+mod common;
+
 use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
@@ -115,6 +117,7 @@ async fn start(
             mdns: false,
             // Without reservation: a taken port fails right away and others are chosen.
             fallback_ports: Vec::new(),
+            health: common::health(),
             ..NetOptions::default()
         },
     );
