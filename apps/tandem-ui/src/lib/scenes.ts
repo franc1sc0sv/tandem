@@ -1,5 +1,5 @@
 // Scenes (D6): from the agent's desk to the Monitors cards, and the editor draft
-// (`F-NewScene`). Puro.
+// (`F-NewScene`). Pure.
 
 import { shortMonitor } from "./monitors";
 import type { Machine, SceneJson } from "./model";

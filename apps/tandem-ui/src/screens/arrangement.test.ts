@@ -28,8 +28,8 @@ const align = () => screen.getByRole("radiogroup", { name: "Alignment" });
 const slot = (name: string) => within(pad()).getByRole("radio", { name });
 const alignTo = (name: string) => within(align()).getByRole("radio", { name });
 
-describe("Arrangement (V3-Arrangement) en modo demo", () => {
-  it("abre con el 34\" elegido, the other machine to the left of y alineada abajo", async () => {
+describe("Arrangement (V3-Arrangement) in demo mode", () => {
+  it("opens with the 34\" chosen, the other machine on the left and aligned at the bottom", async () => {
     await open(new DemoSource(demoOptions("demo&still")));
     expect(screen.getByRole("button", { name: /Odyssey G5 34"/ })).toHaveAttribute("aria-pressed", "true");
     expect(pad()).toHaveAccessibleName("Where is MacBook Pro?");
@@ -39,12 +39,12 @@ describe("Arrangement (V3-Arrangement) en modo demo", () => {
     expect(alignTo("Bottom")).toHaveAttribute("aria-checked", "true");
     expect(screen.getByText("Crossing edge")).toBeInTheDocument();
     expect(screen.getByText("Work")).toBeInTheDocument();
-    // Sin X/Y (D18).
+    // Without X/Y (D18).
     expect(screen.queryByRole("spinbutton")).toBeNull();
-    expect(screen.queryByText(/Avanzado/)).toBeNull();
+    expect(screen.queryByText(/Advanced/)).toBeNull();
   });
 
-  it("mover the other machine arriba cambia las etiquetas de la alineación y el borde pasa a horizontal", async () => {
+  it("moving the other machine up changes the alignment labels and the edge becomes horizontal", async () => {
     await open(new DemoSource(demoOptions("demo&still")));
     const edge = () => document.querySelector<HTMLElement>(".xedge");
     expect(edge()?.style.width).toBe("3px");
@@ -56,7 +56,7 @@ describe("Arrangement (V3-Arrangement) en modo demo", () => {
     expect(edge()?.style.height).toBe("3px");
   });
 
-  it("guardar manda el arrangement al desk y avisa", async () => {
+  it("saving sends the arrangement to the desk and announces it", async () => {
     const src = new DemoSource(demoOptions("demo&still"));
     const store = await open(src);
     await userEvent.click(slot("Bottom"));
@@ -66,18 +66,18 @@ describe("Arrangement (V3-Arrangement) en modo demo", () => {
     expect(await screen.findByText("Arrangement saved")).toBeInTheDocument();
   });
 
-  it("con the MacBook elegida el mini plano se ve desde ella", async () => {
+  it("with the MacBook chosen the mini plan is seen from it", async () => {
     const store = await open(new DemoSource(demoOptions("demo&still")));
     await userEvent.click(screen.getByRole("button", { name: /MacBook Pro/ }));
     expect(pad()).toHaveAccessibleName('Where is the 34"?');
     expect(slot("Right")).toHaveAttribute("aria-checked", "true");
-    // Poner el 34" arriba de the MacBook es tener the MacBook abajo del 34".
+    // Putting the 34" above the MacBook is having the MacBook below the 34".
     await userEvent.click(slot("Top"));
     await userEvent.click(screen.getByRole("button", { name: /Save/ }));
     expect(store.desk.layout.arrangement.aSide).toBe("down");
   });
 
-  it("una pantalla desconectada dice que no entra en el arrangement", async () => {
+  it("a disconnected screen says it does not take part in the arrangement", async () => {
     await open(new DemoSource(demoOptions("demo&still")));
     await userEvent.click(screen.getByRole("button", { name: /Odyssey G5 32"/ }));
     expect(screen.getByText("Unsupported: it does not take part in the arrangement.")).toBeInTheDocument();
@@ -85,7 +85,7 @@ describe("Arrangement (V3-Arrangement) en modo demo", () => {
     expect(screen.getByText("disconnected")).toBeInTheDocument();
   });
 
-  it("las animaciones del mockup están y son de CSS (las apaga prefers-reduced-motion)", () => {
+  it("the mockup animations are there and are CSS (prefers-reduced-motion turns them off)", () => {
     const src = readFileSync(join(process.cwd(), "src", "screens", "Arrangement.svelte"), "utf8");
     for (const k of ["@keyframes gl ", "@keyframes gl2", "@keyframes fd", "cubic-bezier(0.3, 1.2, 0.5, 1)", "cubic-bezier(0.3, 1.3, 0.5, 1)", "cubic-bezier(0.3, 1.5, 0.5, 1)"]) expect(src).toContain(k);
     const cross = readFileSync(join(process.cwd(), "src", "screens", "CrossTest.svelte"), "utf8");
@@ -94,14 +94,14 @@ describe("Arrangement (V3-Arrangement) en modo demo", () => {
 });
 
 describe("Crossing test (F-CrossingTest)", () => {
-  it("cuelga del arrangement: `#/arrangement/crossing`", () => {
+  it("it hangs off the arrangement: `#/arrangement/crossing`", () => {
     expect(parseHash("#/arrangement/crossing")).toEqual({ screen: "crossing" });
     expect(formatHash({ screen: "crossing" })).toBe("#/arrangement/crossing");
     expect(parseHash("#/arrangement/other")).toEqual({ screen: "arrangement" });
   });
 
 
-  it("un crossing sin posición ni latencia medidas no las inventa", async () => {
+  it("a crossing without a measured position or latency does not invent them", async () => {
     const src = new DemoSource(demoOptions("demo&still"));
     await open(src, "#/arrangement/crossing");
     src.cross({ from: "a", to: "b", edge: "right", at: 0, of: 0, ms: null });
@@ -110,7 +110,7 @@ describe("Crossing test (F-CrossingTest)", () => {
     expect(screen.queryByText(/Latency/)).toBeNull();
   });
 
-  it("pide cruzar por el borde del arrangement y pasa con el crossing", async () => {
+  it("asks to cross through the arrangement edge and passes with the crossing", async () => {
     const src = new DemoSource(demoOptions("demo&still"));
     await open(src, "#/arrangement/crossing");
     expect(screen.getByText("Move the mouse to the right of the MacBook")).toBeInTheDocument();
@@ -123,7 +123,7 @@ describe("Crossing test (F-CrossingTest)", () => {
     expect(await screen.findByText("Move the mouse to the right of the MacBook")).toBeInTheDocument();
   });
 
-  it("un crossing por otro borde dice por cuál y ofrece editar el arrangement", async () => {
+  it("a crossing through another edge says which one and offers to edit the arrangement", async () => {
     const src = new DemoSource(demoOptions("demo&still"));
     await open(src, "#/arrangement/crossing");
     src.cross({ from: "a", to: "b", edge: "up", at: 10, of: 3440, ms: 1 });
@@ -132,22 +132,22 @@ describe("Crossing test (F-CrossingTest)", () => {
     expect(screen.getByRole("link", { name: /Edit arrangement/ })).toHaveAttribute("href", "#/arrangement");
   });
 
-  it("sin crossing a tiempo se agota", async () => {
+  it("without a crossing in time it times out", async () => {
     await open(new DemoSource(demoOptions("demo&still&cross=timeout")), "#/arrangement/crossing");
     expect(await screen.findByText("Did not cross in 20 s")).toBeInTheDocument();
     expect(screen.getByText(/Maybe the 34" is on another side of your desk/)).toBeInTheDocument();
   });
 
-  it("el borde pedido sigue al arrangement guardado", async () => {
+  it("the requested edge follows the saved arrangement", async () => {
     const src = new DemoSource(demoOptions("demo&still"));
     await src.setArrangement({ aSide: "down", align: "start" });
     await open(src, "#/arrangement/crossing");
-    // A está abajo de B: desde A se sale the top.
+    // A is below B: from A you leave through the top.
     expect(screen.getByText("Move the mouse above the MacBook")).toBeInTheDocument();
   });
 });
 
-describe("con el agente real", () => {
+describe("with the real agent", () => {
   const connected = (): Snapshot => ({
     kind: "connected",
     agent: "a",
@@ -180,13 +180,13 @@ describe("con el agente real", () => {
     monitors: [],
   });
 
-  /** Lo que la prueba no usa se queda esperando. */
+  /** What the test does not use is left waiting. */
   function bridge(act: (a: Action) => Promise<unknown>): Bridge {
     const known: Partial<Record<keyof Bridge, unknown>> = { snapshot: async () => connected(), onSnapshot: async () => {}, act };
     return new Proxy({} as Bridge, { get: (_t, k) => known[k as keyof Bridge] ?? (() => new Promise(() => {})) });
   }
 
-  it("las pantallas y el arrangement salen del desk", () => {
+  it("the screens and the arrangement come from the desk", () => {
     const snap = connected();
     if (snap.kind !== "connected") throw new Error("snapshot");
     const l = layoutFromDesk(snap);
@@ -195,13 +195,13 @@ describe("con el agente real", () => {
       ["a:Built-in", "a", "1512 × 945", "16:10", "200 %"],
       ["b:Odyssey", "b", "3440 × 1440", "21:9", "100 %"],
     ]);
-    // Sin pantallas declaradas: una por machine, con su nombre.
+    // Without declared screens: one per machine, with its name.
     const none = layoutFromDesk({ ...snap, desk: { ...snap.desk, screens: [], arrangement: null } });
     expect(none.screens.map((s) => s.name)).toEqual(["MacBook Pro", "PC-Desktop"]);
     expect(none.arrangement).toEqual({ aSide: "left", align: "center" });
   });
 
-  /** El desk con la PC (b) con dos monitors conectados, uno al lado del otro. */
+  /** The desk with the PC (b) with two connected monitors, side by side. */
   const twoScreens = (): Snapshot => {
     const snap = connected();
     if (snap.kind !== "connected") throw new Error("snapshot");
@@ -218,7 +218,7 @@ describe("con el agente real", () => {
     };
   };
 
-  it("las pantallas de una machine llevan su posición en el escritorio", () => {
+  it("a machine's screens carry their position on the desktop", () => {
     const snap = twoScreens();
     if (snap.kind !== "connected") throw new Error("snapshot");
     const l = layoutFromDesk(snap);
@@ -229,7 +229,7 @@ describe("con el agente real", () => {
     expect(side?.y).toBeCloseTo(-200 / 110, 9);
   });
 
-  it("una segunda pantalla conectada no es «Unsupported» y edita el mismo arrangement", async () => {
+  it("a second connected screen is not \"Unsupported\" and edits the same arrangement", async () => {
     const act = vi.fn(async (_a: Action) => ({ kind: "done" as const }));
     const bridgeTwo: Bridge = new Proxy({} as Bridge, {
       get: (_t, k) => ({ snapshot: async () => twoScreens(), onSnapshot: async () => {}, act })[k as string] ?? (() => new Promise(() => {})),
@@ -240,11 +240,11 @@ describe("con el agente real", () => {
     expect(pad()).toHaveAccessibleName("Where is Built-in?");
     await userEvent.click(slot("Top"));
     await userEvent.click(screen.getByRole("button", { name: /Save/ }));
-    // Desde b the MacBook está arriba: se guarda como el lado de A.
+    // From b the MacBook is above: it is saved as A's side.
     expect(act).toHaveBeenCalledWith({ kind: "set_arrangement", a_side: "up", align: "start" });
   });
 
-  it("al guardar el lienzo no vuelve al arrangement viejo mientras llega el fresh", async () => {
+  it("on saving, the canvas does not go back to the old arrangement while the new one arrives", async () => {
     let push: (s: Snapshot) => void = () => {};
     const act = vi.fn(async (_a: Action) => ({ kind: "done" as const }));
     const known: Partial<Record<keyof Bridge, unknown>> = {
@@ -259,24 +259,24 @@ describe("con el agente real", () => {
     await userEvent.click(slot("Bottom"));
     await userEvent.click(screen.getByRole("button", { name: /Save/ }));
     expect(await screen.findByText("Arrangement saved")).toBeInTheDocument();
-    // El agente respondió, pero el `Desk` fresh no llegó: sigue viéndose lo guardado.
+    // The agent answered, but the new `Desk` has not arrived: what was saved keeps showing.
     expect(slot("Bottom")).toHaveAttribute("aria-checked", "true");
     const snap = connected();
     if (snap.kind !== "connected") throw new Error("snapshot");
-    // Una foto que repite el arrangement viejo no suelta el borrador.
+    // A snapshot that repeats the old arrangement does not release the draft.
     push(snap);
     await tick();
     expect(slot("Bottom")).toHaveAttribute("aria-checked", "true");
     push({ ...snap, desk: { ...snap.desk, arrangement: { a_side: "down", align: "start" } } });
     await tick();
     expect(slot("Bottom")).toHaveAttribute("aria-checked", "true");
-    // Con el arrangement fresh ya en el desk el borrador se soltó: lo que llegue después se ve.
+    // With the new arrangement already in the desk the draft was released: whatever arrives afterwards is seen.
     push({ ...snap, desk: { ...snap.desk, arrangement: { a_side: "left", align: "end" } } });
     await tick();
     expect(slot("Left")).toHaveAttribute("aria-checked", "true");
   });
 
-  it("guardar es un cambio del desk por la IPC (`set_arrangement`)", async () => {
+  it("saving is a desk change over the IPC (`set_arrangement`)", async () => {
     const act = vi.fn(async (_a: Action) => ({ kind: "done" as const }));
     await open(new LiveSource(bridge(act)));
     await userEvent.click(slot("Bottom"));
@@ -285,7 +285,7 @@ describe("con el agente real", () => {
     expect(await screen.findByText("Arrangement saved")).toBeInTheDocument();
   });
 
-  it("si el agente rechaza, lo dice y el cambio queda sin guardar", async () => {
+  it("if the agent rejects, it says so and the change stays unsaved", async () => {
     const act = vi.fn(async () => ({ kind: "rejected" as const, reason: "machine b is not known yet" }));
     const store = await open(new LiveSource(bridge(act)));
     await userEvent.click(slot("Bottom"));
@@ -295,7 +295,7 @@ describe("con el agente real", () => {
     expect(store.desk.layout.arrangement.aSide).toBe("right");
   });
 
-  it("la prueba de crossing usa el crossing que informa el agente: botón habilitado y «Crossed fine» por el borde correcto", async () => {
+  it("the crossing test uses the crossing the agent reports: enabled button and \"Crossed fine\" through the right edge", async () => {
     let notice: ((n: Notice) => void) | undefined;
     const act = vi.fn(async (_a: Action) => ({ kind: "done" as const }));
     const withNotice = (): Bridge => {
@@ -314,7 +314,7 @@ describe("con el agente real", () => {
     document.body.innerHTML = "";
     await open(new LiveSource(withNotice()), "#/arrangement/crossing");
     await waitFor(() => expect(act).toHaveBeenCalledWith({ kind: "watch_cursor", on: true }));
-    // El arrangement dice «A to the right of»: la Mac sale por su borde izquierdo.
+    // The arrangement says "A to the right of": the Mac leaves through its left edge.
     notice?.({ kind: "crossed", from: "a", to: "b", edge: "left" });
     notice?.({ kind: "cursor", sample: { machine: "b", screen: "Odyssey", x: 3439, y: 700 } });
     expect(await screen.findByText("Crossed fine")).toBeInTheDocument();

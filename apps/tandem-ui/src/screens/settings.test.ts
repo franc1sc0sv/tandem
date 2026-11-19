@@ -1,5 +1,5 @@
-// Settings (F-Settings, T-120): renombrar, interruptores de teclado y mouse, archivos y logs,
-// copiar el comando, salir del desk y las pestañas con el teclado.
+// Settings (F-Settings, T-120): renaming, keyboard and mouse switches, files and logs,
+// copying the command, leaving the desk and the tabs with the keyboard.
 import { render, screen, within } from "@testing-library/svelte";
 import userEvent from "@testing-library/user-event";
 import { tick } from "svelte";
@@ -26,8 +26,8 @@ async function mount(query = "demo&still") {
 
 const tab = (name: RegExp) => screen.getByRole("tab", { name });
 
-describe("pestañas", () => {
-  it("hay cinco y se cambia con clic", async () => {
+describe("tabs", () => {
+  it("there are five and it changes with a click", async () => {
     await mount();
     expect(screen.getAllByRole("tab")).toHaveLength(5);
     expect(tab(/Desk and machines/)).toHaveAttribute("aria-selected", "true");
@@ -36,7 +36,7 @@ describe("pestañas", () => {
     expect(screen.getByRole("switch", { name: "Shared clipboard" })).toBeInTheDocument();
   });
 
-  it("las flechas, Inicio y Fin las recorren y llevan el foco", async () => {
+  it("the arrows, Home and End go through them and carry the focus", async () => {
     await mount();
     tab(/Desk and machines/).focus();
     await userEvent.keyboard("{ArrowDown}");
@@ -50,7 +50,7 @@ describe("pestañas", () => {
     expect(tab(/Desk and machines/)).toHaveAttribute("aria-selected", "true");
   });
 
-  it("nextTab no da la vuelta y ignora otras teclas", () => {
+  it("nextTab does not wrap around and ignores other keys", () => {
     expect(nextTab("desk", "ArrowUp")).toBeNull();
     expect(nextTab("advanced", "ArrowDown")).toBeNull();
     expect(nextTab("desk", "a")).toBeNull();
@@ -60,13 +60,13 @@ describe("pestañas", () => {
 });
 
 describe("Desk and machines", () => {
-  it("el nombre del desk es texto, no un campo que no hace nada", async () => {
+  it("the desk name is text, not a field that does nothing", async () => {
     await mount();
     expect(screen.getByTestId("desk-name")).toHaveTextContent("My desk");
     expect(screen.queryByRole("textbox", { name: "Desk name" })).toBeNull();
   });
 
-  it("renombrar una machine: Enter manda el nombre fresh al desk", async () => {
+  it("renaming a machine: Enter sends the new name to the desk", async () => {
     const store = await mount();
     const edit = vi.spyOn(store, "editMachine");
     const name = store.desk.machines.b?.name ?? "";
@@ -77,7 +77,7 @@ describe("Desk and machines", () => {
     expect(edit).toHaveBeenCalledWith("b", { name: "Workshop" });
   });
 
-  it("Escape cancela sin cambiar nada; un nombre vacío o igual tampoco cambia", async () => {
+  it("Escape cancels without changing anything; an empty or identical name does not change either", async () => {
     const store = await mount();
     const edit = vi.spyOn(store, "editMachine");
     const first = store.desk.machines.a?.name ?? "";
@@ -93,7 +93,7 @@ describe("Desk and machines", () => {
     expect(edit).not.toHaveBeenCalled();
   });
 
-  it("«Pair again» y «Abrir» abren el asistente", async () => {
+  it("\"Pair again\" and \"Open\" open the setup", async () => {
     const store = await mount();
     const open = vi.spyOn(store, "openWizard");
     await userEvent.click(screen.getByRole("button", { name: /Pair again/ }));
@@ -102,12 +102,12 @@ describe("Desk and machines", () => {
     expect(open).toHaveBeenLastCalledWith(0);
   });
 
-  it("«Salir» dice con exactitud cuándo the other machine olvida la llave (T-152)", async () => {
+  it("\"Leave\" says exactly when the other machine forgets the key (T-152)", async () => {
     await mount();
     expect(screen.getByText(/if they are connected, they forget its key; if not, they do once they leave too/)).toBeInTheDocument();
   });
 
-  it("«Salir» pide confirmación y solo entonces desempareja", async () => {
+  it("\"Leave\" asks for confirmation and only then unpairs", async () => {
     const store = await mount();
     const pair = vi.spyOn(store, "pairAction");
     await userEvent.click(screen.getByRole("button", { name: "Leave" }));
@@ -119,7 +119,7 @@ describe("Desk and machines", () => {
 });
 
 describe("Keyboard and mouse", () => {
-  it("«Cmd por Ctrl» y «Arrastrar» mandan el par entero de preferencias", async () => {
+  it("\"Cmd for Ctrl\" and \"Drag\" send the whole pair of preferences", async () => {
     const store = await mount();
     const set = vi.spyOn(store, "setPrefs");
     await userEvent.click(tab(/Keyboard and mouse/));
@@ -131,7 +131,7 @@ describe("Keyboard and mouse", () => {
     expect(screen.getByRole("switch", { name: "Swap Cmd and Ctrl" })).toHaveAttribute("aria-checked", String(!was.cmdCtrl));
   });
 
-  it("el portapapeles se enciende o apaga en las dos machines", async () => {
+  it("the clipboard is turned on or off on both machines", async () => {
     const store = await mount();
     const mod = vi.spyOn(store, "setModule");
     await userEvent.click(tab(/Keyboard and mouse/));
@@ -146,7 +146,7 @@ describe("Keyboard and mouse", () => {
 });
 
 describe("Advanced", () => {
-  it("muestra la ruta del archivo de configuración y abre archivo y logs", async () => {
+  it("shows the path of the configuration file and opens the file and logs", async () => {
     const store = await mount();
     const open = vi.spyOn(store, "openFiles");
     await userEvent.click(tab(/Advanced/));
@@ -157,7 +157,7 @@ describe("Advanced", () => {
     expect(open).toHaveBeenLastCalledWith("logs");
   });
 
-  it("copia el comando del servidor MCP y avisa", async () => {
+  it("copies the MCP server command and announces it", async () => {
     const store = await mount();
     const write = vi.fn(async () => {});
     Object.defineProperty(navigator, "clipboard", { value: { writeText: write }, configurable: true });
@@ -167,7 +167,7 @@ describe("Advanced", () => {
     await vi.waitFor(() => expect(store.toasts[0]).toMatchObject({ text: "Command copied", tone: "ok" }));
   });
 
-  it("si no se puede copiar, lo dice", async () => {
+  it("if it cannot be copied, it says so", async () => {
     const store = await mount();
     Object.defineProperty(navigator, "clipboard", {
       value: {
@@ -182,7 +182,7 @@ describe("Advanced", () => {
     await vi.waitFor(() => expect(store.toasts[0]).toMatchObject({ text: "Could not copy the command", tone: "bad" }));
   });
 
-  it("«Ver» lleva a los states difíciles", async () => {
+  it("\"View\" leads to the trouble states", async () => {
     const store = await mount();
     await userEvent.click(tab(/Advanced/));
     const row = screen.getByText(/Trouble states/).closest(".row") as HTMLElement;

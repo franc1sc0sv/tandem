@@ -18,8 +18,8 @@ async function open(hash: string, query = "demo&still") {
 
 const picker = () => screen.getByRole("radiogroup", { name: "Which machine shows the 34 inches" });
 
-describe("Monitors (V3-Monitors) en modo demo", () => {
-  it("el 34\" compatible trae su selector, su dueño y sus eventos", async () => {
+describe("Monitors (V3-Monitors) in demo mode", () => {
+  it("the compatible 34\" brings its selector, its owner and its events", async () => {
     await open("#/monitors");
     const card = screen.getByRole("article", { name: 'Odyssey G5 34"' });
     expect(within(card).getByText("Tandem standard")).toBeInTheDocument();
@@ -30,7 +30,7 @@ describe("Monitors (V3-Monitors) en modo demo", () => {
     expect(within(card).getAllByText(/Input →|Switch|Signal/).length).toBeGreaterThan(0);
   });
 
-  it("D11: el 32\" se muestra «no compatible», con su razón, sin selector ni cambio de entrada", async () => {
+  it("D11: the 32\" is shown \"not compatible\", with its reason, without a selector or input change", async () => {
     await open("#/monitors");
     const card = screen.getByRole("article", { name: /Odyssey G5 32", unsupported/ });
     expect(within(card).getByText("Unsupported")).toBeInTheDocument();
@@ -39,7 +39,7 @@ describe("Monitors (V3-Monitors) en modo demo", () => {
     expect(screen.getAllByRole("radiogroup")).toHaveLength(1);
   });
 
-  it("«What the standard is» abre y cierra la explicación", async () => {
+  it("\"What the standard is\" opens and closes the explanation", async () => {
     await open("#/monitors");
     const b = screen.getByRole("button", { name: "What the standard is" });
     expect(b).toHaveAttribute("aria-pressed", "false");
@@ -51,7 +51,7 @@ describe("Monitors (V3-Monitors) en modo demo", () => {
     expect(screen.queryByText(/speaks the custom firmware protocol/)).toBeNull();
   });
 
-  it("elegir the other machine pide el cambio de entrada y el selector sigue lo que muestra the monitor", async () => {
+  it("choosing the other machine asks for the input change and the selector follows what the monitor shows", async () => {
     await open("#/monitors");
     const radios = () => within(picker()).getAllByRole("radio");
     expect(radios()[1]).toHaveAttribute("aria-checked", "true");
@@ -60,7 +60,7 @@ describe("Monitors (V3-Monitors) en modo demo", () => {
     expect(radios()[1]).toHaveAttribute("aria-checked", "false");
   });
 
-  it("las scenes son tarjetas: la activa lleva «Activa» y las demás «Aplicar»", async () => {
+  it("the scenes are cards: the active one carries \"Active\" and the others \"Apply\"", async () => {
     await open("#/monitors");
     const cards = screen.getAllByRole("article", { name: /^Scene / });
     expect(cards.length).toBeGreaterThan(1);
@@ -70,7 +70,7 @@ describe("Monitors (V3-Monitors) en modo demo", () => {
     for (const c of cards.filter((x) => x !== active[0])) expect(within(c).getByRole("button", { name: "Apply" })).toBeEnabled();
   });
 
-  it("«Aplicar» lleva al progress paso a paso y se puede volver a Monitors", async () => {
+  it("\"Apply\" leads to the step-by-step progress and you can go back to Monitors", async () => {
     const store = await open("#/monitors");
     const other = screen.getAllByRole("article", { name: /^Scene / }).find((c) => !within(c).queryByText("Active")) as HTMLElement;
     await userEvent.click(within(other).getByRole("button", { name: "Apply" }));
@@ -81,8 +81,8 @@ describe("Monitors (V3-Monitors) en modo demo", () => {
   });
 });
 
-describe("New scene (F-NewScene) en modo demo", () => {
-  it("no se guarda sin nombre; con nombre y the other machine queda como tarjeta en Monitors", async () => {
+describe("New scene (F-NewScene) in demo mode", () => {
+  it("it is not saved without a name; with a name and the other machine it ends up as a card in Monitors", async () => {
     const store = await open("#/monitors/scene");
     const save = screen.getByRole("button", { name: "Save" });
     expect(save).toBeDisabled();
@@ -95,7 +95,7 @@ describe("New scene (F-NewScene) en modo demo", () => {
     expect(await screen.findByRole("article", { name: "Scene Game 2" })).toBeInTheDocument();
   });
 
-  it("el shortcut se graba con la combinación y avisa si ya es de otra scene", async () => {
+  it("the shortcut is recorded with the combination and warns if it already belongs to another scene", async () => {
     await open("#/monitors/scene");
     await userEvent.type(screen.getByRole("textbox"), "Other");
     const kbd = screen.getByRole("button", { name: "Shortcut" });
@@ -107,29 +107,29 @@ describe("New scene (F-NewScene) en modo demo", () => {
     expect(kbd).toHaveTextContent("No shortcut");
   });
 
-  it("«Save and apply» guarda y abre el progress", async () => {
+  it("\"Save and apply\" saves and opens the progress", async () => {
     const store = await open("#/monitors/scene");
-    await userEvent.type(screen.getByRole("textbox"), "Con progress");
+    await userEvent.type(screen.getByRole("textbox"), "With progress");
     await userEvent.click(screen.getByRole("radio", { name: /PC-Desktop/ }));
     await userEvent.click(screen.getByRole("button", { name: "Save and apply" }));
     await waitFor(() => expect(store.route.screen).toBe("progress"));
   });
 });
 
-describe("Progress (F-Transactions) en modo demo", () => {
-  it("una scene in progress muestra sus pasos y el notice de que the monitor confirma cada cambio", async () => {
+describe("Progress (F-Transactions) in demo mode", () => {
+  it("a scene in progress shows its steps and the notice that the monitor confirms each change", async () => {
     await open("#/progress", "demo&still&txn=run");
     expect(await screen.findByText("Applying the scene “Game”")).toBeInTheDocument();
     expect(screen.getByText("The monitor confirms each change; nothing is guessed.")).toBeInTheDocument();
     expect(screen.getByText("waiting for the monitor")).toBeInTheDocument();
   });
 
-  it("al terminar bien dice que la scene quedó activa", async () => {
+  it("on finishing well it says the scene became active", async () => {
     await open("#/progress", "demo&still&txn=ok");
     expect(await screen.findByText(/Scene “Game” active/)).toBeInTheDocument();
   });
 
-  it("si the monitor no da imagen se ve la vuelta atrás y nada queda a medias", async () => {
+  it("if the monitor gives no image the rollback is seen and nothing is left half-done", async () => {
     await open("#/progress", "demo&still&txn=fail");
     expect(await screen.findByText("Rolling back to how it was")).toBeInTheDocument();
     expect(screen.getByText("the monitor said: change failed")).toBeInTheDocument();
@@ -137,8 +137,8 @@ describe("Progress (F-Transactions) en modo demo", () => {
   });
 });
 
-describe("Changes in progress (F-Transactions): una tarjeta por transacción", () => {
-  it("con txn=run salen la scene, el encendido y la medición del link", async () => {
+describe("Changes in progress (F-Transactions): one card per transaction", () => {
+  it("with txn=run the scene, the power-on and the link measurement come out", async () => {
     await open("#/progress", "demo&still&txn=run");
     expect(screen.getByRole("region", { name: "Applying the scene “Game”" })).toBeInTheDocument();
     const energy = screen.getByRole("region", { name: "Powering on PC-Desktop" });

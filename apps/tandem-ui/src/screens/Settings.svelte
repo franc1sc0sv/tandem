@@ -1,7 +1,7 @@
 <script lang="ts">
-  // Settings (`F-Settings`): pestañas con íconos. Desk and machines, Shortcuts, Keyboard and mouse,
-  // Actualizaciones (T-122) y Avanzado. Todo lo que se edita llega a the other machine con el
-  // desk compartido (D4); el nombre del desk todavía no viaja, así que solo se muestra.
+  // Settings (`F-Settings`): tabs with icons. Desk and machines, Shortcuts, Keyboard and mouse,
+  // Updates (T-122) and Advanced. Everything that is edited reaches the other machine with the
+  // shared desk (D4); the desk name does not travel yet, so it is only shown.
   import { onMount } from "svelte";
   import { useStore } from "../lib/context";
   import { SETTINGS_TABS, nextTab, type SettingsTab } from "../lib/settings";
@@ -24,7 +24,7 @@
   let draft = $state("");
   let leaving = $state(false);
 
-  // Los botones de los mockups de settings miden 34 px (12.5 px de texto, ícono de 15).
+  // The buttons of the settings mockups measure 34 px (12.5 px text, 15 icon).
   const B34 = "--btn-h:34px;--btn-px:13px;--btn-gap:7px";
 
   onMount(async () => {
@@ -284,7 +284,7 @@
   }
   .row.first {
     border-top: 0;
-    /* La altura de la fila del mockup, que trae un campo aquí; el nombre es texto porque no se edita en esta fila. */
+    /* The height of the mockup row, which carries a field here; the name is text because it is not edited in this row. */
     min-height: 34px;
   }
   .fill {

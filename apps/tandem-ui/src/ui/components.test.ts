@@ -75,13 +75,13 @@ describe("Button", () => {
 
 describe("Segmented", () => {
   const options = [
-    { value: "izq", label: "Left" },
-    { value: "cen", label: "Center" },
-    { value: "der", label: "Right" },
+    { value: "left", label: "Left" },
+    { value: "center", label: "Center" },
+    { value: "right", label: "Right" },
   ];
 
   it("is a radio group with the chosen option marked", () => {
-    render(Segmented, { options, value: "cen", label: "Alignment" });
+    render(Segmented, { options, value: "center", label: "Alignment" });
     expect(screen.getByRole("radiogroup", { name: "Alignment" })).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: "Center" })).toHaveAttribute("aria-checked", "true");
     expect(screen.getByRole("radio", { name: "Left" })).toHaveAttribute("aria-checked", "false");
@@ -89,22 +89,22 @@ describe("Segmented", () => {
 
   it("the indicator slides to the chosen option", async () => {
     const onchange = vi.fn();
-    const { container } = render(Segmented, { options, value: "izq", label: "Alignment", onchange });
+    const { container } = render(Segmented, { options, value: "left", label: "Alignment", onchange });
     const ind = container.querySelector(".ind") as HTMLElement;
     expect(ind.style.transform).toBe("translateX(0%)");
     await userEvent.click(screen.getByRole("radio", { name: "Right" }));
-    expect(onchange).toHaveBeenCalledWith("der");
+    expect(onchange).toHaveBeenCalledWith("right");
     expect(ind.style.transform).toBe("translateX(200%)");
   });
 
   it("arrows, Home and End move the choice and the focus; only the chosen one is in the Tab order", async () => {
     const onchange = vi.fn();
-    render(Segmented, { options, value: "izq", label: "Alignment", onchange });
-    const izq = screen.getByRole("radio", { name: "Left" });
-    expect(izq).toHaveAttribute("tabindex", "0");
+    render(Segmented, { options, value: "left", label: "Alignment", onchange });
+    const leftOption = screen.getByRole("radio", { name: "Left" });
+    expect(leftOption).toHaveAttribute("tabindex", "0");
     expect(screen.getByRole("radio", { name: "Center" })).toHaveAttribute("tabindex", "-1");
-    izq.focus();
-    await fireEvent.keyDown(izq, { key: "ArrowRight" });
+    leftOption.focus();
+    await fireEvent.keyDown(leftOption, { key: "ArrowRight" });
     expect(screen.getByRole("radio", { name: "Center" })).toHaveFocus();
     await fireEvent.keyDown(document.activeElement as Element, { key: "End" });
     expect(screen.getByRole("radio", { name: "Right" })).toHaveAttribute("aria-checked", "true");
@@ -112,7 +112,7 @@ describe("Segmented", () => {
     expect(screen.getByRole("radio", { name: "Left" })).toHaveAttribute("aria-checked", "true");
     await fireEvent.keyDown(document.activeElement as Element, { key: "ArrowLeft" });
     await fireEvent.keyDown(document.activeElement as Element, { key: "Home" });
-    expect(onchange.mock.calls.map((c) => c[0])).toEqual(["cen", "der", "izq", "der", "izq"]);
+    expect(onchange.mock.calls.map((c) => c[0])).toEqual(["center", "right", "left", "right", "left"]);
   });
 
   it("the indicator takes the option's color if it has one", () => {
@@ -157,17 +157,17 @@ describe("Switch", () => {
 
 describe("Chip", () => {
   it("uniform format: dot and text, with the tone as a class", () => {
-    const { container } = render(Chip, { tone: "ok", children: text("activo") });
+    const { container } = render(Chip, { tone: "ok", children: text("active") });
     const chip = container.querySelector(".chip") as HTMLElement;
     expect(chip).toHaveClass("ok");
     expect(chip.querySelector(".d")).not.toBeNull();
-    expect(chip.textContent).toBe("activo");
+    expect(chip.textContent).toBe("active");
   });
 
   it("the counter has no dot; the pulse marks what is live", () => {
     const { container } = render(Chip, { count: true, children: text("3") });
     expect(container.querySelector(".chip.count .d")).toBeNull();
-    const live = render(Chip, { tone: "info", pulse: true, children: text("activo") });
+    const live = render(Chip, { tone: "info", pulse: true, children: text("active") });
     expect(live.container.querySelector(".chip")).toHaveClass("pulse");
   });
 

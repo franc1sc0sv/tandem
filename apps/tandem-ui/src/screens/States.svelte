@@ -1,6 +1,6 @@
 <script lang="ts">
-  // Trouble states, vista de referencia (`V3-States`, Settings → Avanzado): las nueve
-  // tarjetas con los nombres reales del desk y la acción que arregla cada una.
+  // Trouble states, reference view (`V3-States`, Settings → Advanced): the nine
+  // cards with the real names of the desk and the action that fixes each one.
   import { useStore } from "../lib/context";
   import { stateCards, type StateDo } from "../lib/states";
   import { WIZARD_PAIR } from "../lib/store/store.svelte";

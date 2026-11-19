@@ -294,7 +294,7 @@ export function viewOf(o: Onboarding, snap: Snapshot): StepView {
 }
 
 // ---------------------------------------------------------------------------------------
-// Navegar
+// Navigate
 
 export const indexOf = (id: StepId) => STEPS.findIndex((s) => s.id === id);
 

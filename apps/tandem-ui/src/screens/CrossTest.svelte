@@ -1,6 +1,6 @@
 <script lang="ts">
-  // Crossing test (F-CrossingTest): pide llevar el cursor a the other machine por el borde del
-  // arrangement guardado y la juzga con los crossings que informa el motor de entrada.
+  // Crossing test (F-CrossingTest): asks to take the cursor to the other machine through the edge of the
+  // saved arrangement and judges it with the crossings the input engine reports.
   import { onDestroy, onMount } from "svelte";
   import { SIDE_BY, SIDE_PHRASE, exitSide, fillOf, isVertical, mainOf, type Side } from "../lib/arrangement";
   import { useStore } from "../lib/context";
@@ -18,11 +18,11 @@
   const peerM = $derived(desk.machines[peer]);
   const expected: Side = $derived(exitSide(desk.layout.arrangement, here));
   const limit = store.crossTimeoutMs ?? CROSS_TIMEOUT_MS;
-  /** Lo que se le dice al usuario: los 20 s de la prueba (el demo puede acortarla). */
+  /** What the user is told: the 20 s of the test (the demo can shorten it). */
   const seconds = Math.round(CROSS_TIMEOUT_MS / 1000);
 
   let phase: CrossPhase = $state(start(Date.now()));
-  /** Cada intento reinicia el anillo de la cuenta atrás. */
+  /** Each attempt restarts the countdown ring. */
   let attempt = $state(0);
   let stop: (() => void) | null = null;
   let timer: ReturnType<typeof setInterval> | undefined;
@@ -52,7 +52,7 @@
   const arrangement = formatHash({ screen: "arrangement" });
   const short = (name: string | undefined) => name?.split(" ")[0] ?? "";
 
-  // El dibujo: la machine del cursor y la otra, del lado que dice el arrangement.
+  // The drawing: the cursor's machine and the other one, on the side the arrangement says.
   interface Scene {
     from: string;
     to: string;
@@ -238,7 +238,7 @@
   .desk .mut {
     font-size: 12px;
   }
-  /* El borde por donde debería cruzar late. */
+  /* The edge the cursor should cross through pulses. */
   .edge-glow {
     position: absolute;
     border-radius: 3px;

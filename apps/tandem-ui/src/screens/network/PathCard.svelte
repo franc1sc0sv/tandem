@@ -1,5 +1,5 @@
 <script lang="ts">
-  // La tarjeta de un camino (`V3-Network`): su ícono, su estado y las barras de latencia y banda.
+  // The card of a path (`V3-Network`): its icon, its state and the latency and bandwidth bars.
   import { LINK_NAME } from "../../lib/machines";
   import { stateLabel, bandwidthBar, barColors, formatMs, formatRate, isUp, latencyBar } from "../../lib/network";
   import type { LinkKind, PathView } from "../../lib/store/types";
@@ -17,9 +17,9 @@
 
   const ICON: Record<LinkKind, IconName> = { usb4: "bolt", ethernet: "ethernet", wifi: "wifi" };
   const TINT: Record<LinkKind, string> = { usb4: "#7aa7e6", ethernet: "#5fbfb0", wifi: "#d9a75a" };
-  /** Cómo se llama cada camino en su tarjeta (en el mapa y en la gráfica, solo «USB-C»). */
+  /** What each path is called on its card (on the map and the chart, just "USB-C"). */
   const TITLE: Record<LinkKind, string> = { usb4: "USB-C cable", ethernet: "Ethernet", wifi: "Wi-Fi" };
-  /** Fondo del ícono cuando el camino responde; no cable es gris. */
+  /** Icon background when the path responds; no cable is gray. */
   const WELL: Record<LinkKind, string> = { usb4: "#16202e", ethernet: "#12201d", wifi: "#1a1712" };
 
   const up = $derived(isUp(path));
@@ -88,7 +88,7 @@
   :global(.card.pc:hover) .pi {
     transform: rotate(-8deg) scale(1.08);
   }
-  /* Chip de estado uniforme: Principal verde con pulso, Respaldo ámbar, No cable punteado. */
+  /* Uniform status chip: Primary green with pulse, Backup amber, No cable dotted. */
   .st {
     display: inline-flex;
     align-items: center;

@@ -3,10 +3,10 @@
 // fonts, finite animations finished and infinite ones in their initial state) and
 // compares it with the mockup capture.
 //
-//   pnpm shots                    # todas → docs/screenshots/v03/<screen>.png + similarity.json
+//   pnpm shots                    # all → docs/screenshots/v03/<screen>.png + similarity.json
 //   pnpm shots --only desk        # one
 //   pnpm shots --check            # fails if a region with a threshold does not meet it
-//   pnpm shots --no-build         # reutiliza dist-demo/
+//   pnpm shots --no-build         # reuses dist-demo/
 //   pnpm shots --diff-dir d/      # saves the differences of each comparison
 //   pnpm shots --only styles      # only the component style parity (T-127)
 //
@@ -14,7 +14,7 @@
 // (`gallery.html`) with the same element of the mockup (`style-parity-spec.ts`); with `--check`,
 // a differing property also fails.
 //
-// Necesita `pnpm install` en tools/mockup-render (fuentes de los mockups) y Chromium de
+// Needs `pnpm install` in tools/mockup-render (mockup fonts) and the Chromium of
 // Playwright (`pnpm exec playwright install chromium`).
 
 import { execFileSync } from "node:child_process";

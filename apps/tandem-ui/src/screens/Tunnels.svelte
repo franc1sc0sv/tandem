@@ -1,6 +1,6 @@
 <script lang="ts">
-  // Tunnels (`V3-Compute`, solo lectura por D9): proyectos plegables to the left of, el detalle
-  // del elegido to the right of con el tubo, las cifras y el panel de procesos con su salida en vivo.
+  // Tunnels (`V3-Compute`, read-only per D9): collapsible projects on the left, the detail
+  // of the chosen one on the right with the tube, the figures and the process panel with its live output.
   import { onMount } from "svelte";
     import { useStore } from "../lib/context";
   import { DEFAULT_COLOR } from "../lib/machines";
@@ -12,15 +12,15 @@
   const store = useStore();
   const desk = $derived(store.desk);
 
-  /** El comando del servidor MCP con el que Claude abre los tunnels (DESIGN §8). */
+  /** The MCP server command with which Claude opens the tunnels (DESIGN §8). */
   const MCP_COMMAND = "tandem mcp";
 
   let wanted: string | null = $state(null);
   const groups = $derived(groupByProject(desk.tunnels));
   const sel = $derived(pickTunnel(desk.tunnels, wanted));
-  /** Proyectos plegados por nombre. */
+  /** Projects collapsed by name. */
   let folded: Record<string, boolean> = $state({});
-  /** El proceso elegido en cada tunnel. */
+  /** The chosen process in each tunnel. */
   let chosen: Record<string, number> = $state({});
   let now = $state(store.now());
 
@@ -33,13 +33,13 @@
   const machine = (id: Machine) => desk.machines[id];
   const color = (id: Machine) => machine(id)?.color ?? DEFAULT_COLOR[id];
   const nameOf = (id: Machine) => machine(id)?.name ?? id.toUpperCase();
-  /** Los nombres cortos del camino de un tunnel (`Mac → PC`). */
+  /** The short path names of a tunnel (`Mac → PC`). */
   const ends = (t: TunnelView): [string, string] => {
     const a = machine(t.from);
     const b = machine(t.to);
     return a && b ? shortLabels(a, b) : [nameOf(t.from), nameOf(t.to)];
   };
-  /** Dónde corren los procesos: lo que dice el agente, o el sistema de la machine destino. */
+  /** Where the processes run: what the agent says, or the target machine's system. */
   const envOf = (t: TunnelView) => t.env ?? machine(t.to)?.detail ?? "";
 
   const closed = $derived(sel?.state === "closed");
@@ -49,13 +49,13 @@
   const chipBorder = { busy: "#4f7cbc", idle: "#31343b", closed: "#31343b" } as const;
   const chipColor = { busy: "#c3d8f6", idle: "#9a9da6", closed: "#6a6d76" } as const;
 
-  // El reloj de las horas («34 m») avanza solo; no es una animación.
+  // The hours clock ("34 m") advances by itself; it is not an animation.
   onMount(() => {
     const t = setInterval(() => (now = store.now()), 1000);
     return () => clearInterval(t);
   });
 
-  // La lista de procesos del tunnel elegido, al elegirlo y cada segundo y medio.
+  // The process list of the chosen tunnel, on choosing it and every second and a half.
   $effect(() => {
     const id = sel?.id;
     const state = sel?.state;
@@ -67,7 +67,7 @@
         const r = await store.processes(id);
         if (alive) rows = r;
       } catch {
-        // Sin agente o sin ese tunnel: la lista queda como estaba y el próximo intento lo reintenta.
+        // Without an agent or without that tunnel: the list stays as it was and the next attempt retries.
       }
     };
     void load();
@@ -78,7 +78,7 @@
     };
   });
 
-  // La salida del proceso elegido desde el principio, y después lo fresh cada segundo.
+  // The output of the chosen process from the start, and then the new part every second.
   $effect(() => {
     const id = sel?.id;
     const pid = proc?.id;
@@ -93,7 +93,7 @@
         cursor = chunk.next;
         if (chunk.text !== "") output = appendOutput(output, chunk);
       } catch {
-        // Igual que la lista: se reintenta en el próximo ciclo.
+        // Same as the list: it is retried on the next cycle.
       }
     };
     void pull();
@@ -104,7 +104,7 @@
     };
   });
 
-  // Si el que mira estaba al final, la salida nueva lo sigue.
+  // If the viewer was at the end, the new output follows.
   $effect(() => {
     void output.text;
     if (body && body.scrollHeight - body.scrollTop - body.clientHeight < 40) body.scrollTop = body.scrollHeight;
@@ -138,7 +138,7 @@
       <Card tag="section" label="Tunnels by project" style="box-sizing:content-box;flex:1 1 300px;max-width:380px;min-width:0;--card-pad:8px;display:flex;flex-direction:column;gap:2px">
         {#each groups as g, gi (g.name)}
           {@const open = !folded[g.name]}
-          <!-- Plegar vuelve a dibujar el encabezado, como el mockup: el cambio entra otra vez. -->
+          <!-- Collapsing redraws the header, like the mockup: the change enters again. -->
           {#key open}
           <button type="button" class="proj" style="animation-delay:{gi * 0.1}s" onclick={() => toggle(g.name)} aria-expanded={open}>
             <span class="pf"><svg viewBox="0 0 24 24" fill="none" stroke="#c4c6cc" stroke-width="1.8" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></svg></span>
@@ -274,7 +274,7 @@
     font-size: 11.5px;
   }
 
-  /* Chips de la cabecera y del detalle (30 px, como `.chip` del mockup). */
+  /* Header and detail chips (30 px, like the mockup's `.chip`). */
   .chip {
     display: inline-flex;
     align-items: center;
@@ -352,7 +352,7 @@
     flex: 1;
   }
 
-  /* Proyectos y tunnels. */
+  /* Projects and tunnels. */
   .proj {
     font: inherit;
     color: #e8e8eb;
@@ -559,7 +559,7 @@
     animation: tu-mv var(--sp) linear infinite;
   }
 
-  /* Detalle. */
+  /* Detail. */
   .dh {
     display: flex;
     align-items: flex-start;
@@ -686,7 +686,7 @@
     font-weight: 500;
   }
 
-  /* Procesos y salida. */
+  /* Processes and output. */
   .below {
     display: flex;
     gap: 14px;

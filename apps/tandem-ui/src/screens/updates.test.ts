@@ -18,8 +18,8 @@ async function openUpdates() {
   return store;
 }
 
-describe("Settings → Actualizaciones (F-Settings, T-122)", () => {
-  it("muestra la versión de las dos machines, el origen y «Update only» encendido", async () => {
+describe("Settings → Updates (F-Settings, T-122)", () => {
+  it("shows the version of the two machines, the source and \"Update only\" on", async () => {
     await openUpdates();
     expect(screen.getByText("All machines of the desk on the same version.")).toBeInTheDocument();
     expect(screen.getByText("GitHub Releases · unsigned")).toBeInTheDocument();
@@ -27,7 +27,7 @@ describe("Settings → Actualizaciones (F-Settings, T-122)", () => {
     expect(screen.queryByRole("button", { name: /Update all/ })).toBeNull();
   });
 
-  it("buscar ahora encuentra la versión nueva y «Update all» empieza por the other machine", async () => {
+  it("searching now finds the new version and \"Update all\" starts with the other machine", async () => {
     await openUpdates();
     await userEvent.click(screen.getByRole("button", { name: /Check now/ }));
     expect(await screen.findByText("A new version is available: 0.3.1")).toBeInTheDocument();
@@ -38,7 +38,7 @@ describe("Settings → Actualizaciones (F-Settings, T-122)", () => {
     expect(screen.getByRole("button", { name: /Update all/ })).toBeDisabled();
   });
 
-  it("el interruptor se guarda", async () => {
+  it("the switch is saved", async () => {
     const store = await openUpdates();
     const sw = screen.getByRole("switch", { name: "Update only" });
     await userEvent.click(sw);

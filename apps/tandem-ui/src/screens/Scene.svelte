@@ -1,6 +1,6 @@
 <script lang="ts">
-  // New scene y editar scene (`F-NewScene`): nombre, qué muestra cada monitor compatible,
-  // shortcut y vista previa. Ocupa toda la ventana, con su ruta de vuelta a Monitors.
+  // New scene and edit scene (`F-NewScene`): name, what each compatible monitor shows,
+  // shortcut and preview. It takes the whole window, with its way back to Monitors.
   import { untrack } from "svelte";
   import { useStore } from "../lib/context";
   import { KEEP_WALL, previewWall } from "../lib/monitors";
@@ -10,7 +10,7 @@
   import Button from "../ui/Button.svelte";
 
   interface Props {
-    /** `null`: scene nueva. */
+    /** `null`: a new scene. */
     id: string | null;
   }
   let { id }: Props = $props();
@@ -23,14 +23,14 @@
   const existing = $derived(id === null ? null : (desk.scenes.find((s) => s.id === id) ?? null));
   const others = $derived(desk.scenes.filter((s) => s.id !== id));
 
-  // El borrador se arma una vez, con lo que hay al abrir (o cuando llega la scene a editar).
+  // The draft is built once, with what exists on opening (or when the scene to edit arrives).
   let draft = $state<Draft | null>(null);
   $effect(() => {
     if (draft !== null || !desk.ready) return;
     if (id === null) draft = untrack(() => newDraft(desk.monitors));
     else if (existing) draft = untrack(() => draftOf(existing, desk.monitors));
   });
-  // Una scene que no existe (se borró en the other machine, o la dirección está mal).
+  // A scene that does not exist (it was deleted on the other machine, or the address is wrong).
   $effect(() => {
     if (id !== null && desk.ready && desk.scenes.length > 0 && !existing && draft === null) {
       store.toast("That scene no longer exists", "bad");
@@ -39,7 +39,7 @@
   });
 
   const problem = $derived(draft ? problemOf(draft, others) : null);
-  /** El motivo de un campo, si es de ese campo (el nombre vacío no se grita antes de escribir). */
+  /** The reason for a field, if it belongs to that field (an empty name is not shouted before typing). */
   const why = (field: "name" | "shortcut"): string | null => (problem && problem.field === field && !(field === "name" && draft?.name === "") ? problem.text : null);
   let busy = $state(false);
   const home = formatHash({ screen: "monitors" });
@@ -51,7 +51,7 @@
     if (draft) draft = { ...draft, picks: { ...draft.picks, [monitor]: p } };
   }
 
-  // Grupo de radio: las flechas mueven y eligen.
+  // Radio group: the arrows move and choose.
   function arrows(e: KeyboardEvent, monitor: string, now: Pick) {
     const opts = optionsOf();
     const i = opts.findIndex((o) => o.value === now);
@@ -66,7 +66,7 @@
   }
 
   let shortcutNote = $state("");
-  /** El campo del shortcut escucha la combinación mientras tiene el foco: Retroceso lo quita. */
+  /** The shortcut field listens for the combination while it has focus: Backspace removes it. */
   function capture(e: KeyboardEvent) {
     if (!draft || e.key === "Tab") return;
     e.preventDefault();
@@ -287,7 +287,7 @@
     background: #111215;
     color: #e8e8eb;
     min-width: 120px;
-    /* En el mockup es un <span>: el ancho mínimo no incluye el relleno. */
+    /* In the mockup it is a <span>: the minimum width does not include the padding. */
     box-sizing: content-box;
     text-align: center;
     cursor: text;

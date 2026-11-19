@@ -1,6 +1,6 @@
 <script lang="ts">
-  // Los tres indicadores de `V3-Network`: anillo de latencia (p50 y p99 de la entrada), anillo de
-  // ancho de banda y la gráfica de 60 s con el pico marcado y la nota del último cambio.
+  // The three indicators of `V3-Network`: latency ring (p50 and p99 of the input), bandwidth
+  // ring and the 60 s chart with the peak marked and the note of the last change.
   import { LINK_NAME } from "../../lib/machines";
   import { bandwidthKpi, chartGeometry, chartTarget, formatMs, formatRate, latencyKpi, latencySeries, pathNote } from "../../lib/network";
   import type { NetworkView } from "../../lib/store/types";
@@ -120,7 +120,7 @@
   .note.info {
     color: #9a9da6;
   }
-  /* La línea se dibuja al entrar (`dr`); el pico late (`pk`). */
+  /* The line is drawn on entering (`dr`); the peak pulses (`pk`). */
   .ln {
     stroke-dasharray: 900;
     stroke-dashoffset: 900;

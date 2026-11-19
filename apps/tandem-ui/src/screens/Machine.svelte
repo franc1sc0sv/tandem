@@ -1,6 +1,6 @@
 <script lang="ts">
-  // Página de una machine (T-115, `V3-Machine`/`F-MachineMac`): nombre y color editables,
-  // recursos en vivo, módulos con su interruptor y entornos de ejecución.
+  // A machine page (T-115, `V3-Machine`/`F-MachineMac`): editable name and color,
+  // live resources, modules with their switch and execution environments.
   import { tick } from "svelte";
   import { useStore } from "../lib/context";
   import {
@@ -42,7 +42,7 @@
   const warn = $derived(vramWarn(live));
   const envs = $derived(orderEnvs(m?.environments ?? []));
   const tunnels = $derived(m?.modules.find((x) => x.id === "tunnels") ?? null);
-  // La fila «Permisos» (F-MachineMac): solo en la página de this machine, si falta alguno.
+  // The "Permissions" row (F-MachineMac): only on this machine's page, if any is missing.
   const perm = $derived(m?.here ? missingPermission(store.desk.permissions.rows.filter((r) => r.state === "missing").map((r) => r.id)) : null);
 
   const WOL_MISSING = "Its network card’s MAC is missing: it is learned when pairing; if it did not arrive, type it here (aa:bb:cc:dd:ee:ff).";
@@ -54,7 +54,7 @@
 
   const fmt = (n: number | null | undefined, unit: string) => (n === null || n === undefined ? "—" : `${Math.round(n)} ${unit}`);
 
-  // ---- Nombre ----
+  // ---- Name ----
   let editing = $state(false);
   let draft = $state("");
   let input: HTMLInputElement | undefined = $state();
@@ -96,7 +96,7 @@
     void store.editMachine(machine, { color });
   }
 
-  // Radiogroup: las flechas mueven la elección (saltando el color de the other machine).
+  // Radiogroup: the arrows move the choice (skipping the other machine's color).
   function colorKey(e: KeyboardEvent) {
     if (!m || !["ArrowRight", "ArrowDown", "ArrowLeft", "ArrowUp"].includes(e.key)) return;
     e.preventDefault();
@@ -113,7 +113,7 @@
     }
   }
 
-  // ---- Módulos ----
+  // ---- Modules ----
   let busy: string | null = $state(null);
   const canSwitch = (mod: ModuleView) => mod.switchable && mod.state !== "unavailable" && store.can("modules");
 
@@ -127,7 +127,7 @@
     }
   }
 
-  // ---- Entornos ----
+  // ---- Environments ----
   let scanning = $state(false);
   async function rescan() {
     if (scanning) return;
@@ -308,7 +308,7 @@
       </div>
     {/if}
 
-    <!-- La página de this machine usa la lista compacta de `F-MachineMac`; la de la otra, la de
+    <!-- This machine's page uses the compact list of `F-MachineMac`; the other one's, the
          `V3-Machine`. -->
     <div class="lower" class:compact={m.here}>
       <section class="card mods" aria-label="Modules">
@@ -453,7 +453,7 @@
     border-color: #5a4a2c;
   }
 
-  /* Cabecera: ícono, nombre editable, color y apagar. */
+  /* Header: icon, editable name, color and power off. */
   .hd {
     display: flex;
     align-items: center;
@@ -541,7 +541,7 @@
     cursor: not-allowed;
   }
 
-  /* Recursos agrupados (V3-Machine). */
+  /* Grouped resources (V3-Machine). */
   .wol {
     display: flex;
     align-items: center;
@@ -676,7 +676,7 @@
     width: 16px;
   }
 
-  /* Módulos y entornos, estirados al mismo alto. */
+  /* Modules and environments, stretched to the same height. */
   .lower {
     display: flex;
     gap: 14px;
@@ -689,7 +689,7 @@
     flex-direction: column;
     gap: 2px;
   }
-  /* Compacta (F-MachineMac): filas de 37 px; el chip no las agranda. */
+  /* Compact (F-MachineMac): 37 px rows; the chip does not enlarge them. */
   .compact .mods {
     gap: 0;
   }
@@ -757,7 +757,7 @@
     display: flex;
     align-items: center;
   }
-  /* El botón de re-escanear no agranda la fila del título. */
+  /* The rescan button does not enlarge the title row. */
   .rescan {
     display: grid;
     place-items: center;

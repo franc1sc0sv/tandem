@@ -1,5 +1,5 @@
-// T-129: Settings → Shortcuts. La lógica pura de las filas y los choques, y editar cada shortcut
-// (ventana, bloqueo, scene) en modo demo y contra el agente real (IPC simulada).
+// T-129: Settings → Shortcuts. The pure logic of the rows and the clashes, and editing each shortcut
+// (window, lock, scene) in demo mode and against the real agent (simulated IPC).
 import { fireEvent, render, screen } from "@testing-library/svelte";
 import userEvent from "@testing-library/user-event";
 import { tick } from "svelte";
@@ -16,7 +16,7 @@ import { Store } from "../lib/store/store.svelte";
 import Shell from "../shell/Shell.svelte";
 
 describe("lib/shortcuts", () => {
-  it("canon: modificadores en orden fijo y una sola tecla", () => {
+  it("canon: modifiers in a fixed order and a single key", () => {
     expect(canon(["AltLeft", "ControlLeft", "Digit1"])).toBe("Ctrl+Alt+Digit1");
     expect(canon(["ControlRight", "KeyL"])).toBe("Ctrl+KeyL");
     expect(canon(["ScrollLock"])).toBe("ScrollLock");
@@ -24,12 +24,12 @@ describe("lib/shortcuts", () => {
     expect(canon(["ControlLeft"])).toBe("");
   });
 
-  it("codesOf y canon van y vuelven", () => {
+  it("codesOf and canon go back and forth", () => {
     for (const a of ["Ctrl+Alt+Digit1", "Ctrl+Shift+KeyJ", "Super+Digit4"]) expect(canon(codesOf(a))).toBe(a);
     expect(codesOf("")).toEqual([]);
   });
 
-  it("el bloqueo admite ScrollLock solo, pero una letra suelta no", () => {
+  it("the lock accepts ScrollLock alone, but a loose letter does not", () => {
     const k = (code: string, over = {}) => ({ code, ctrlKey: false, altKey: false, shiftKey: false, metaKey: false, ...over });
     expect(readLockCombo(k("ScrollLock"))).toEqual({ kind: "ok", accel: "ScrollLock" });
     expect(readLockCombo(k("F13"))).toEqual({ kind: "ok", accel: "F13" });
@@ -37,7 +37,7 @@ describe("lib/shortcuts", () => {
     expect(readLockCombo(k("KeyL", { ctrlKey: true }))).toEqual({ kind: "ok", accel: "Ctrl+KeyL" });
   });
 
-  it("las filas siguen el orden del mockup y la palette no se edita", () => {
+  it("the rows follow the mockup order and the palette is not edited", () => {
     const rows = rowsOf({
       toggle: "Ctrl+Alt+Digit0",
       lock: ["ScrollLock"],
@@ -49,7 +49,7 @@ describe("lib/shortcuts", () => {
     expect(rows[3].label).toBe("Scene “Work”");
   });
 
-  it("choques: con el bloqueo, con la ventana, con la palette y entre scenes", () => {
+  it("clashes: with the lock, with the window, with the palette and between scenes", () => {
     const rows = rowsOf({
       toggle: "Ctrl+Alt+Digit0",
       lock: ["ControlLeft", "KeyL"],
@@ -80,7 +80,7 @@ async function open(store: Store) {
 
 const comboOf = (label: RegExp | string) => screen.findByRole("button", { name: new RegExp(`Shortcut for “${label instanceof RegExp ? label.source : label}”`) });
 
-describe("editar shortcuts en modo demo", () => {
+describe("editing shortcuts in demo mode", () => {
   async function demo() {
     const store = new Store(new DemoSource(demoOptions("demo&still")), { hash: "#/settings" });
     await store.start();
@@ -88,7 +88,7 @@ describe("editar shortcuts en modo demo", () => {
     return store;
   }
 
-  it("las filas del mockup: ventana, bloqueo, palette y una por scene", async () => {
+  it("the mockup rows: window, lock, palette and one per scene", async () => {
     await demo();
     await comboOf("Show or hide Tandem");
     expect(await comboOf("Lock the keyboard on this machine")).toHaveTextContent("Scroll Lock");
@@ -96,7 +96,7 @@ describe("editar shortcuts en modo demo", () => {
     expect(await comboOf("Scene “Work”")).toBeInTheDocument();
   });
 
-  it("el bloqueo se guarda al grabarlo y admite F13 solo", async () => {
+  it("the lock is saved on recording it and accepts F13 alone", async () => {
     const store = await demo();
     const combo = await comboOf("Lock the keyboard on this machine");
     await userEvent.click(combo);
@@ -104,7 +104,7 @@ describe("editar shortcuts en modo demo", () => {
     await vi.waitFor(() => expect(store.desk.lockShortcut).toEqual(["F13"]));
   });
 
-  it("una scene guarda su shortcut fresh", async () => {
+  it("a scene saves its new shortcut", async () => {
     const store = await demo();
     const combo = await comboOf("Scene “Work”");
     await userEvent.click(combo);
@@ -112,21 +112,21 @@ describe("editar shortcuts en modo demo", () => {
     await vi.waitFor(() => expect(store.desk.scenes.find((s) => s.id === "trabajo")?.shortcut).toEqual(["ControlLeft", "AltLeft", "Digit7"]));
   });
 
-  it("rechaza el shortcut de otra fila y no guarda nada", async () => {
+  it("rejects another row's shortcut and saves nothing", async () => {
     const store = await demo();
     const before = store.desk.scenes.map((s) => s.shortcut);
     const combo = await comboOf("Scene “Work”");
     await userEvent.click(combo);
-    // ⌃⌥2 es el de la segunda scene.
+    // ⌃⌥2 is the second scene's.
     await fireEvent.keyDown(combo, { key: "2", code: "Digit2", ...chord });
     expect(screen.getByRole("alert")).toHaveTextContent(/Already used by “Scene “/);
     expect(store.desk.scenes.map((s) => s.shortcut)).toEqual(before);
-    // ⌃⌥0 es el de la ventana.
+    // ⌃⌥0 is the window's.
     await fireEvent.keyDown(combo, { key: "0", code: "Digit0", ...chord });
     expect(screen.getByRole("alert")).toHaveTextContent("Already used by “Show or hide Tandem”");
   });
 
-  it("el bloqueo no puede ser el de una scene", async () => {
+  it("the lock cannot be a scene's", async () => {
     const store = await demo();
     const combo = await comboOf("Lock the keyboard on this machine");
     await userEvent.click(combo);
@@ -171,7 +171,7 @@ function connected(): Snapshot {
   } as unknown as Snapshot;
 }
 
-describe("editar shortcuts contra el agente real (IPC simulada)", () => {
+describe("editing shortcuts against the real agent (simulated IPC)", () => {
   async function live() {
     const act = vi.fn(async (_a: unknown): Promise<{ kind: "done" } | { kind: "rejected"; reason: string }> => ({ kind: "done" }));
     const bridge = {
@@ -187,7 +187,7 @@ describe("editar shortcuts contra el agente real (IPC simulada)", () => {
     return { act, bridge: bridge as unknown as { setShortcuts: ReturnType<typeof vi.fn> } };
   }
 
-  it("el bloqueo manda set_lock_shortcut con los códigos", async () => {
+  it("the lock sends set_lock_shortcut with the codes", async () => {
     const { act } = await live();
     const combo = await comboOf("Lock the keyboard on this machine");
     await userEvent.click(combo);
@@ -195,7 +195,7 @@ describe("editar shortcuts contra el agente real (IPC simulada)", () => {
     await vi.waitFor(() => expect(act).toHaveBeenCalledWith({ kind: "set_lock_shortcut", lock: ["ControlLeft", "KeyL"] }));
   });
 
-  it("«Lock here» de la palette manda lock_here (T-129)", async () => {
+  it("\"Lock here\" from the palette sends lock_here (T-129)", async () => {
     const act = vi.fn(async (_a: unknown): Promise<{ kind: "done" }> => ({ kind: "done" }));
     const bridge = { snapshot: async () => connected(), onSnapshot: async () => {}, act } as unknown as Bridge;
     const store = new Store(new LiveSource(bridge), { hash: "#/settings" });
@@ -207,7 +207,7 @@ describe("editar shortcuts contra el agente real (IPC simulada)", () => {
     expect(act).toHaveBeenCalledWith({ kind: "lock_here", on: false });
   });
 
-  it("una scene manda edit_scene con su shortcut y lo demás intacto", async () => {
+  it("a scene sends edit_scene with its shortcut and the rest intact", async () => {
     const { act } = await live();
     const combo = await comboOf("Scene “Game”");
     await userEvent.click(combo);
@@ -220,7 +220,7 @@ describe("editar shortcuts contra el agente real (IPC simulada)", () => {
     );
   });
 
-  it("el shortcut de la ventana va a ui.toml por setShortcuts", async () => {
+  it("the window shortcut goes to ui.toml through setShortcuts", async () => {
     const { bridge } = await live();
     const combo = await comboOf("Show or hide Tandem");
     await userEvent.click(combo);
@@ -228,7 +228,7 @@ describe("editar shortcuts contra el agente real (IPC simulada)", () => {
     await vi.waitFor(() => expect(bridge.setShortcuts).toHaveBeenCalledWith({ toggle_window: "Ctrl+KeyJ" }));
   });
 
-  it("un choque se rechaza sin pedirle nada al agente", async () => {
+  it("a clash is rejected without asking the agent for anything", async () => {
     const { act } = await live();
     const combo = await comboOf("Scene “Game”");
     await userEvent.click(combo);
@@ -239,7 +239,7 @@ describe("editar shortcuts contra el agente real (IPC simulada)", () => {
     expect(act).not.toHaveBeenCalledWith(expect.objectContaining({ kind: "edit_scene" }));
   });
 
-  it("si el agente rechaza el cambio, se muestra el motivo", async () => {
+  it("if the agent rejects the change, the reason is shown", async () => {
     const { act } = await live();
     act.mockImplementation(async () => ({ kind: "rejected" as const, reason: "unknown key" }));
     const combo = await comboOf("Lock the keyboard on this machine");

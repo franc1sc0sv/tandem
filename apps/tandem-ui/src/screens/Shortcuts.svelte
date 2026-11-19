@@ -1,7 +1,7 @@
 <script lang="ts">
-  // Settings → Shortcuts (`F-Settings--shortcuts`): una fila por shortcut, que se guarda al grabarlo.
-  // La ventana (ui.toml) y el bloqueo y las scenes (el desk compartido) se editan aquí;
-  // la palette es de la ventana y no se cambia.
+  // Settings → Shortcuts (`F-Settings--shortcuts`): one row per shortcut, saved when recorded.
+  // The window (ui.toml) and the lock and scenes (the shared desk) are edited here;
+  // the palette belongs to the window and is not changed.
   import { onMount } from "svelte";
   import { useStore } from "../lib/context";
   import { clashOf, codesOf, readLockCombo, rowsOf, type ShortcutRow, type RowId } from "../lib/hotkeys";
@@ -131,7 +131,7 @@
     flex-direction: column;
     gap: 3px;
   }
-  /* El campo de la combinación (F-Settings). */
+  /* The combination field (F-Settings). */
   .combo {
     font-family: "JetBrains Mono", monospace;
     font-size: 12.5px;

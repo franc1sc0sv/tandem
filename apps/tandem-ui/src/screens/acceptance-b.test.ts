@@ -1,5 +1,5 @@
-// Correcciones de la aceptación (parte B): T-153 (`can()` reactivo), T-154 (tunnels al
-// abrir), T-157 (estado del bloqueo) y T-158 (módulos con estado real). Puente simulado y demo.
+// Acceptance fixes (part B): T-153 (reactive `can()`), T-154 (tunnels on
+// opening), T-157 (lock state) and T-158 (modules with real state). Simulated bridge and demo.
 import { act as flush, render, screen } from "@testing-library/svelte";
 import { tick } from "svelte";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -52,7 +52,7 @@ function snapshot(locked = false, modules: unknown[] = []): Connected {
 
 const wire: ProjectWire[] = [{ name: "tandem", root: "/src/tandem", tunnels: [{ id: "f00dfacecafe0001", title: "Review the PR", origin: "a", target: "b", open: true, created: Date.now() - 60_000, running: [] }] }];
 
-/** Un puente simulado: la primera foto la da `first`; las siguientes se empujan a mano. */
+/** A simulated bridge: the first snapshot is given by `first`; the following ones are pushed by hand. */
 function bridge(first: Snapshot, over: Record<string, unknown> = {}, actions: (a: Action) => ActionResult = () => ({ kind: "done" })) {
   let push: ((s: Snapshot) => void) | undefined;
   const act = vi.fn(async (a: Action) => actions(a));
@@ -76,13 +76,13 @@ async function open(source: Source, hash: string) {
   return store;
 }
 
-/** El chip de estado (los notices con el mismo texto no cuentan). */
+/** The status chip (notices with the same text do not count). */
 const chip = () => [...document.querySelectorAll(".chip")].find((c) => c.textContent?.includes("Cursor locked here")) ?? null;
 
 const tunnelsReply = (a: Action): ActionResult => (a.kind === "tunnels" ? { kind: "tunnels", tunnels: wire } : { kind: "done" });
 
-describe("T-153: los botones con can() se habilitan al conectar el agente", () => {
-  it("«Medir ancho de banda» se habilita cuando llega la primera foto", async () => {
+describe("T-153: buttons with can() are enabled when the agent connects", () => {
+  it("\"Measure bandwidth\" is enabled when the first snapshot arrives", async () => {
     const { b, push } = bridge({ kind: "connecting" });
     await open(new LiveSource(b), "#/network");
     const measure = () => screen.getByRole("button", { name: /Measure bandwidth/ });
@@ -91,7 +91,7 @@ describe("T-153: los botones con can() se habilitan al conectar el agente", () =
     expect(measure()).toBeEnabled();
   });
 
-  it("«Aplicar» de Monitors se habilita al llegar la primera foto", async () => {
+  it("\"Apply\" in Monitors is enabled when the first snapshot arrives", async () => {
     const withScene = { ...snapshot(), desk: { ...snapshot().desk, scenes: [{ id: "t", name: "Work", monitors: [], shortcut: [] }] } } as Snapshot;
     const { b, push } = bridge({ kind: "connecting" });
     await open(new LiveSource(b), "#/monitors");
@@ -100,18 +100,18 @@ describe("T-153: los botones con can() se habilitan al conectar el agente", () =
     expect(await screen.findByRole("button", { name: "Apply" })).toBeEnabled();
   });
 
-  it("Arrangement reevalúa can() con cada foto; con el par emparejado «Test crossing» queda habilitado (T-150)", async () => {
+  it("Arrangement re-evaluates can() with each snapshot; with the pair paired \"Test crossing\" is enabled (T-150)", async () => {
     const { b, push } = bridge({ kind: "connecting" });
     const src = new LiveSource(b);
     const store = await open(src, "#/arrangement");
     expect(store.can("monitors")).toBe(false);
     await flush(async () => push(snapshot()));
-    // `can()` cambia con la foto (T-153) y, con el par emparejado, el crossing real está disponible (T-150).
+    // `can()` changes with the snapshot (T-153) and, with the pair paired, the real crossing is available (T-150).
     expect(store.can("monitors")).toBe(true);
     expect(store.can("crossing")).toBe(true);
   });
 
-  it("vuelve a deshabilitarse si el agente se pierde", async () => {
+  it("it is disabled again if the agent is lost", async () => {
     const { b, push } = bridge(snapshot());
     await open(new LiveSource(b), "#/network");
     expect(screen.getByRole("button", { name: /Measure bandwidth/ })).toBeEnabled();
@@ -119,14 +119,14 @@ describe("T-153: los botones con can() se habilitan al conectar el agente", () =
     expect(screen.getByRole("button", { name: /Measure bandwidth/ })).toBeDisabled();
   });
 
-  it("en modo demo el botón está habilitado desde el principio", async () => {
+  it("in demo mode the button is enabled from the start", async () => {
     await open(new DemoSource(demoOptions("demo&still")), "#/network");
     expect(screen.getByRole("button", { name: /Measure bandwidth/ })).toBeEnabled();
   });
 });
 
-describe("T-154: la ventana pide los tunnels que ya existen", () => {
-  it("los muestra sin esperar un evento y los pide una sola vez", async () => {
+describe("T-154: the window asks for the tunnels that already exist", () => {
+  it("shows them without waiting for an event and asks for them only once", async () => {
     const { b, act } = bridge(snapshot(), {}, tunnelsReply);
     const store = await open(new LiveSource(b), "#/tunnels");
     await flush(async () => {});
@@ -136,7 +136,7 @@ describe("T-154: la ventana pide los tunnels que ya existen", () => {
     expect(act.mock.calls.filter(([a]) => a.kind === "tunnels")).toHaveLength(1);
   });
 
-  it("la tray y la palette también los muestran tras abrirse", async () => {
+  it("the tray and the palette also show them after opening", async () => {
     const running = [{ id: 1, command: "cargo test", pid: 9, started: Date.now(), duration: null, state: { kind: "running" as const } }];
     const busy: ProjectWire[] = [{ ...wire[0], tunnels: [{ ...wire[0]!.tunnels[0]!, running }] } as ProjectWire];
     const reply = (a: Action): ActionResult => (a.kind === "tunnels" ? { kind: "tunnels", tunnels: busy } : { kind: "done" });
@@ -148,7 +148,7 @@ describe("T-154: la ventana pide los tunnels que ya existen", () => {
     expect(titles).toContain("Go to tunnel “Review the PR”");
   });
 
-  it("espera a que haya agente y luego los pide", async () => {
+  it("waits for an agent to exist and then asks for them", async () => {
     const { b, act, push } = bridge({ kind: "connecting" }, {}, tunnelsReply);
     const store = await open(new LiveSource(b), "#/tunnels");
     expect(act).not.toHaveBeenCalledWith({ kind: "tunnels" });
@@ -157,7 +157,7 @@ describe("T-154: la ventana pide los tunnels que ya existen", () => {
     expect(store.desk.tunnels).toHaveLength(1);
   });
 
-  it("un pedido tardío no pisa lo que llegó por evento", async () => {
+  it("a late request does not overwrite what arrived by event", async () => {
     let emit: ((g: ProjectWire[]) => void) | undefined;
     let release: (() => void) | undefined;
     const { b } = bridge(snapshot(), {
@@ -177,7 +177,7 @@ describe("T-154: la ventana pide los tunnels que ya existen", () => {
     expect(store.desk.tunnels).toHaveLength(1);
   });
 
-  it("si el agente no contesta con tunnels, la ventana sigue vacía sin romperse", async () => {
+  it("if the agent does not answer with tunnels, the window stays empty without breaking", async () => {
     const { b } = bridge(snapshot());
     const store = await open(new LiveSource(b), "#/tunnels");
     await flush(async () => {});
@@ -186,8 +186,8 @@ describe("T-154: la ventana pide los tunnels que ya existen", () => {
   });
 });
 
-describe("T-157: «Lock here» se ve y la palette ofrece solo lo que aplica", () => {
-  it("el Desk muestra el chip mientras el cursor está bloqueado y lo quita al soltar", async () => {
+describe("T-157: \"Lock here\" is visible and the palette offers only what applies", () => {
+  it("the Desk shows the chip while the cursor is locked and removes it on releasing", async () => {
     const { b, push } = bridge(snapshot(false));
     await open(new LiveSource(b), "#/desk");
     expect(chip()).toBeNull();
@@ -197,7 +197,7 @@ describe("T-157: «Lock here» se ve y la palette ofrece solo lo que aplica", ()
     expect(chip()).toBeNull();
   });
 
-  it("la tray muestra el chip mientras está bloqueado y lo quita al soltar", async () => {
+  it("the tray shows the chip while locked and removes it on releasing", async () => {
     const { b, push } = bridge(snapshot(false));
     const store = new Store(new LiveSource(b), null, TRAY_TOPICS);
     render(Tray, { store, actions: { showMain: vi.fn(), quit: vi.fn() } });
@@ -209,7 +209,7 @@ describe("T-157: «Lock here» se ve y la palette ofrece solo lo que aplica", ()
     expect(chip()).toBeNull();
   });
 
-  it("la palette cambia de orden según el estado", async () => {
+  it("the palette changes order depending on the state", async () => {
     const { b, push } = bridge(snapshot(false));
     const store = await open(new LiveSource(b), "#/desk");
     const lock = () => buildCommands(store.desk, store, false).filter((c) => c.id.startsWith("lock:")).map((c) => c.title);
@@ -218,7 +218,7 @@ describe("T-157: «Lock here» se ve y la palette ofrece solo lo que aplica", ()
     expect(lock()).toEqual(["Remove the lock"]);
   });
 
-  it("avisa al bloquear y al soltar, y manda la orden al agente", async () => {
+  it("announces on locking and releasing, and sends the order to the agent", async () => {
     const { b, act } = bridge(snapshot());
     const store = await open(new LiveSource(b), "#/desk");
     expect(await store.lockHere(true)).toEqual({ ok: true, text: "Cursor locked here" });
@@ -226,14 +226,14 @@ describe("T-157: «Lock here» se ve y la palette ofrece solo lo que aplica", ()
     expect(await store.lockHere(false)).toEqual({ ok: true, text: "Lock removed" });
   });
 
-  it("un rechazo del agente se explica y no cambia el estado", async () => {
+  it("an agent rejection is explained and does not change the state", async () => {
     const { b } = bridge(snapshot(), {}, () => ({ kind: "rejected", reason: "this machine does not have the keyboard" }));
     const store = await open(new LiveSource(b), "#/desk");
     expect(await store.lockHere(true)).toEqual({ ok: false, reason: "this machine does not have the keyboard" });
     expect(store.desk.locked).toBe(false);
   });
 
-  it("en modo demo el chip aparece al bloquear y se quita al soltar", async () => {
+  it("in demo mode the chip appears on locking and is removed on releasing", async () => {
     const store = await open(new DemoSource(demoOptions("demo&still")), "#/desk");
     expect(chip()).toBeNull();
     await flush(async () => void (await store.lockHere(true)));
@@ -243,13 +243,13 @@ describe("T-157: «Lock here» se ve y la palette ofrece solo lo que aplica", ()
   });
 });
 
-describe("T-158: los módulos muestran el estado que dice el agente", () => {
+describe("T-158: the modules show the state the agent reports", () => {
   const mods = [
     { id: "tunnels", name: "Tunnels", detail: "Receives tunnels from Claude", state: "active", switchable: false },
     { id: "files", name: "Files", detail: "Drag files across the edge", state: "active", switchable: false },
   ];
 
-  it("no inventa «Not in this version yet»: usa el estado del agente", async () => {
+  it("does not invent \"Not in this version yet\": it uses the agent's state", async () => {
     const { b } = bridge(snapshot(false, mods));
     const store = await open(new LiveSource(b), "#/machine/a");
     const views = store.desk.machines.a?.modules ?? [];
@@ -257,8 +257,8 @@ describe("T-158: los módulos muestran el estado que dice el agente", () => {
     expect(document.body.textContent).not.toContain("Not in this version yet");
   });
 
-  it("el resumen del asistente dice que los tunnels funcionan, o por qué no", async () => {
-    // Con un entorno listo en cada lado, lo único que decide es el estado del módulo.
+  it("the setup summary says that tunnels work, or why not", async () => {
+    // With a ready environment on each side, the only thing that decides is the module state.
     const environments = [{ id: "sh", kind: "shell", name: "Shell", default: true, ready: true, detail: "" }];
     const both = (state: string, reason?: string) => ({
       ...snapshot(false, [{ ...mods[0], state, reason }]),
@@ -272,7 +272,7 @@ describe("T-158: los módulos muestran el estado que dice el agente", () => {
     expect(await rows(both("unavailable", "The system would not open anything"))).toMatchObject({ ok: false });
   });
 
-  it("una razón verdadera sí se muestra", async () => {
+  it("a true reason is shown", async () => {
     const reason = "The system would not open the file drag detector";
     const down = [{ ...mods[1], state: "unavailable", reason }];
     const { b } = bridge(snapshot(false, down));

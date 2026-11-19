@@ -1,4 +1,4 @@
-// Trouble states (V3-States, T-120): qué tarjetas salen, con qué datos y qué hace cada acción.
+// Trouble states (V3-States, T-120): which cards appear, with what data and what each action does.
 import { render, screen } from "@testing-library/svelte";
 import userEvent from "@testing-library/user-event";
 import { tick } from "svelte";
@@ -28,54 +28,54 @@ async function mount(query = "demo&still") {
   return store;
 }
 
-describe("lib/states: qué tarjetas aplican", () => {
+describe("lib/states: which cards apply", () => {
   const base = demoDesk(demoOptions("demo&still"));
 
-  it("la galería del demo trae las nueve, en el orden del mockup", () => {
+  it("the demo gallery brings all nine, in the mockup order", () => {
     expect(ids(base, GALLERY)).toEqual(["first", "off", "cable", "resumed", "failed", "scene", "unsupported", "nobody", "permission"]);
   });
 
-  it("con todo en orden la app real solo muestra lo que el desk tiene (the monitor sin compatibilidad)", () => {
+  it("with everything in order the real app only shows what the desk has (the monitor without compatibility)", () => {
     expect(ids(base)).toEqual(["unsupported"]);
     expect(stateCards(base)[0].title).toMatch(/^“.+” is not supported$/);
   });
 
-  it("con `example` (`?demo&states`) las nueve tarjetas traen los textos del mockup, solo en la galería de ejemplo", () => {
+  it("with `example` (`?demo&states`) the nine cards carry the mockup texts, only in the example gallery", () => {
     const cards = stateCards(base, { ...GALLERY, example: true });
     expect(cards).toHaveLength(9);
     expect(JSON.stringify(cards)).toContain("epoch 9/20 · loss 0.0371");
     expect(cards.find((c) => c.id === "unsupported")?.title).toBe("Unsupported monitor");
-    expect(JSON.stringify(stateCards(base, GALLERY))).not.toContain("Se recuperaron 3 min");
+    expect(JSON.stringify(stateCards(base, GALLERY))).not.toContain("3 min were recovered");
   });
 
-  it("the other machine apagada, un solo Wi-Fi, sin otra machine y el permiso faltante salen solos", () => {
+  it("the other machine off, a single Wi-Fi, no other machine and the missing permission come out alone", () => {
     expect(ids(demoDesk(demoOptions("demo&still&trouble=peer-off")))).toContain("off");
     expect(ids(demoDesk(demoOptions("demo&still&trouble=link-down")))).toContain("cable");
     expect(ids(demoDesk(demoOptions("demo&still&peer=none")))).toContain("first");
     expect(ids(demoDesk(demoOptions("demo&still&trouble=permissions")))).toContain("permission");
   });
 
-  it("la scene fallida sale con su nombre y su id, no con la primera ni la activa", () => {
+  it("the failed scene comes out with its name and id, not the first or the active one", () => {
     const cards = stateCards(base, { gallery: false, failedScene: { id: "game", name: "Game" } });
     const scene = cards.find((c) => c.id === "scene");
     expect(scene?.title).toBe("The scene “Game” was not applied");
     expect(scene?.action).toMatchObject({ does: "retry-scene", sceneId: "game" });
   });
 
-  it("ningún texto inventa datos: sin épocas, pérdida, GPU ni nombres de ejemplo", () => {
+  it("no text invents data: no epochs, loss, GPU or sample names", () => {
     const all = JSON.stringify(stateCards(base, GALLERY));
     for (const x of ["LoRA", "epoch", "loss", "ComfyUI", "MacBook only", "14.1", "0.6 s", "2 workspaces"]) expect(all).not.toContain(x);
   });
 
-  it("shortPath deja la ruta del binario sin el texto que la rodea y la abrevia", () => {
-    expect(shortPath("Concede el permiso a este binario: /Applications/Tandem.app/Contents/MacOS/tandemd (pid 12)")).toBe("/Applications/Tandem.app/…/tandemd");
+  it("shortPath leaves the binary path without the text around it and shortens it", () => {
+    expect(shortPath("Grant the permission to this binary: /Applications/Tandem.app/Contents/MacOS/tandemd (pid 12)")).toBe("/Applications/Tandem.app/…/tandemd");
     expect(shortPath("/a/b")).toBe("/a/b");
     expect(shortPath(null)).toBe("/Applications/Tandem.app/…/tandemd");
   });
 });
 
-describe("pantalla States", () => {
-  it("en el demo muestra la galería con sus acciones", async () => {
+describe("States screen", () => {
+  it("in the demo it shows the gallery with its actions", async () => {
     await mount();
     expect(screen.getByRole("heading", { level: 1, name: "Trouble states" })).toBeInTheDocument();
     expect(screen.getAllByRole("article")).toHaveLength(9);
@@ -84,39 +84,39 @@ describe("pantalla States", () => {
     }
   });
 
-  it("ninguna tarjeta habla de «agregar» una machine (D1)", async () => {
+  it("no card talks about \"adding\" a machine (D1)", async () => {
     await mount();
     expect(document.body.textContent).not.toMatch(/add (another )?machine/i);
   });
 
-  it("«Pair the other machine» abre el asistente de emparejar", async () => {
+  it("\"Pair the other machine\" opens the pairing setup", async () => {
     const store = await mount();
     const open = vi.spyOn(store, "openWizard");
     await userEvent.click(screen.getByRole("button", { name: /Pair the other machine/ }));
     expect(open).toHaveBeenCalledTimes(1);
   });
 
-  it("«Encender» enciende the other machine", async () => {
+  it("\"Power on\" turns on the other machine", async () => {
     const store = await mount();
     const power = vi.spyOn(store, "setPower");
     await userEvent.click(screen.getByRole("button", { name: /Power on/ }));
     expect(power).toHaveBeenCalledWith("b", true);
   });
 
-  it("«View in Tunnels» navega a Tunnels", async () => {
+  it("\"View in Tunnels\" navigates to Tunnels", async () => {
     const store = await mount();
     await userEvent.click(screen.getByRole("button", { name: /View in Tunnels/ }));
     expect(store.route).toEqual({ screen: "tunnels" });
   });
 
-  it("«Open System Settings» pide el permiso de monitoreo de entrada", async () => {
+  it("\"Open System Settings\" requests the input monitoring permission", async () => {
     const store = await mount();
     const open = vi.spyOn(store, "openPermission");
     await userEvent.click(screen.getByRole("button", { name: /Open System Settings/ }));
     expect(open).toHaveBeenCalledWith("input_monitoring");
   });
 
-  it("«Reintentar» reaplica la scene que falló, no la primera", async () => {
+  it("\"Retry\" reapplies the scene that failed, not the first", async () => {
     const store = await mount();
     const apply = vi.spyOn(store, "applyScene").mockResolvedValue({ ok: true });
     store.failedScene = { id: "game", name: "Game" };
@@ -128,8 +128,8 @@ describe("pantalla States", () => {
   });
 });
 
-describe("la scene que falló se recuerda en el store", () => {
-  it("al fallar una scene queda anotada y se borra cuando otra se aplica bien", async () => {
+describe("the scene that failed is remembered in the store", () => {
+  it("when a scene fails it is noted and cleared when another is applied well", async () => {
     const store = new Store(new DemoSource(demoOptions("demo&still")));
     await store.start();
     expect(store.demo).toBe(true);

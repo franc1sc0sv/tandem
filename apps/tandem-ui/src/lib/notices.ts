@@ -42,7 +42,7 @@ export const DEMO_NOTICES: ToastSpec[] = [
   { text: "Claude opened the tunnel “tandem”", body: "MacBook Pro → PC-Desktop · WSL.", tone: "claude" },
 ];
 
-/** Bytes legibles: «1.4 GB», «320 MB», «12 KB». */
+/** Readable bytes: "1.4 GB", "320 MB", "12 KB". */
 export function bytesText(n: number): string {
   if (n >= 1e9) return `${(n / 1e9).toFixed(1)} GB`;
   if (n >= 1e6) return `${Math.round(n / 1e6)} MB`;

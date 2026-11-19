@@ -1,7 +1,7 @@
 <script lang="ts">
-  // Arrangement (V3-Arrangement, D18): las pantallas a escala física, centradas solas; el panel de la
-  // elegida con sus datos, el mini plano de 4 casillas para the other machine y la alineación.
-  // Sin X/Y. «Guardar» es un cambio del desk compartido (T-099).
+  // Arrangement (V3-Arrangement, D18): the screens at physical scale, centered by themselves; the panel of the
+  // chosen one with its data, the 4-slot mini plan for the other machine and the alignment.
+  // No X/Y. "Save" is a change of the shared desk (T-099).
   import { ALIGNS, SIDES, SIDE_LABEL, SLOTS, alignLabels, draw, fillOf, initialSelection, isVertical, panelFor, placeOther, wallOf, type Align, type Arrangement, type LayoutScreen, type Side } from "../lib/arrangement";
   import { useStore } from "../lib/context";
   import { formatHash } from "../lib/routes";
@@ -16,11 +16,11 @@
   const store = useStore();
   const desk = $derived(store.desk);
 
-  /** Lo que el usuario movió y todavía no guardó; `null`: lo del desk. */
+  /** What the user moved and has not saved yet; `null`: that of the desk. */
   let draft: Arrangement | null = $state(null);
   let picked: string | null = $state(null);
   let saving = $state(false);
-  /** El arrangement del desk cuando se guardó, mientras no llegue el fresh: el borrador se queda. */
+  /** The desk arrangement as of saving, until the new one arrives: the draft stays. */
   let awaiting: Arrangement | null = $state(null);
 
   const arrangement = $derived(draft ?? desk.layout.arrangement);
@@ -87,13 +87,13 @@
     const r = await store.setArrangement(mine);
     saving = false;
     if (!r.ok) return;
-    // El agente responde antes de que llegue el `Desk` fresh: hasta entonces se sigue viendo lo guardado.
+    // The agent answers before the new `Desk` arrives: until then what was saved keeps showing.
     const now = desk.layout.arrangement;
     if (!same(now, before) || same(now, mine)) draft = null;
     else awaiting = before;
   }
 
-  // Llegó otro arrangement del desk (el guardado, o uno de the other machine): el borrador ya no hace falta.
+  // Another arrangement of the desk arrived (the saved one, or one from the other machine): the draft is no longer needed.
   $effect(() => {
     const now = desk.layout.arrangement;
     if (awaiting && !same(now, awaiting)) {
@@ -249,7 +249,7 @@
     position: relative;
     width: 100%;
   }
-  /* Curva con rebote del mockup: las pantallas y el borde se deslizan al fresh arrangement. */
+  /* Bouncy curve of the mockup: the screens and the edge slide to the new arrangement. */
   .scr {
     position: absolute;
     box-sizing: border-box;
@@ -474,7 +474,7 @@
     outline: 2px solid #7aa7e6;
     outline-offset: 2px;
   }
-  /* La ficha de the other machine se desliza a la casilla elegida. */
+  /* The other machine's token slides to the chosen slot. */
   .mpos {
     position: absolute;
     box-sizing: border-box;

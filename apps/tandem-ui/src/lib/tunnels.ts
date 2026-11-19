@@ -225,7 +225,7 @@ export function bytesLabel(n: number): string {
   return `${r} ${units[i]}`;
 }
 
-/** «activo», «inactivo 9 m», «closed». */
+/** "active", "idle 9 m", "closed". */
 export function statusText(t: TunnelView, now: number): string {
   if (t.state === "busy") return "active";
   if (t.state === "closed") return "closed";

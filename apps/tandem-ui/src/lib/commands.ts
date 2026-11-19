@@ -152,8 +152,8 @@ export interface CommandGroup {
 export function filterCommands(cmds: Command[], query: string): CommandGroup[] {
   const words = normalize(query).split(/\s+/).filter(Boolean);
   const hit = (c: Command) => {
-    const hay = normalize(`${c.title} ${c.group}`);
-    return words.every((w) => hay.includes(w));
+    const haystack = normalize(`${c.title} ${c.group}`);
+    return words.every((w) => haystack.includes(w));
   };
   return GROUP_ORDER.map((name) => ({ name, items: cmds.filter((c) => c.group === name && hit(c)) })).filter((g) => g.items.length > 0);
 }

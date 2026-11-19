@@ -1,6 +1,6 @@
 <script lang="ts">
-  // Monitors y scenes (`V3-Monitors`): cada monitor compatible con su entrada real y quién lo
-  // controla, los que no lo son (D11) con su razón, y las scenes como tarjetas.
+  // Monitors and scenes (`V3-Monitors`): each compatible monitor with its real input and who
+  // controls it, the incompatible ones (D11) with their reason, and the scenes as cards.
   import { useStore } from "../lib/context";
   import { wallOf } from "../lib/arrangement";
   import { INPUT_LABEL, KEEP_WALL, accentOf, formatClock, shortMonitor, whyNotSwitch } from "../lib/monitors";
@@ -28,7 +28,7 @@
   const colorOf = (m: Machine | null) => (m ? (desk.machines[m]?.color ?? "#9a9da6") : "#9a9da6");
   const wall = (m: Machine | null) => (m ? wallOf(colorOf(m)) : KEEP_WALL);
 
-  /** Lo que se pidió y the monitor todavía no confirmó: el indicador ya se va, pero la verdad es la dthe monitor. */
+  /** What was requested and the monitor has not confirmed yet: the indicator already goes, but the truth is the monitor's. */
   let pending: Record<string, { machine: Machine; since: number }> = $state({});
 
   function options(m: MonitorUi): SegOption[] {
@@ -42,13 +42,13 @@
     }));
   }
 
-  /** «PC-Escritorio · DP»: quién lo controla y por qué entrada le llega. */
+  /** "PC-Desktop · DP": who controls it and through which input it arrives. */
   const ownerText = (m: MonitorUi): string => {
     const port = m.owner ? m.ports[m.owner] : undefined;
     return `${nameOf(m.owner)}${port ? ` · ${INPUT_LABEL[port]}` : ""}`;
   };
 
-  /** Qué machine marca el selector: lo pedido mientras the monitor decide, si no, lo que muestra. */
+  /** Which machine the selector marks: what was requested while the monitor decides, otherwise what it shows. */
   const selected = (m: MonitorUi): string => pending[m.id]?.machine ?? m.shows ?? "";
 
   async function pick(m: MonitorUi, who: string) {
@@ -65,7 +65,7 @@
     if (!r.ok) delete pending[m.id];
   }
 
-  // El monitor confirmó (o el cambio terminó y se deshizo): el selector vuelve a mostrar la verdad.
+  // The monitor confirmed (or the change ended and was undone): the selector goes back to showing the truth.
   $effect(() => {
     const run = store.run;
     for (const m of desk.monitors) {
@@ -85,10 +85,10 @@
     other: { icon: "info", color: "#9a9da6", stroke: 2 },
   };
 
-  /** «34 pulgadas» en la etiqueta accesible, como el mockup. */
+  /** "34 inches" in the accessible label, like the mockup. */
   const spoken = (name: string) => shortMonitor(name).replace('"', " inches");
 
-  /** «Aplicar» lleva al progress paso a paso (F-Transactions). */
+  /** "Apply" leads to the step-by-step progress (F-Transactions). */
   async function apply(id: string) {
     const r = await store.applyScene(id);
     if (r.ok) store.showProgress();
@@ -148,7 +148,7 @@
                 {#if !m.connected}<Chip dot={false} class="mut" style="padding:4px 10px 4px 8px"><Icon name="unplugged" size={13} stroke={2} />Disconnected</Chip>{/if}
               </span>
             </div>
-            <!-- Sin comando del agente para olvidar un monitor, la acción no se ofrece (DESIGN §3.8). -->
+            <!-- Without an agent command to forget a monitor, the action is not offered (DESIGN §3.8). -->
             {#if store.can("forget")}
               <Button icon="trash" variant="ghost" size="sm" iconSize={16} iconStroke={1.8} iconOnly label="Forget this monitor" disabled={m.connected} onclick={() => store.forgetMonitor(m.id)} />
             {/if}

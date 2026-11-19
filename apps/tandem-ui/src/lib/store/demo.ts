@@ -86,7 +86,7 @@ export interface DemoOptions {
   /** How the crossing test ends. */
   cross?: "ok" | "wrong" | "timeout";
   /** The third scene is called "PC only", as in `F-Settings` (the rest of the mockup calls it "Game"). */
-  soloPc?: boolean;
+  pcOnly?: boolean;
   /** The progress screen of a scene at this point. */
   txn?: "run" | "ok" | "fail";
   /** Applying this scene fails on its monitor and is undone. */
@@ -122,7 +122,7 @@ export function demoOptions(query: string): DemoOptions {
     tray: p.has("tray"),
     peerEdit: p.has("peeredit"),
     admin: p.get("admin") === "pending" ? "pending" : p.get("admin") === "off" ? "off" : undefined,
-    soloPc: p.has("solopc") || p.has("palette") || p.has("tray"),
+    pcOnly: p.has("pconly") || p.has("palette") || p.has("tray"),
     cross: p.get("cross") === "ok" ? "ok" : p.get("cross") === "wrong" ? "wrong" : p.get("cross") === "timeout" ? "timeout" : undefined,
   };
 }
@@ -329,12 +329,12 @@ function demoMonitors(sa: Spec, sb: Spec): MonitorUi[] {
 }
 
 /** The demo scenes over the first compatible monitor (like the mockup). */
-export function demoScenes(a: string, b: string, monitors: MonitorUi[], mac: boolean, soloPc = false, workOnA = false): SceneView[] {
+export function demoScenes(a: string, b: string, monitors: MonitorUi[], mac: boolean, pcOnly = false, workOnA = false): SceneView[] {
   const m = monitors.find((x) => x.compat.ok)?.id;
   const raw: SceneJson[] = [
     { id: "trabajo", name: "Work", monitors: m ? [[m, workOnA ? "a" : "b"]] : [], shortcut: ctrlAlt(1) },
     { id: "solo-a", name: `${a.split(" ")[0]} only`, monitors: m ? [[m, "a"]] : [], shortcut: ctrlAlt(2) },
-    { id: "game", name: soloPc ? "PC only" : "Game", monitors: m ? [[m, "b"]] : [], shortcut: ctrlAlt(3) },
+    { id: "game", name: pcOnly ? "PC only" : "Game", monitors: m ? [[m, "b"]] : [], shortcut: ctrlAlt(3) },
   ];
   return raw.map((r) => sceneView(r, { monitors, name: (x) => (x === "a" ? a : b), mac }));
 }
@@ -391,7 +391,7 @@ const MANY_COMMANDS = [
   "tensorboard --logdir out",
   "nvidia-smi -l 5",
 ];
-const MANY: DemoProc[] = MANY_COMMANDS.map((c, i) => p(c, 3 + i * 4, 6000 + i, `$ ${c}\nlisto\n`));
+const MANY: DemoProc[] = MANY_COMMANDS.map((c, i) => p(c, 3 + i * 4, 6000 + i, `$ ${c}\nready\n`));
 
 /** The tunnels demo: the five of `V3-Compute`, none (`tunnels=none`) or one with 12 processes (`tunnels=many`). */
 export function demoTunnels(now: number, which: DemoOptions["tunnels"] = "normal", oses: Record<Machine, Os> = { a: "macos", b: "windows" }): TunnelView[] {
@@ -589,7 +589,7 @@ export function demoDesk(o: DemoOptions): DeskView {
     };
   };
   const monitors = demoMonitors(sa, sb).map((m) => (o.txn === "fail" && m.compat.ok ? { ...m, input: "hdmi" as const, shows: "a" as const, owner: "b" as const } : m));
-  const scenes = demoScenes(sa.name, sb.name, monitors, (o.here === "a" ? sa : sb).os === "macos", o.soloPc, o.palette);
+  const scenes = demoScenes(sa.name, sb.name, monitors, (o.here === "a" ? sa : sb).os === "macos", o.pcOnly, o.palette);
   const linkUp = o.trouble !== "peer-off" && o.trouble !== "link-down" && o.trouble !== "no-agent";
   return {
     ready: true,

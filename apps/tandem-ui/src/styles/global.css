@@ -4,7 +4,7 @@
  * only what the whole app shares.
  */
 :root {
-  /* Fondos */
+  /* Backgrounds */
   --bg: #0e0f12;
   --bg-side: #0b0c0e;
   --bg-sunk: #111215;
@@ -26,14 +26,14 @@
   --nav: #a3a6af;
   --faint: #80838d;
   --dim: #6a6d76;
-  /* Acentos */
+  /* Accents */
   --blue: #7aa7e6;
   --violet: #a99be8;
   --green: #6cc59a;
   --amber: #d9a75a;
   --red: #e07a6f;
   --teal: #5fbfb0;
-  /* Radios */
+  /* Radii */
   --r-card: 14px;
   --r-ctl: 10px;
   --r-nav: 9px;

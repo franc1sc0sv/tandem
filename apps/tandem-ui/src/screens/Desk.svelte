@@ -1,6 +1,6 @@
 <script lang="ts">
-  // Desk (inicio, `V3-Desk`): las dos machines, el link vivo, los escritorios a escala
-  // real con el cursor en vivo (solo con la ventana visible) y las scenes.
+  // Desk (home, `V3-Desk`): the two machines, the live link, the desktops at real scale
+  // with the live cursor (only with the window visible) and the scenes.
   import { onMount, untrack } from "svelte";
   import { useStore } from "../lib/context";
   import { wallOf } from "../lib/arrangement";
@@ -26,14 +26,14 @@
   const linkName = $derived(link.kind ? LINK_NAME[link.kind] : "No link");
   const AMBER = "#d9a75a";
 
-  // Los escritorios a escala física, del mismo cálculo que el arrangement.
+  // The desktops at physical scale, from the same calculation as the arrangement.
   const scene = $derived(
     a && b
       ? sceneOf(desk.layout, { a: a.name, b: b.name }, { a: a.color, b: b.color })
       : null,
   );
 
-  // El cursor en vivo: se pide al agente solo mientras la ventana se ve.
+  // The live cursor: it is requested from the agent only while the window is visible.
   let visible = $state(typeof document === "undefined" || document.visibilityState !== "hidden");
   let point = $state<Point | null>(null);
   let flashes = $state(0);
@@ -48,8 +48,8 @@
     return () => document.removeEventListener("visibilitychange", onVis);
   });
 
-  // Una huella por valor: el efecto solo se rehace si cambia la geometría, no en cada foto del desk
-  // (el demo publica un `desk` fresh en cada tick y `watchCursor` reiniciaría el recorrido).
+  // One fingerprint per value: the effect is only redone if the geometry changes, not on every desk snapshot
+  // (the demo publishes a new `desk` on every tick and `watchCursor` would restart the path).
   const geometry = $derived(scene ? JSON.stringify([scene.desks, scene.feet, scene.edge, scene.aspect, desk.layout]) : "");
 
   $effect(() => {
@@ -73,7 +73,7 @@
         if (gone) f();
         else stop = f;
       })
-      // Sin cursor en vivo (el agente no lo ofrece): el escritorio se ve sin punto.
+      // Without a live cursor (the agent does not offer it): the desktop is seen without a dot.
       .catch(() => {});
     return () => {
       gone = true;
@@ -83,10 +83,10 @@
     };
   });
 
-  // `V3-Desk` escribe «34" muestra PC-Escritorio»; `V3-Monitors` (y `scenes.ts`) usan «→».
+  // `V3-Desk` writes "34" shows PC-Desktop"; `V3-Monitors` (and `scenes.ts`) use "→".
   const sceneLine = (desc: string) => desc.replaceAll(" → ", " shows ");
 
-  // Energía de the other machine (transacción: el agente informa cada paso).
+  // Power of the other machine (transaction: the agent reports each step).
   const peer = $derived(list.find((m) => !m.here) ?? null);
   const showPower = $derived(peer !== null && store.can("power") && peer.power !== "lost");
   let pending = $state<"on" | "off" | null>(null);
@@ -130,7 +130,7 @@
         {/if}
       </Card>
       {#if showPower && peer && m.id === peer.id}
-        <!-- Fuera del link de la tarjeta (un botón dentro de un <a> no es válido), encima de su cabecera. -->
+        <!-- Outside the card's link (a button inside an <a> is not valid), on top of its header. -->
         <div class="pwr" role="group" aria-label="Power of {peer.name}">
           {#if peer.power === "on"}
             <Button icon="power" variant="ghost" size="sm" iconOnly label={pending === "off" ? "Powering off…" : "Power off"} disabled={pending !== null} onclick={() => power(false)} />
@@ -230,7 +230,7 @@
   .sm {
     font-size: 12px;
   }
-  /* La tercera columna es el hueco de «Add machine» (D1): el mockup reparte así el ancho. */
+  /* The third column is the gap of "Add machine" (D1): the mockup splits the width like that. */
   .machines {
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 200px;
@@ -356,7 +356,7 @@
     flex: 1;
   }
   .bottom :global(.card.desks) {
-    /* Como el mockup: la base de 440 px es del contenido, sin relleno ni borde. */
+    /* Like the mockup: the 440 px base is the content's, without padding or border. */
     box-sizing: content-box;
     flex: 1.3 1 440px;
     min-width: 0;
@@ -464,7 +464,7 @@
     opacity: 0;
     z-index: 1;
   }
-  /* Destello al cruzar el borde (el `eg` del mockup, una vez por crossing). */
+  /* Flash on crossing the edge (the mockup's `eg`, once per crossing). */
   .edge.on {
     animation: eg 1s ease-in-out;
   }

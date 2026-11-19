@@ -101,7 +101,7 @@ describe("normalization", () => {
 });
 
 describe("compareStyles", () => {
-  it("dos elementos iguales no dan diferencias", () => {
+  it("two equal elements give no differences", () => {
     expect(compareStyles("button", BTN, { ...BTN }, ALL)).toEqual([]);
   });
 
@@ -160,7 +160,7 @@ describe("compareStyles", () => {
   });
 });
 
-describe("informe", () => {
+describe("report", () => {
   it("says which pair, which property and where each side is", () => {
     const pairs = PAIRS.filter((p) => p.name === "danger button" || p.name === "card");
     const out = formatReport(pairs, [{ pair: "danger button", group: "radius", property: "border-top-left-radius", app: "10px", mockup: "9px" }], ["card: is not in V3-Desk (div.card)"]);
@@ -178,7 +178,7 @@ describe("informe", () => {
   });
 });
 
-describe("pares", () => {
+describe("pairs", () => {
   it("cover the components and mockups that T-127 asks for", () => {
     const has = (mockup: string, sel: RegExp) => PAIRS.some((p) => p.mockup === mockup && sel.test(p.ref.selector));
     expect(has("V3-Arrangement", /^a\.btn\[/)).toBe(true); // button 38 px

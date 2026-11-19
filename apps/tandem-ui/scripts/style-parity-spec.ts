@@ -52,7 +52,7 @@ export type Styles = Record<string, string>;
 export interface StyleDiff {
   pair: string;
   group: Group;
-  /** Propiedad CSS (o `transition: transform`, `animation`…). */
+  /** CSS property (or `transition: transform`, `animation`…). */
   property: string;
   app: string;
   mockup: string;
@@ -222,7 +222,7 @@ export function formatReport(pairs: readonly StylePair[], diffs: readonly StyleD
   return lines.join("\n");
 }
 
-// ---- Pares --------------------------------------------------------------------------------
+// ---- Pairs --------------------------------------------------------------------------------
 
 const part = (name: string, inner: string, pseudo?: Target["pseudo"]): Target => ({ selector: `[data-part="${name}"] ${inner}`, ...(pseudo ? { pseudo } : {}) });
 const ref = (selector: string, pseudo?: Target["pseudo"]): Target => ({ selector, ...(pseudo ? { pseudo } : {}) });
@@ -252,11 +252,11 @@ export const PAIRS: StylePair[] = [
   { name: "danger button", app: part("btn-danger", ".btn"), mockup: "F-Settings", ref: ref("button.btn.danger"), groups: ALL },
   // Segmented: the alignment one of V3-Arrangement (md) and the machine one of V3-Monitors (lg).
   { name: "segmented md", app: part("seg-md", ".seg"), mockup: "V3-Arrangement", ref: ref(".seg"), groups: ["padding", "radius", "border", "background", "shadow"] },
-  { name: "segmented md · indicador", app: part("seg-md", ".ind"), mockup: "V3-Arrangement", ref: ref(".seg .ind"), groups: IND },
+  { name: "segmented md · indicator", app: part("seg-md", ".ind"), mockup: "V3-Arrangement", ref: ref(".seg .ind"), groups: IND },
   { name: "segmented md · selected option", app: part("seg-md", '[aria-checked="true"]'), mockup: "V3-Arrangement", ref: ref('.seg .sb[aria-checked="true"]'), groups: ALL },
   { name: "segmented md · option", app: part("seg-md", '[aria-checked="false"]'), mockup: "V3-Arrangement", ref: ref('.seg .sb[aria-checked="false"]'), groups: ["font"] },
   { name: "segmented lg", app: part("seg-lg", ".seg"), mockup: "V3-Monitors", ref: ref(".seg"), groups: ["padding", "radius", "border", "background", "shadow"] },
-  { name: "segmented lg · indicador", app: part("seg-lg", ".ind"), mockup: "V3-Monitors", ref: ref(".seg .ind"), groups: IND },
+  { name: "segmented lg · indicator", app: part("seg-lg", ".ind"), mockup: "V3-Monitors", ref: ref(".seg .ind"), groups: IND },
   { name: "segmented lg · selected option", app: part("seg-lg", '[aria-checked="true"]'), mockup: "V3-Monitors", ref: ref('.seg .segb[aria-checked="true"]'), groups: ALL },
   { name: "segmented lg · option", app: part("seg-lg", '[aria-checked="false"]'), mockup: "V3-Monitors", ref: ref('.seg .segb[aria-checked="false"]'), groups: ["font"] },
   // F-Settings, "Keyboard and mouse" tab: switch on and off, with its knob.

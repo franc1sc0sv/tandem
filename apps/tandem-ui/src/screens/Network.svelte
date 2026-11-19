@@ -1,7 +1,7 @@
 <script lang="ts">
-  // Red (`V3-Network`, T-118): el mapa de links, los indicadores y una tarjeta por camino. Todo
-  // sale del estado de la red del agente (`desk.network`); «Medir ancho de banda» le pide la
-  // prueba de 3 s al agente.
+  // Network (`V3-Network`, T-118): the link map, the indicators and one card per path. Everything
+  // comes from the agent's network state (`desk.network`); "Measure bandwidth" asks the agent for the
+  // 3 s test.
   import { useStore } from "../lib/context";
   import { LINK_NAME, MACHINES, machineName } from "../lib/machines";
   import PageHeader from "../shell/PageHeader.svelte";
@@ -19,7 +19,7 @@
     }),
   );
 
-  /** Se está midiendo: por este botón o (otra ventana) según el agente. */
+  /** It is being measured: by this button or (another window) according to the agent. */
   let asked = $state(false);
   const measuring = $derived(asked || network.measuring !== null);
   const measuringName = $derived(network.measuring ? LINK_NAME[network.measuring] : null);

@@ -302,7 +302,7 @@ export function ratioLabel(w: number, h: number): string {
 /** Logical points per inch assumed when the screen does not report its physical size. */
 export const ASSUMED_PPI = 110;
 
-// ---- Colores -------------------------------------------------------------------------------
+// ---- Colors --------------------------------------------------------------------------------
 
 function hex(c: string): [number, number, number] | null {
   const m = /^#([0-9a-f]{6})$/i.exec(c);

@@ -73,7 +73,7 @@ describe("from the agent to the screen", () => {
   });
 });
 
-describe("indicadores", () => {
+describe("indicators", () => {
   it("the latency ring is the p99 against the primary's target", () => {
     expect(latencyKpi(demo())).toMatchObject({ p50: 0.4, p99: 1.9, tone: "ok" });
     expect(latencyKpi(demo()).load).toBeCloseTo(0.475, 3);

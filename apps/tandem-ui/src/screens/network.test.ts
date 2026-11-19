@@ -30,8 +30,8 @@ async function open(source: Source) {
 const demo = (q = "demo&still") => open(new DemoSource(demoOptions(q)));
 const articles = () => [...document.querySelectorAll("article")];
 
-describe("Red (V3-Network) en modo demo", () => {
-  it("dibuja el mapa: las dos machines con su color y los tres caminos", async () => {
+describe("Network (V3-Network) in demo mode", () => {
+  it("draws the map: the two machines with their color and the three paths", async () => {
     await demo();
     expect(screen.getByRole("heading", { name: "Network", level: 1 })).toBeInTheDocument();
     const map = screen.getByRole("region", { name: "Link map" });
@@ -42,15 +42,15 @@ describe("Red (V3-Network) en modo demo", () => {
     expect(within(paths).getByText("0.3 ms")).toBeInTheDocument();
     expect(within(paths).getByText("Ethernet · no cable")).toBeInTheDocument();
     expect(within(paths).getByText("3.8 ms")).toBeInTheDocument();
-    // El halo lleva el color de cada machine.
+    // The halo carries each machine's color.
     const halos = [...map.querySelectorAll<HTMLElement>(".node")].map((n) => n.style.getPropertyValue("--c"));
     expect(halos).toEqual(["#7aa7e6", "#a99be8"]);
-    // El camino que fluye es el del cable y el del Wi-Fi; Ethernet va punteado.
+    // The path that flows is the cable's and Wi-Fi's; Ethernet is dotted.
     expect([...map.querySelectorAll(".flow")].map((p) => p.classList[1])).toEqual(["usb4", "wifi"]);
     expect(map.querySelectorAll('path[stroke-dasharray="4 7"]')).toHaveLength(1);
   });
 
-  it("los indicadores: latencia p50 y p99, ancho de banda y la gráfica con el pico y su nota", async () => {
+  it("the indicators: latency p50 and p99, bandwidth and the chart with the peak and its note", async () => {
     await demo();
     expect(screen.getByText("Keyboard and mouse")).toBeInTheDocument();
     expect(screen.getByText("0.4 ms")).toBeInTheDocument();
@@ -65,7 +65,7 @@ describe("Red (V3-Network) en modo demo", () => {
     expect(screen.getByText("Spike when the cable was unplugged · switched to Wi-Fi in 0.6 s")).toBeInTheDocument();
   });
 
-  it("una tarjeta por camino, con su chip de estado uniforme y sus barras", async () => {
+  it("one card per path, with its uniform status chip and its bars", async () => {
     await demo();
     const [usb, eth, wifi] = articles();
     expect(within(usb!).getByText("USB-C cable")).toBeInTheDocument();
@@ -87,15 +87,15 @@ describe("Red (V3-Network) en modo demo", () => {
     expect(within(wifi!).getByRole("meter", { name: "Wi-Fi latency" })).toHaveAttribute("aria-valuenow", "38");
   });
 
-  it("no hay textos de relleno ni restos de plantilla", async () => {
+  it("there are no filler texts or template leftovers", async () => {
     await demo();
     const text = document.body.innerText ?? document.body.textContent ?? "";
     for (const bad of ["{{", "undefined", "NaN", "Add machine", "Simulate", "lorem"]) expect(text).not.toContain(bad);
-    // Sin la búsqueda de otras pantallas: V3-Network no la tiene.
+    // Without the search from other screens: V3-Network does not have it.
     expect(screen.queryByText("Search or run…")).toBeNull();
   });
 
-  it("medir ancho de banda mide el camino principal, avisa el valor y no se puede repetir mientras mide", async () => {
+  it("measuring bandwidth measures the primary path, announces the value and cannot be repeated while measuring", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const src = new DemoSource(demoOptions("demo"));
     const spy = vi.spyOn(src, "measureLink");
@@ -105,7 +105,7 @@ describe("Red (V3-Network) en modo demo", () => {
     await fireEvent.click(btn);
     expect(spy).toHaveBeenCalledTimes(1);
     expect(spy).toHaveBeenCalledWith(undefined);
-    // La prueba dura: el botón se apaga y dice qué camino se mide.
+    // The test lasts: the button turns off and says which path is being measured.
     const busy = await screen.findByRole("button", { name: "Measuring USB-C…" });
     expect(busy).toBeDisabled();
     await flush(async () => {
@@ -115,7 +115,7 @@ describe("Red (V3-Network) en modo demo", () => {
     expect(screen.getByRole("button", { name: "Measure bandwidth" })).toBeEnabled();
   });
 
-  it("no link con the other machine: los tres caminos no cable y el botón apagado", async () => {
+  it("no link with the other machine: the three paths with no cable and the button off", async () => {
     await demo("demo&still&trouble=link-down");
     expect(screen.getAllByText("No cable")).toHaveLength(2);
     expect(screen.getAllByText("No signal")).toHaveLength(1);
@@ -129,7 +129,7 @@ describe("Red (V3-Network) en modo demo", () => {
     expect(document.querySelectorAll(".flow")).toHaveLength(0);
   });
 
-  it("con la pantalla visible, el historial avanza y la nota sale cuando el corte deja la gráfica", async () => {
+  it("with the screen visible, the history advances and the note appears when the cut leaves the chart", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const store = await open(new DemoSource(demoOptions("demo")));
     expect(screen.getByText(/^Spike when the cable was unplugged/)).toBeInTheDocument();
@@ -143,7 +143,7 @@ describe("Red (V3-Network) en modo demo", () => {
 });
 
 // ---------------------------------------------------------------------------------------
-// Con el agente de verdad: la IPC (el puente) en lugar del demo.
+// With the real agent: the IPC (the bridge) instead of the demo.
 
 function snapshot(link: "usb4" | "wifi" | null = "usb4"): Snapshot {
   return {
@@ -199,8 +199,8 @@ function bridge(measure: ActionResult = { kind: "bandwidth", link: "usb4", bytes
   return { b, act, handlers };
 }
 
-describe("Red con el agente real (IPC)", () => {
-  it("al abrir la pantalla le pide la red al agente y al salir deja de pedirla", async () => {
+describe("Network with the real agent (IPC)", () => {
+  it("on opening the screen it asks the agent for the network and on leaving it stops asking", async () => {
     const { b, act } = bridge();
     const store = await open(new LiveSource(b));
     expect(act.mock.calls.filter(([a]) => a.kind === "watch_network").map(([a]) => a)).toEqual([{ kind: "watch_network", on: true }]);
@@ -208,16 +208,16 @@ describe("Red con el agente real (IPC)", () => {
     expect(act).toHaveBeenLastCalledWith({ kind: "watch_network", on: false });
     store.go({ screen: "network" });
     expect(act).toHaveBeenLastCalledWith({ kind: "watch_network", on: true });
-    // Volver a pedir lo mismo no repite el pedido.
+    // Asking for the same again does not repeat the request.
     const n = act.mock.calls.length;
     store.go({ screen: "network" });
     expect(act.mock.calls.length).toBe(n);
   });
 
-  it("pinta lo que manda el agente, cada segundo, con los nombres y colores de cada machine", async () => {
+  it("paints what the agent sends, every second, with the names and colors of each machine", async () => {
     const { b, handlers } = bridge();
     await open(new LiveSource(b));
-    // Antes de la primera muestra: los tres no cable.
+    // Before the first sample: the three with no cable.
     expect(screen.getAllByText("No cable")).toHaveLength(2);
     expect(screen.getAllByText("No signal")).toHaveLength(1);
     await flush(() => handlers.network?.(wire({ switches: [] })));
@@ -226,10 +226,10 @@ describe("Red con el agente real (IPC)", () => {
     expect(screen.getByText("p99 1.9 ms")).toBeInTheDocument();
     expect(within(screen.getByText("Bandwidth").closest<HTMLElement>(".card")!).getByText("9.4 Gbps")).toBeInTheDocument();
     expect(screen.getByText("Backup")).toBeInTheDocument();
-    // Sin detalle del link, la línea no se inventa.
+    // Without link detail, the line is not invented.
     expect(screen.queryByText(/USB4 ·/)).toBeNull();
     expect(screen.getByText("MacBook Pro", { selector: ".node b" })).toBeInTheDocument();
-    // Cae el cable: el agente lo dice y la pantalla lo sigue.
+    // The cable goes down: the agent says so and the screen follows it.
     const cut = wire();
     cut.paths[0] = { ...cut.paths[0]!, state: "down", rtt_us: null, input_p50_us: null, input_p99_us: null, bytes_per_sec: null };
     cut.paths[2] = { ...cut.paths[2]!, state: "primary" };
@@ -240,7 +240,7 @@ describe("Red con el agente real (IPC)", () => {
     expect(screen.getByText("The cable was unplugged · switched to Wi-Fi in 0.6 s")).toBeInTheDocument();
   });
 
-  it("«Medir ancho de banda» manda MeasureLink por el camino principal y avisa lo medido", async () => {
+  it("\"Measure bandwidth\" sends MeasureLink through the primary path and announces what was measured", async () => {
     const { b, act, handlers } = bridge();
     await open(new LiveSource(b));
     await flush(() => handlers.network?.(wire()));
@@ -249,7 +249,7 @@ describe("Red con el agente real (IPC)", () => {
     expect(await screen.findByText("USB-C: 9.4 Gbps")).toBeInTheDocument();
   });
 
-  it("si el agente rechaza la prueba, se dice por qué", async () => {
+  it("if the agent rejects the test, it says why", async () => {
     const { b, handlers } = bridge({ kind: "rejected", reason: "the input went past its target" });
     await open(new LiveSource(b));
     await flush(() => handlers.network?.(wire()));
@@ -258,14 +258,14 @@ describe("Red con el agente real (IPC)", () => {
     expect(screen.getByRole("button", { name: "Measure bandwidth" })).toBeEnabled();
   });
 
-  it("si el agente está midiendo (otra ventana), el botón lo dice y espera", async () => {
+  it("if the agent is measuring (another window), the button says so and waits", async () => {
     const { b, handlers } = bridge();
     await open(new LiveSource(b));
     await flush(() => handlers.network?.(wire({ measuring: "wifi" })));
     expect(screen.getByRole("button", { name: "Measuring Wi-Fi…" })).toBeDisabled();
   });
 
-  it("sin the other machine emparejada no se puede medir", async () => {
+  it("without the other machine paired it cannot measure", async () => {
     const { b } = bridge();
     (b.snapshot as unknown) = async () => ({ ...snapshot(), peer: { kind: "unpaired" } });
     await open(new LiveSource(b));
@@ -274,13 +274,13 @@ describe("Red con el agente real (IPC)", () => {
 });
 
 // ---------------------------------------------------------------------------------------
-// Animaciones (G7) y prefers-reduced-motion (G8).
+// Animations (G7) and prefers-reduced-motion (G8).
 
 const SRC = join(process.cwd(), "src");
 const read = (...p: string[]) => readFileSync(join(SRC, ...p), "utf8");
 const MOCKUP = readFileSync(join(process.cwd(), "..", "..", "mockups", "v03", "V3-Network.dc.html"), "utf8");
 
-describe("animaciones de V3-Network", () => {
+describe("V3-Network animations", () => {
   const files = {
     map: read("screens", "network", "LinkMap.svelte"),
     kpis: read("screens", "network", "Indicators.svelte"),
@@ -291,10 +291,10 @@ describe("animaciones de V3-Network", () => {
     button: read("ui", "Button.svelte"),
   };
 
-  it("cada @keyframes del mockup tiene su equivalente en la app", () => {
+  it("each mockup @keyframes has its equivalent in the app", () => {
     const names = [...MOCKUP.matchAll(/@keyframes (\w+)/g)].map((m) => m[1]).sort();
     expect(names).toEqual(["dr", "fa", "grow", "halo", "pg", "pk", "ring", "up"]);
-    // Dónde vive el equivalente de cada uno (los nombres de componente cambian, el efecto no).
+    // Where the equivalent of each lives (component names change, the effect does not).
     expect(files.card).toContain("@keyframes card-up");
     expect(files.map).toContain("@keyframes halo");
     for (const k of ["fa-usb", "fa-eth", "fa-wifi"]) expect(files.map).toContain(`@keyframes ${k}`);
@@ -305,7 +305,7 @@ describe("animaciones de V3-Network", () => {
     expect(files.kpis).toContain("@keyframes pk");
   });
 
-  it("con las mismas duraciones y curvas", () => {
+  it("with the same durations and curves", () => {
     expect(files.map).toContain("animation: halo 2.6s ease-in-out infinite");
     expect(files.map).toContain("animation: fa-usb 0.8s linear infinite");
     expect(files.map).toContain("animation: fa-eth 0.8s linear infinite");
@@ -315,7 +315,7 @@ describe("animaciones de V3-Network", () => {
     expect(files.kpis).toContain("animation: dr 2s ease-out 0.2s forwards");
     expect(files.kpis).toContain("animation: pk 2s ease-in-out infinite");
     expect(files.cards).toContain("animation: pg 1.8s infinite");
-    // Entrada escalonada de las tarjetas, como el mockup (0.06, 0.1, 0.14 y 0.18…0.26 s).
+    // Staggered entrance of the cards, like the mockup (0.06, 0.1, 0.14 and 0.18…0.26 s).
     expect(MOCKUP).toContain("animation-delay:.06s");
     expect(read("screens", "Network.svelte")).toContain("0.18 + i * 0.04");
     expect(files.kpis).toContain("delay={0.06}");
@@ -323,7 +323,7 @@ describe("animaciones de V3-Network", () => {
     expect(files.kpis).toContain("delay={0.14}");
   });
 
-  it("y las transiciones: tarjetas, rótulos, íconos y botón", () => {
+  it("and the transitions: cards, labels, icons and button", () => {
     expect(files.card).toMatch(/border-color 0\.25s,\s*transform 0\.25s/);
     expect(files.map).toContain("transition: transform 0.25s");
     expect(files.map).toContain("scale(1.05)");
@@ -333,15 +333,15 @@ describe("animaciones de V3-Network", () => {
     expect(files.button).toContain("rotate(-25deg) scale(1.1)");
   });
 
-  it("con prefers-reduced-motion se apaga todo: la regla global y la línea de la gráfica ya dibujada", () => {
+  it("with prefers-reduced-motion everything turns off: the global rule and the already drawn chart line", () => {
     const css = read("styles", "global.css");
     const rule = /@media \(prefers-reduced-motion: reduce\) \{([\s\S]*?)\n\}/.exec(css)?.[1] ?? "";
     expect(rule).toContain("animation: none !important");
     expect(rule).toContain("transition: none !important");
-    // La línea parte oculta (dashoffset 900) y la anima `dr`: sin animación tiene que verse entera.
+    // The line starts hidden (dashoffset 900) and `dr` animates it: without animation it has to be seen whole.
     const reduce = /@media \(prefers-reduced-motion: reduce\) \{\s*\.ln \{\s*stroke-dashoffset: 0;/.test(files.kpis);
     expect(reduce).toBe(true);
-    // Ningún JS anima aquí: todo es CSS, que esa regla apaga.
+    // No JS animates here: it is all CSS, which that rule turns off.
     for (const src of Object.values(files)) expect(src).not.toMatch(/\.animate\(|svelte\/transition/);
   });
 });

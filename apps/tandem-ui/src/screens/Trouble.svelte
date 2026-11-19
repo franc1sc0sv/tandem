@@ -1,5 +1,5 @@
 <script lang="ts">
-  // Trouble states (`V3-States`): base de T-112; T-120 trae el diseño completo de cada uno.
+  // Trouble states (`V3-States`): base of T-112; T-120 brings the full design of each one.
   import { useStore } from "../lib/context";
   import type { Trouble } from "../lib/store/types";
   import PageHeader from "../shell/PageHeader.svelte";

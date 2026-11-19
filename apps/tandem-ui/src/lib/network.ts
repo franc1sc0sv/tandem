@@ -150,7 +150,7 @@ export function barColors(state: PathState): { latency: string; bandwidth: strin
 }
 
 // ---------------------------------------------------------------------------------------
-// Indicadores.
+// Indicators.
 
 export type Tone = "ok" | "warn" | "bad";
 

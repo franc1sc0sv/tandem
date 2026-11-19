@@ -121,7 +121,7 @@ export interface MachineCaps {
   services: string[];
   /** Modules of its system (T-098); optional so an older agent can be read. */
   modules?: ModuleCaps[];
-  /** Execution environments detectados (T-105). */
+  /** Detected execution environments (T-105). */
   environments?: EnvCaps[];
   /** The hardware according to the scan (T-105). */
   hardware?: HardwareCaps;

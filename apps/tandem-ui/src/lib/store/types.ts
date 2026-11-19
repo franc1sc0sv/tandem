@@ -153,7 +153,7 @@ export interface PathView {
 
 /** A path change ("switched to Wi-Fi in 0.6 s"). */
 export interface PathSwitchView {
-  /** Milisegundos Unix. */
+  /** Unix milliseconds. */
   at: number;
   from: LinkKind | null;
   to: LinkKind | null;
@@ -276,7 +276,7 @@ export interface SceneView {
 
 /** A monitor event, with its icon and its text (`V3-Monitors`). */
 export interface MonitorEventView {
-  /** Milisegundos Unix. */
+  /** Unix milliseconds. */
   at: number;
   kind: "switch" | "button" | "signal" | "boot" | "power" | "failed" | "other";
   text: string;
@@ -324,7 +324,7 @@ export interface PermissionsView {
 /** The trouble states (`V3-States`). */
 export type Trouble = "none" | "no-agent" | "peer-off" | "link-down" | "permissions";
 
-/** Keyboard and mouse compartidos (Settings → Keyboard and mouse). */
+/** Shared keyboard and mouse (Settings → Keyboard and mouse). */
 export interface PrefsView {
   cmdCtrl: boolean;
   dragFiles: boolean;

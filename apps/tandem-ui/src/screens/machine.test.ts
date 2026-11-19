@@ -1,5 +1,5 @@
-// Página Machine (T-115): lo que muestra y lo que se puede hacer, en modo demo y contra una
-// fuente que habla con el agente (IPC simulada).
+// Machine page (T-115): what it shows and what can be done, in demo mode and against a
+// source that talks to the agent (simulated IPC).
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fireEvent, render, screen, within } from "@testing-library/svelte";
@@ -32,7 +32,7 @@ async function mount(query = "demo&still", machine: "a" | "b" = "b") {
 const res = () => screen.getByRole("region", { name: "Live resources" });
 
 describe("Wake-on-LAN (T-159)", () => {
-  it("el campo está siempre, con la MAC actual y un botón para borrarla", async () => {
+  it("the field is always there, with the current MAC and a button to delete it", async () => {
     const { store } = await mount();
     const set = vi.spyOn(store, "setWol");
     const field = screen.getByRole("textbox", { name: /MAC of/ });
@@ -41,7 +41,7 @@ describe("Wake-on-LAN (T-159)", () => {
     expect(set).toHaveBeenCalledWith(null);
   });
 
-  it("editar la MAC la guarda", async () => {
+  it("editing the MAC saves it", async () => {
     const { store } = await mount();
     const set = vi.spyOn(store, "setWol");
     const field = screen.getByRole("textbox", { name: /MAC of/ });
@@ -56,7 +56,7 @@ describe("Wake-on-LAN en el demo (T-171)", () => {
   const mac = () => screen.getByRole("textbox", { name: /MAC of/ });
   const save = () => screen.getByRole("button", { name: "Save" });
 
-  it("guardar una MAC válida la muestra y deja Guardar deshabilitado", async () => {
+  it("saving a valid MAC shows it and leaves Save disabled", async () => {
     const { store } = await mount();
     await userEvent.click(screen.getByRole("button", { name: "Power off" }));
     await vi.waitFor(() => expect(store.desk.machines.b?.power).toBe("off"));
@@ -69,7 +69,7 @@ describe("Wake-on-LAN en el demo (T-171)", () => {
     expect(screen.getByRole("button", { name: "Power on" })).toBeEnabled();
   });
 
-  it("borrar la MAC deja el campo vacío, sin Encender y con el notice", async () => {
+  it("deleting the MAC leaves the field empty, without Power on and with the notice", async () => {
     const { store } = await mount();
     await userEvent.click(screen.getByRole("button", { name: "Power off" }));
     await vi.waitFor(() => expect(store.desk.machines.b?.power).toBe("off"));
@@ -81,7 +81,7 @@ describe("Wake-on-LAN en el demo (T-171)", () => {
     expect(screen.queryByRole("button", { name: "Clear MAC" })).toBeNull();
   });
 
-  it("una MAC inválida muestra el motivo y no cambia lo guardado", async () => {
+  it("an invalid MAC shows the reason and does not change what is saved", async () => {
     const { store } = await mount();
     await userEvent.clear(mac());
     await userEvent.type(mac(), "zz");
@@ -93,7 +93,7 @@ describe("Wake-on-LAN en el demo (T-171)", () => {
 });
 
 describe("V3-Machine (the other machine)", () => {
-  it("muestra cabecera, recursos agrupados, disco, módulos y entornos", async () => {
+  it("shows header, grouped resources, disk, modules and environments", async () => {
     await mount();
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("PC-Desktop");
     expect(screen.getByText("Windows 11 · online")).toBeInTheDocument();
@@ -112,16 +112,16 @@ describe("V3-Machine (the other machine)", () => {
     const mods = within(screen.getByRole("region", { name: "Modules" }));
     expect(mods.getAllByText("active")).toHaveLength(6);
     const envs = within(screen.getByRole("region", { name: "Environments" }));
-    // El predeterminado (WSL) va primero aunque el agente lo diga segundo.
+    // The default (WSL) goes first even if the agent says it second.
     const names = envs.getAllByText(/WSL · Ubuntu|PowerShell 7|Docker Desktop/).map((e) => e.textContent);
     expect(names).toEqual(["WSL · Ubuntu 24.04", "PowerShell 7", "Docker Desktop"]);
     expect(envs.getByText("default")).toBeInTheDocument();
     expect(envs.getByRole("switch", { name: "Allow remote execution" })).toHaveAttribute("aria-checked", "true");
-    // G9: sin textos rotos.
+    // G9: no broken texts.
     expect(document.body.textContent).not.toMatch(/undefined|NaN|\{\{/);
   });
 
-  it("el color se cambia en el desk; el de the other machine no se puede elegir", async () => {
+  it("the color is changed in the desk; the other machine's cannot be chosen", async () => {
     const { store } = await mount();
     const group = screen.getByRole("radiogroup", { name: "Machine color" });
     expect(within(group).getByRole("radio", { name: "Violet" })).toHaveAttribute("aria-checked", "true");
@@ -129,14 +129,14 @@ describe("V3-Machine (the other machine)", () => {
     await userEvent.click(within(group).getByRole("radio", { name: "Teal" }));
     await vi.waitFor(() => expect(store.desk.machines.b?.color).toBe("#5fbfb0"));
     expect(within(group).getByRole("radio", { name: "Teal" })).toHaveAttribute("aria-checked", "true");
-    // Las flechas saltan el color ocupado (azul, de the MacBook).
+    // The arrows skip the taken color (blue, the MacBook's).
     await fireEvent.keyDown(group, { key: "ArrowRight" });
     await vi.waitFor(() => expect(store.desk.machines.b?.color).toBe("#d9a75a"));
     await fireEvent.keyDown(group, { key: "ArrowRight" });
     await vi.waitFor(() => expect(store.desk.machines.b?.color).toBe("#a99be8"));
   });
 
-  it("el nombre se edita en el lugar: Enter guarda, Escape no", async () => {
+  it("the name is edited in place: Enter saves, Escape does not", async () => {
     const { store } = await mount();
     await userEvent.click(screen.getByRole("button", { name: /PC-Desktop/ }));
     const input = screen.getByRole("textbox", { name: "Machine name" });
@@ -147,7 +147,7 @@ describe("V3-Machine (the other machine)", () => {
     await userEvent.click(screen.getByRole("button", { name: /Studio/ }));
     await userEvent.type(screen.getByRole("textbox", { name: "Machine name" }), "XYZ{Escape}");
     expect(store.desk.machines.b?.name).toBe("Studio");
-    // Vacío: no se manda y se avisa por qué.
+    // Empty: it is not sent and the reason is announced.
     await userEvent.click(screen.getByRole("button", { name: /Studio/ }));
     await userEvent.clear(screen.getByRole("textbox", { name: "Machine name" }));
     await userEvent.keyboard("{Enter}");
@@ -155,7 +155,7 @@ describe("V3-Machine (the other machine)", () => {
     expect(store.toasts[0]).toMatchObject({ tone: "bad", text: "The name cannot be empty" });
   });
 
-  it("cada módulo que se puede apagar tiene su interruptor; Energía no", async () => {
+  it("each module that can be turned off has its switch; Power does not", async () => {
     const { store } = await mount();
     const mods = within(screen.getByRole("region", { name: "Modules" }));
     const clip = mods.getByRole("switch", { name: "Clipboard" });
@@ -169,14 +169,14 @@ describe("V3-Machine (the other machine)", () => {
     expect(mods.getByText("Power").parentElement).toHaveTextContent("active");
   });
 
-  it("«Allow remote execution» es el módulo de tunnels", async () => {
+  it("\"Allow remote execution\" is the tunnels module", async () => {
     const { store } = await mount();
     await userEvent.click(screen.getByRole("switch", { name: "Allow remote execution" }));
     await vi.waitFor(() => expect(store.desk.machines.b?.modules.find((m) => m.id === "tunnels")?.state).toBe("off"));
     expect(screen.getByRole("switch", { name: "Allow remote execution" })).toHaveAttribute("aria-checked", "false");
   });
 
-  it("re-escanear muestra que trabaja hasta que vuelve", async () => {
+  it("rescan shows that it works until it returns", async () => {
     vi.useFakeTimers();
     const { store } = await mount();
     const spy = vi.spyOn(store, "rescan");
@@ -188,7 +188,7 @@ describe("V3-Machine (the other machine)", () => {
     expect(btn).toHaveAttribute("aria-busy", "false");
   });
 
-  it("Apagar apaga the other machine y queda Encender", async () => {
+  it("Power off turns the other machine off and Power on remains", async () => {
     const { store } = await mount();
     await userEvent.click(screen.getByRole("button", { name: "Power off" }));
     await vi.waitFor(() => expect(store.desk.machines.b?.power).toBe("off"));
@@ -201,7 +201,7 @@ describe("V3-Machine (the other machine)", () => {
 });
 
 describe("F-MachineMac (this machine)", () => {
-  it("sin Apagar; RAM unificada y GPU integrada con su memoria", async () => {
+  it("without Power off; unified RAM and integrated GPU with their memory", async () => {
     await mount("demo&still", "a");
     expect(screen.getByText("macOS 26 · Apple M5")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Power off" })).toBeNull();
@@ -218,12 +218,12 @@ describe("F-MachineMac (this machine)", () => {
     const envs = within(screen.getByRole("region", { name: "Environments" }));
     expect(envs.getByText("zsh")).toBeInTheDocument();
     expect(envs.getByText("default")).not.toHaveClass("chip");
-    // El módulo de tunnels de this machine se apaga desde su fila: sin el interruptor de abajo.
+    // This machine's tunnels module is turned off from its row: without the switch below.
     expect(envs.queryByRole("switch", { name: "Allow remote execution" })).toBeNull();
     expect(screen.getByRole("switch", { name: "Remote compute" })).toHaveAttribute("aria-checked", "true");
   });
 
-  it("el nombre del desk va junto al logo solo en las páginas de machine (V3-Machine)", async () => {
+  it("the desk name goes next to the logo only on the machine pages (V3-Machine)", async () => {
     const store = new Store(new DemoSource(demoOptions("demo&still")), { hash: "#/desk" });
     await store.start();
     render(Shell, { context: new Map([[STORE_KEY, store]]) });
@@ -235,7 +235,7 @@ describe("F-MachineMac (this machine)", () => {
     expect(within(nav).getByText("My desk")).toBeInTheDocument();
   });
 
-  it("si falta un permiso, la fila «Permisos» lo dice y «Open settings» lo pide", async () => {
+  it("if a permission is missing, the \"Permissions\" row says so and \"Open settings\" requests it", async () => {
     const { store } = await mount("demo&still&trouble=permissions", "a");
     const mods = within(screen.getByRole("region", { name: "Modules" }));
     const names = mods.getAllByText(/^(Keyboard and mouse|Permissions|Clipboard)$/).map((e) => e.textContent);
@@ -244,18 +244,18 @@ describe("F-MachineMac (this machine)", () => {
     const spy = vi.spyOn(store, "openPermission");
     await userEvent.click(mods.getByRole("button", { name: "Open settings" }));
     expect(spy).toHaveBeenCalledWith("input_monitoring");
-    // Concedido ese, la fila pasa al que sigue faltando; con todo concedido, desaparece.
+    // With that one granted, the row moves to the next one missing; with everything granted, it disappears.
     await vi.waitFor(() => expect(mods.getByText(/“Accessibility” is missing/)).toBeInTheDocument());
     await userEvent.click(mods.getByRole("button", { name: "Open settings" }));
     await vi.waitFor(() => expect(mods.queryByText("Permissions")).toBeNull());
   });
 
-  it("la página de the other machine no tiene la fila «Permisos»", async () => {
+  it("the other machine's page does not have the \"Permissions\" row", async () => {
     await mount("demo&still&trouble=permissions", "b");
     expect(screen.queryByText("Permissions")).toBeNull();
   });
 
-  it("con dos Mac, nombres, colores e íconos salen de cada machine (D2)", async () => {
+  it("with two Macs, names, colors and icons come from each machine (D2)", async () => {
     await mount("demo=mac-mac&still", "b");
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Mac mini");
     expect(screen.getByRole("radio", { name: "Amber" })).toHaveAttribute("aria-checked", "true");
@@ -263,10 +263,10 @@ describe("F-MachineMac (this machine)", () => {
   });
 });
 
-describe("animaciones (G7, G8)", () => {
+describe("animations (G7, G8)", () => {
   const css = readFileSync(join(process.cwd(), "src", "screens", "Machine.svelte"), "utf8");
 
-  it("están las del mockup: entrada de grupos y filas, líneas, barras, notice y punto", () => {
+  it("the mockup ones are there: group and row entrance, lines, bars, notice and dot", () => {
     for (const k of ["up", "dr", "grow", "wp", "pl"]) expect(css).toMatch(new RegExp(`@keyframes ${k} \\{`));
     expect(css).toMatch(/\.grp \{[^}]*animation: up 0\.45s cubic-bezier\(0\.2, 0\.8, 0\.2, 1\) both/);
     expect(css).toMatch(/\.mod \{[^}]*animation: up 0\.4s ease-out both/);
@@ -274,12 +274,12 @@ describe("animaciones (G7, G8)", () => {
     expect(css).toMatch(/\.warnchip \{[^}]*animation: wp 2\.4s ease-in-out infinite/);
   });
 
-  it("con prefers-reduced-motion las líneas quedan dibujadas (la regla global apaga el resto)", () => {
+  it("with prefers-reduced-motion the lines stay drawn (the global rule turns off the rest)", () => {
     expect(css).toMatch(/@media \(prefers-reduced-motion: reduce\) \{\s*\.ln \{\s*stroke-dashoffset: 0;/);
   });
 });
 
-describe("contra el agente (IPC)", () => {
+describe("against the agent (IPC)", () => {
   const GIB = 2 ** 30;
   const caps = {
     machine: "b",
@@ -332,7 +332,7 @@ describe("contra el agente (IPC)", () => {
     return { store, act, push: (r: ResourceSample) => onRes?.("b", r) };
   }
 
-  it("la página pide los recursos en vivo y los dibuja con cada muestra", async () => {
+  it("the page asks for live resources and draws them with each sample", async () => {
     const { act, push } = await mountLive();
     expect(act).toHaveBeenCalledWith({ kind: "watch_resources", on: true });
     expect(screen.getByText("Ryzen 9 7950X · 32 threads")).toBeInTheDocument();
@@ -342,12 +342,12 @@ describe("contra el agente (IPC)", () => {
     expect(screen.getByText("43 %")).toBeInTheDocument();
     expect(screen.getByText("55 °C")).toBeInTheDocument();
     expect(screen.getByText("100 GB free of 500 GB")).toBeInTheDocument();
-    // Protected screens no se puede apagar y dice por qué.
+    // Protected screens cannot be turned off and it says why.
     expect(screen.getByText("The administrator service is missing")).toBeInTheDocument();
     expect(screen.queryByRole("switch", { name: "Protected screens" })).toBeNull();
   });
 
-  it("cada acción va al agente con su comando", async () => {
+  it("each action goes to the agent with its command", async () => {
     const { act } = await mountLive();
     await userEvent.click(screen.getByRole("switch", { name: "Clipboard" }));
     expect(act).toHaveBeenCalledWith({ kind: "set_module", machine: "b", module: "clipboard", on: false });
@@ -364,18 +364,18 @@ describe("contra el agente (IPC)", () => {
     expect(act).toHaveBeenCalledWith({ kind: "set_power", machine: "b", on: false });
   });
 
-  it("un rechazo del agente se muestra con su razón", async () => {
+  it("an agent rejection is shown with its reason", async () => {
     const { store, act } = await mountLive();
     act.mockResolvedValueOnce({ kind: "rejected", reason: "that color is already the one of Studio" } as never);
     await userEvent.click(screen.getByRole("radio", { name: "Amber" }));
     await vi.waitFor(() => expect(store.toasts[0]).toMatchObject({ tone: "bad", text: "that color is already the one of Studio" }));
   });
 
-  it("al salir de la página deja de pedir los recursos", async () => {
+  it("on leaving the page it stops asking for resources", async () => {
     const { store, act } = await mountLive();
     store.go({ screen: "settings" });
     expect(act).toHaveBeenLastCalledWith({ kind: "watch_resources", on: false });
-    // Red no muestra recursos: también los suelta, y pide su propio tema (T-118).
+    // Network does not show resources: it releases them too, and asks for its own topic (T-118).
     store.go({ screen: "machine", machine: "a" });
     store.go({ screen: "network" });
     expect(act).toHaveBeenCalledWith({ kind: "watch_resources", on: false });

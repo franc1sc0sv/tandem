@@ -1,5 +1,5 @@
-// Pantalla Desk (T-113): lo que muestra y lo que se puede hacer, en modo demo y contra una
-// fuente que habla con el agente (IPC simulada).
+// Desk screen (T-113): what it shows and what can be done, in demo mode and against a
+// source that talks to the agent (simulated IPC).
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { render, screen, within } from "@testing-library/svelte";
@@ -31,8 +31,8 @@ async function mount(query = "demo&still") {
 
 const dot = (c: HTMLElement) => c.querySelector<HTMLElement>(".curdot");
 
-describe("V3-Desk en modo demo", () => {
-  it("muestra las dos machines, el link, los escritorios y las scenes", async () => {
+describe("V3-Desk in demo mode", () => {
+  it("shows the two machines, the link, the desktops and the scenes", async () => {
     await mount();
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Desk");
     const machines = within(screen.getByRole("region", { name: "Machines" }));
@@ -46,21 +46,21 @@ describe("V3-Desk en modo demo", () => {
     expect(screen.getByRole("button", { name: /Work/, pressed: true })).toBeInTheDocument();
   });
 
-  it("aplicar una scene la marca como activa", async () => {
+  it("applying a scene marks it as active", async () => {
     await mount();
     await userEvent.click(screen.getByRole("button", { name: /MacBook only/ }));
     expect(screen.getByRole("button", { name: /MacBook only/, pressed: true })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Work/, pressed: false })).toBeInTheDocument();
   });
 
-  it("los botones de ícono llevan a arrangement y a monitors", async () => {
+  it("the icon buttons lead to arrangement and monitors", async () => {
     await mount();
     expect(screen.getByRole("link", { name: "Edit arrangement" })).toHaveAttribute("href", "#/arrangement");
     expect(screen.getByRole("link", { name: "New scene" })).toHaveAttribute("href", "#/monitors");
     expect(screen.getByRole("link", { name: "Edit scenes" })).toHaveAttribute("href", "#/monitors");
   });
 
-  it("apagar y encender the other machine desde su tarjeta de energía", async () => {
+  it("power the other machine off and on from its power card", async () => {
     await mount();
     const card = within(screen.getByRole("group", { name: "Power of PC-Desktop" }));
     await userEvent.click(card.getByRole("button", { name: "Power off" }));
@@ -69,25 +69,25 @@ describe("V3-Desk en modo demo", () => {
     expect(await card.findByRole("button", { name: "Power off" })).toBeInTheDocument();
   });
 
-  it("no ofrece energía si the other machine no está emparejada o ya está perdida", async () => {
+  it("does not offer power if the other machine is not paired or is already lost", async () => {
     await mount("demo&still&trouble=link-down");
     expect(screen.queryByRole("group", { name: "Power of PC-Desktop" })).toBeNull();
   });
 
-  it("el punto del cursor aparece con la primera muestra y el borde no destella solo", async () => {
+  it("the cursor dot appears with the first sample and the edge does not flash by itself", async () => {
     const { container } = await mount();
     await vi.waitFor(() => expect(dot(container)).not.toBeNull());
     expect(dot(container)?.style.left).toMatch(/^16(\.\d+)?%$/);
     expect(container.querySelector(".edge.on")).toBeNull();
   });
 
-  it("con otras machines (D2) los nombres salen de cada una", async () => {
+  it("with other machines (D2) the names come from each one", async () => {
     await mount("demo=win-win&still");
     expect(screen.getByRole("img", { name: /To scale:/ }).getAttribute("aria-label")).not.toContain("MacBook");
   });
 });
 
-describe("contra el agente (IPC)", () => {
+describe("against the agent (IPC)", () => {
   const machine = (m: "a" | "b", name: string, os: string, color: string) => ({
     machine: m,
     name,
@@ -141,11 +141,11 @@ describe("contra el agente (IPC)", () => {
 
   const watches = (act: ReturnType<typeof vi.fn>) => act.mock.calls.map((c) => c[0]).filter((a: Action) => a.kind === "watch_cursor");
 
-  it("pide el cursor en vivo y dibuja cada muestra sobre su pantalla", async () => {
+  it("asks for the live cursor and draws each sample on its screen", async () => {
     const { act, send, container } = await mountLive();
     await vi.waitFor(() => expect(watches(act)).toEqual([{ kind: "watch_cursor", on: true }]));
     expect(dot(container)).toBeNull();
-    // El centro de la pantalla del 34" (3440 × 1440).
+    // The center of the 34" screen (3440 × 1440).
     send({ kind: "cursor", sample: { machine: "b", screen: "g34", x: 1720, y: 720 } });
     await tick();
     const left = parseFloat(dot(container)?.style.left ?? "NaN");
@@ -156,7 +156,7 @@ describe("contra el agente (IPC)", () => {
     expect(top).toBeLessThan(50);
   });
 
-  it("cada crossing destella el borde", async () => {
+  it("each crossing flashes the edge", async () => {
     const { act, send, container } = await mountLive();
     await vi.waitFor(() => expect(watches(act)).toHaveLength(1));
     expect(container.querySelector(".edge.on")).toBeNull();
@@ -165,7 +165,7 @@ describe("contra el agente (IPC)", () => {
     expect(container.querySelector(".edge.on")).not.toBeNull();
   });
 
-  it("solo recibe el cursor con la ventana visible", async () => {
+  it("only receives the cursor with the window visible", async () => {
     const { act } = await mountLive();
     await vi.waitFor(() => expect(watches(act)).toHaveLength(1));
     Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
@@ -176,31 +176,31 @@ describe("contra el agente (IPC)", () => {
     await vi.waitFor(() => expect(watches(act).at(-1)).toEqual({ kind: "watch_cursor", on: true }));
   });
 
-  it("al salir de la pantalla deja de recibirlo", async () => {
+  it("on leaving the screen it stops receiving it", async () => {
     const { act, unmount } = await mountLive();
     await vi.waitFor(() => expect(watches(act)).toHaveLength(1));
     unmount();
     expect(watches(act).at(-1)).toEqual({ kind: "watch_cursor", on: false });
   });
 
-  it("si el agente no lo ofrece, los escritorios se ven sin punto", async () => {
+  it("if the agent does not offer it, the desktops are seen without a dot", async () => {
     const { container } = await mountLive("rejected");
     await tick();
     expect(container.querySelector(".scale")).not.toBeNull();
     expect(dot(container)).toBeNull();
   });
 
-  it("apagar the other machine va al agente", async () => {
+  it("powering off the other machine goes to the agent", async () => {
     const { act } = await mountLive();
     await userEvent.click(screen.getByRole("button", { name: "Power off" }));
     expect(act).toHaveBeenCalledWith({ kind: "set_power", machine: "b", on: false });
   });
 });
 
-describe("animaciones (G7, G8)", () => {
+describe("animations (G7, G8)", () => {
   const css = readFileSync(join(process.cwd(), "src", "screens", "Desk.svelte"), "utf8");
 
-  it("están las del mockup: pulso del punto, flujo del link, destello del borde y movimiento del cursor", () => {
+  it("the mockup ones are there: dot pulse, link flow, edge flash and cursor movement", () => {
     expect(css).toMatch(/\.on-dot \{[^}]*animation: pl 2s ease-in-out infinite/);
     expect(css).toMatch(/\.flow \{[^}]*animation: fl 1s linear infinite/);
     expect(css).toMatch(/\.flow\.r \{[^}]*animation-direction: reverse/);
@@ -211,7 +211,7 @@ describe("animaciones (G7, G8)", () => {
     expect(css).toMatch(/\.thumb div \{[^}]*transition: background 0\.5s/);
   });
 
-  it("con prefers-reduced-motion el demo no mueve el cursor: manda solo el punto de partida", async () => {
+  it("with prefers-reduced-motion the demo does not move the cursor: it sends only the starting point", async () => {
     vi.useFakeTimers();
     setReducedMotion(true);
     const src = new DemoSource(demoOptions("demo"));
@@ -223,7 +223,7 @@ describe("animaciones (G7, G8)", () => {
     stop();
   });
 
-  it("sin esa preferencia el demo mueve el cursor a unos 30 Hz y avisa los crossings", async () => {
+  it("without that preference the demo moves the cursor at about 30 Hz and announces the crossings", async () => {
     vi.useFakeTimers();
     const src = new DemoSource(demoOptions("demo"));
     await src.start(() => {});
@@ -240,8 +240,8 @@ describe("animaciones (G7, G8)", () => {
   });
 });
 
-describe("cursor en vivo (T-140)", () => {
-  it("watchCursor se llama una sola vez aunque el demo publique una foto nueva en cada tick", async () => {
+describe("live cursor (T-140)", () => {
+  it("watchCursor is called only once even if the demo publishes a new snapshot on every tick", async () => {
     vi.useFakeTimers();
     const src = new DemoSource(demoOptions("demo"));
     const spy = vi.spyOn(src, "watchCursor");
@@ -252,7 +252,7 @@ describe("cursor en vivo (T-140)", () => {
     expect(spy).toHaveBeenCalledTimes(1);
   });
 
-  it("en 7 s el punto llega al 34\" y el borde destella al cruzar, sin reinicios", async () => {
+  it("in 7 s the dot reaches the 34\" and the edge flashes on crossing, with no restarts", async () => {
     vi.useFakeTimers();
     const src = new DemoSource(demoOptions("demo"));
     const store = new Store(src);

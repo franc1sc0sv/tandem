@@ -215,7 +215,7 @@ const progressShot = (name: string, txn: "run" | "ok" | "fail", state?: string):
 });
 // T-114: Tunnels against `V3-Compute` in each state it draws (with the same clicks as the
 // mockup). With no tunnels and with 12 processes the mockup does not draw them: they are captured with the same
-// componentes y tokens, sin umbral (ACCEPTANCE, P2).
+// components and tokens, without a threshold (ACCEPTANCE, P2).
 const tunnelsShot = (name: string, extra: Partial<ShotSpec> = {}): ShotSpec => ({
   name,
   page: "index.html",
@@ -289,7 +289,7 @@ export const SETTINGS: ShotSpec[] = [
     { app: ".pane > .row:nth-child(4) > .fill", mockup: ".pane > .row:nth-child(4) > span", reason: "D1: \"Change the other machine\" instead of \"Add a machine\"" },
     { app: ".pane > .row:nth-child(4) > button", mockup: ".pane > .row:nth-child(4) > a.btn", reason: "D1: \"Pair again\" instead of \"Show code\"" },
   ]),
-  { ...settingsShot("settings-shortcuts", "shortcuts", [tab("Shortcuts")]), query: `${DEMO}&solopc` },
+  { ...settingsShot("settings-shortcuts", "shortcuts", [tab("Shortcuts")]), query: `${DEMO}&pconly` },
   settingsShot("settings-keyboard", "keyboard", [tab("Keyboard and mouse")]),
   settingsShot("settings-updates", "updates", [tab("Updates")]),
   { ...settingsShot("settings-updates-checked", "updates-checked", [tab("Updates"), 'button:has-text("Check now")']), unhover: true },
@@ -324,7 +324,7 @@ export const STATES: ShotSpec = {
 /**
  * T-120: the palette against `F-Palette`. The rows with desk data are masked (the mockup
  * carries sample scenes, tunnels and colors) and so is the background page, which in the app is the real one and
- * en el mockup un esqueleto.
+ * in the mockup a skeleton.
  */
 const ROW = (text: string) => `section[role="dialog"] .it:has(span:text-is("${text}"))`;
 export const PALETTE: ShotSpec = {
@@ -417,7 +417,7 @@ const setupShot = (name: string, mockup: string, query: string, extra: Partial<S
 });
 /** The "Simulate…" buttons exist only in the mockup (README): in the app those steps really happen. */
 const SIMULATE_SETUP: Ignore[] = [
-  { mockupSelector: 'button.sim:has-text("Simulate crossing")', reason: "«Simulate crossing» es solo del mockup" },
+  { mockupSelector: 'button.sim:has-text("Simulate crossing")', reason: "\"Simulate crossing\" exists only in the mockup" },
   { mockupSelector: 'button.sim:has-text("Simulate another edge")', reason: "\"Simulate another edge\" exists only in the mockup" },
 ];
 /**
@@ -439,12 +439,12 @@ const SETUP5_VERDICT: Ignore = { rect: { x: 350, y: 482, width: 440, height: 40 
 const SETUP5: Ignore[] = [...SETUP5_LIST, SETUP5_LEAD];
 /** `F-Setup3` writes "1 missing" and does not offer to restart the agent; the app agrees ("1 missing") and offers it (T-090). */
 const PERMS_FOOT: Ignore = { rect: { x: 775, y: 770, width: 200, height: 40 }, reason: "F-Setup3: \"1 missing\" and \"Restart agent\" (only in the app)" };
-const asisColor = (label: string, state: string) => setupShot(`setup-machine-${state}`, "F-Setup1", "wizard=0&admin=pending", { state, clicks: [`[role="radio"][aria-label="${label}"]`] });
+const setupColor = (label: string, state: string) => setupShot(`setup-machine-${state}`, "F-Setup1", "wizard=0&admin=pending", { state, clicks: [`[role="radio"][aria-label="${label}"]`] });
 export const SETUP: ShotSpec[] = [
   setupShot("setup-machine", "F-Setup1", "wizard=0&admin=pending"),
-  asisColor("Violet", "violet"),
-  asisColor("Teal", "teal"),
-  asisColor("Amber", "amber"),
+  setupColor("Violet", "violet"),
+  setupColor("Teal", "teal"),
+  setupColor("Amber", "amber"),
   setupShot("setup-desk", "V3-Setup", "wizard=1&peer=none&pair=code", {
     fills: ["4", "8", "2", "9"].map((text, i) => ({ selector: `input[aria-label="Digit ${i + 1}"]`, text })),
     // Focus jumps to the next digit by itself; the mockup has no focus on any.

@@ -1,5 +1,5 @@
-// Pantalla Tunnels (T-114, `V3-Compute`): lo que muestra y cada interacción, en modo demo y
-// contra un agente simulado (IPC). Solo lectura (D9): ningún botón detiene ni abre nada.
+// Tunnels screen (T-114, `V3-Compute`): what it shows and each interaction, in demo mode and
+// against a simulated agent (IPC). Read-only (D9): no button stops or opens anything.
 import { act as flush, fireEvent, render, screen, within } from "@testing-library/svelte";
 import { tick } from "svelte";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -31,8 +31,8 @@ const detail = () => within(screen.getByRole("region", { name: "Tunnel detail" }
 const list = () => within(screen.getByRole("region", { name: "Tunnels by project" }));
 const tunnelButton = (re: RegExp) => list().getByRole("button", { name: re });
 
-describe("Tunnels en modo demo", () => {
-  it("dibuja los proyectos con su proporción, el resumen y el primer tunnel", async () => {
+describe("Tunnels in demo mode", () => {
+  it("draws the projects with their proportion, the summary and the first tunnel", async () => {
     await demo();
     expect(screen.getByRole("heading", { name: "Tunnels", level: 1 })).toBeInTheDocument();
     expect(screen.getByText("4 open · 2 projects")).toBeInTheDocument();
@@ -48,7 +48,7 @@ describe("Tunnels en modo demo", () => {
     expect(detail().getByText("0.3 ms")).toBeInTheDocument();
   });
 
-  it("lista solo los procesos que corren y muestra la salida del primero", async () => {
+  it("lists only the processes that are running and shows the output of the first", async () => {
     await demo();
     const procs = detail().getByRole("listbox", { name: "Running processes" });
     expect(within(procs).getAllByRole("option")).toHaveLength(6);
@@ -58,7 +58,7 @@ describe("Tunnels en modo demo", () => {
     expect(detail().getByText("pid 4127 · 2 m")).toBeInTheDocument();
   });
 
-  it("elegir otro proceso cambia su encabezado y su salida", async () => {
+  it("choosing another process changes its header and its output", async () => {
     await demo();
     await fireEvent.click(detail().getAllByRole("option")[1]);
     expect(detail().getAllByRole("option")[1]).toHaveAttribute("aria-selected", "true");
@@ -67,7 +67,7 @@ describe("Tunnels en modo demo", () => {
     expect(screen.queryByText(/Compiling tandem-monitor/)).toBeNull();
   });
 
-  it("elegir otro tunnel cambia el detalle y la lista de procesos", async () => {
+  it("choosing another tunnel changes the detail and the process list", async () => {
     await demo();
     await fireEvent.click(tunnelButton(/Tunnels in tandemd/));
     expect(tunnelButton(/Tunnels in tandemd/)).toHaveAttribute("aria-pressed", "true");
@@ -76,7 +76,7 @@ describe("Tunnels en modo demo", () => {
     expect(detail().getAllByRole("option")).toHaveLength(2);
   });
 
-  it("un tunnel sin procesos dice «Nothing running right now» y uno closed, «Tunnel closed»", async () => {
+  it("a tunnel without processes says \"Nothing running right now\" and a closed one, \"Tunnel closed\"", async () => {
     await demo();
     await fireEvent.click(tunnelButton(/Review PR #66/));
     expect(detail().getByText("Nothing running right now")).toBeInTheDocument();
@@ -85,23 +85,23 @@ describe("Tunnels en modo demo", () => {
     await fireEvent.click(tunnelButton(/Try ComfyUI workflow/));
     expect(detail().getByText("Tunnel closed")).toBeInTheDocument();
     expect(detail().getByText("closed")).toBeInTheDocument();
-    // Cerrado: sin tiempo abierto ni latencia.
+    // Closed: without open time or latency.
     expect(detail().getAllByText("—")).toHaveLength(2);
   });
 
-  it("plegar un proyecto esconde sus tunnels y desplegarlo los devuelve", async () => {
+  it("collapsing a project hides its tunnels and expanding it brings them back", async () => {
     await demo();
     const header = list().getByRole("button", { name: /^tandem/ });
     await fireEvent.click(header);
     expect(list().getByRole("button", { name: /^tandem/ })).toHaveAttribute("aria-expanded", "false");
     expect(list().queryByRole("button", { name: /Tunnels en tandemd/ })).toBeNull();
-    // El otro proyecto sigue desplegado.
+    // The other project stays expanded.
     expect(tunnelButton(/Train style LoRA/)).toBeInTheDocument();
     await fireEvent.click(list().getByRole("button", { name: /^tandem/ }));
     expect(tunnelButton(/Tunnels in tandemd/)).toBeInTheDocument();
   });
 
-  it("con 12 procesos la lista los trae todos con su encabezado, en una caja con scroll", async () => {
+  it("with 12 processes the list brings them all with their header, in a box with scroll", async () => {
     await demo("demo&still&tunnels=many");
     const procs = detail().getByRole("listbox", { name: "Running processes" });
     expect(within(procs).getAllByRole("option")).toHaveLength(12);
@@ -109,19 +109,19 @@ describe("Tunnels en modo demo", () => {
     expect(detail().getByText("12", { selector: "b" })).toBeInTheDocument();
   });
 
-  it("sin tunnels solo dice que no hay", async () => {
+  it("without tunnels it only says there are none", async () => {
     await demo("demo&still&tunnels=none");
     expect(screen.getAllByText("No open tunnels").length).toBeGreaterThan(0);
     expect(screen.queryByRole("region", { name: "Tunnel detail" })).toBeNull();
   });
 
-  it("es de solo lectura: ningún botón detiene, cierra ni abre tunnels o procesos", async () => {
+  it("it is read-only: no button stops, closes or opens tunnels or processes", async () => {
     await demo();
     const names = within(screen.getByRole("main")).getAllByRole("button").map((b) => b.textContent ?? "");
     expect(names.join("|")).not.toMatch(/\b(stop|close|kill|open|new)\b/i);
   });
 
-  it("«How Claude opens them» copia el comando del servidor MCP", async () => {
+  it("\"How Claude opens them\" copies the MCP server command", async () => {
     const writeText = vi.fn(async () => {});
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
     await demo();
@@ -130,7 +130,7 @@ describe("Tunnels en modo demo", () => {
     expect(await screen.findByText("Copied: tandem mcp")).toBeInTheDocument();
   });
 
-  it("la barra lateral cuenta los tunnels activos y, dentro de la pantalla, los marca con un punto vivo", async () => {
+  it("the sidebar counts the active tunnels and, inside the screen, marks them with a live dot", async () => {
     const store = await demo();
     const nav = within(screen.getByRole("navigation", { name: "Main" }));
     const link = nav.getByRole("link", { name: /Tunnels/ });
@@ -145,7 +145,7 @@ describe("Tunnels en modo demo", () => {
 });
 
 // ---------------------------------------------------------------------------------------
-// Con el agente de verdad: los eventos y consultas de la IPC en lugar del demo.
+// With the real agent: the IPC events and queries instead of the demo.
 
 function snapshot(): Snapshot {
   return {
@@ -173,7 +173,7 @@ function snapshot(): Snapshot {
   };
 }
 
-// Un id de 64 bits como los reales: no cabe en un número de JavaScript.
+// A 64-bit id like the real ones: it does not fit in a JavaScript number.
 const ID = "f00dfacecafe0001";
 const proc = (id: number, command: string, started: number): ProcessWire => ({ id, command, pid: 900 + id, started, duration: null, state: { kind: "running" } });
 const wire = (running: ProcessWire[], open = true): ProjectWire[] =>
@@ -208,8 +208,8 @@ function bridge(outputs: OutputWire[] = []) {
 
 const out = (stdout: string, next: number, stderr = ""): OutputWire => ({ process: proc(1, "cargo test", 0), stdout, stderr, next_stdout: next, next_stderr: stderr.length, done: false });
 
-describe("Tunnels con el agente real (IPC)", () => {
-  it("pinta los tunnels que manda el agente con los nombres y colores de cada machine", async () => {
+describe("Tunnels with the real agent (IPC)", () => {
+  it("paints the tunnels the agent sends with the names and colors of each machine", async () => {
     const { b, handlers } = bridge([out("ready\n", 6)]);
     await open(new LiveSource(b));
     expect(screen.getAllByText("No open tunnels").length).toBeGreaterThan(0);
@@ -219,14 +219,14 @@ describe("Tunnels con el agente real (IPC)", () => {
     expect(detail().getByText("MacBook Pro")).toBeInTheDocument();
     expect(detail().getByText("PC-Desktop")).toBeInTheDocument();
     expect(detail().getByText("5 m")).toBeInTheDocument();
-    // El agente aún no da la rama ni los puertos: no se muestran ni se inventan.
+    // The agent does not give the branch or the ports yet: they are neither shown nor invented.
     expect(document.querySelector(".br")).toBeNull();
     expect(detail().queryByText("Ports")).toBeNull();
   });
 
-  it("pide procesos y salida con el id de texto, y la salida nueva se suma a la anterior", async () => {
+  it("asks for processes and output with the text id, and the new output is added to the previous one", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
-    const { b, act, handlers } = bridge([out("uno\n", 4), out("dos\n", 8), out("", 8)]);
+    const { b, act, handlers } = bridge([out("one\n", 4), out("two\n", 8), out("", 8)]);
     await open(new LiveSource(b));
     await flush(async () => handlers.tunnels?.(wire([proc(1, "cargo test", 0)])));
     await flush(async () => {
@@ -234,24 +234,24 @@ describe("Tunnels con el agente real (IPC)", () => {
     });
     expect(act).toHaveBeenCalledWith({ kind: "processes", tunnel: ID });
     expect(act).toHaveBeenCalledWith({ kind: "output", tunnel: ID, process: 1, stdout: 0, stderr: 0 });
-    expect(await screen.findByText(/uno/)).toBeInTheDocument();
+    expect(await screen.findByText(/one/)).toBeInTheDocument();
     await flush(async () => {
       await vi.advanceTimersByTimeAsync(1100);
     });
-    // La segunda consulta sigue desde donde quedó la primera.
+    // The second query continues where the first left off.
     expect(act).toHaveBeenCalledWith({ kind: "output", tunnel: ID, process: 1, stdout: 4, stderr: 0 });
-    expect(document.querySelector(".pbody")?.textContent).toContain("uno\ndos\n");
+    expect(document.querySelector(".pbody")?.textContent).toContain("one\ntwo\n");
   });
 
-  it("la salida de error se muestra junto a la normal", async () => {
-    const { b, handlers } = bridge([out("bien\n", 5, "ojo\n")]);
+  it("the error output is shown next to the normal one", async () => {
+    const { b, handlers } = bridge([out("fine\n", 5, "careful\n")]);
     await open(new LiveSource(b));
     await flush(async () => handlers.tunnels?.(wire([proc(1, "cargo test", 0)])));
-    expect(await screen.findByText(/bien/)).toBeInTheDocument();
-    expect(document.querySelector(".pbody")?.textContent).toContain("ojo");
+    expect(await screen.findByText(/fine/)).toBeInTheDocument();
+    expect(document.querySelector(".pbody")?.textContent).toContain("careful");
   });
 
-  it("un tunnel que deja de estar en la lista pasa a «closed» y conserva su título", async () => {
+  it("a tunnel that stops being in the list becomes \"closed\" and keeps its title", async () => {
     const { b, handlers } = bridge([out("x", 1)]);
     await open(new LiveSource(b));
     await flush(async () => handlers.tunnels?.(wire([proc(1, "cargo test", 0)])));
@@ -263,7 +263,7 @@ describe("Tunnels con el agente real (IPC)", () => {
     expect(detail().getAllByText("closed").length).toBeGreaterThan(0);
   });
 
-  it("las copias de archivos suman al tráfico del tunnel", async () => {
+  it("file copies add to the tunnel's traffic", async () => {
     const { b, handlers } = bridge([out("x", 1)]);
     await open(new LiveSource(b));
     await flush(async () => handlers.tunnels?.(wire([proc(1, "cargo test", 0)])));
@@ -272,7 +272,7 @@ describe("Tunnels con el agente real (IPC)", () => {
     expect(await screen.findByText("2.5 MB")).toBeInTheDocument();
   });
 
-  it("si el agente rechaza la consulta de procesos la pantalla sigue viva", async () => {
+  it("if the agent rejects the process query the screen stays alive", async () => {
     const { b, act, handlers } = bridge();
     act.mockImplementation(async () => ({ kind: "rejected", reason: "unknown tunnel" }));
     await open(new LiveSource(b));

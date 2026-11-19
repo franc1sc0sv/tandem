@@ -1,6 +1,6 @@
 <script lang="ts">
-  // Changes in progress (`F-Transactions`): los pasos de una transacción uno por uno, lo que
-  // dijo the monitor y la vuelta atrás visible si algo falla. Ocupa toda la ventana.
+  // Changes in progress (`F-Transactions`): the steps of a transaction one by one, what
+  // the monitor said and the visible rollback if something fails. It takes the whole window.
   import { useStore } from "../lib/context";
   import { formatHash } from "../lib/routes";
   import Button from "../ui/Button.svelte";
@@ -23,7 +23,7 @@
   const meter = $derived(kind ? measureView(store.desk.network, kind) : null);
   const back = formatHash({ screen: "monitors" });
 
-  // Sin ninguna transacción que mostrar (se abrió la dirección a pelo): de vuelta a Monitors.
+  // Without any transaction to show (the address was opened bare): back to Monitors.
   $effect(() => {
     if (store.txnReady && store.run === null && store.powerRun === null && !meter) store.go({ screen: "monitors" });
   });

@@ -9,8 +9,8 @@
 </script>
 
 <script lang="ts">
-  // El mapa de links de `V3-Network`: las dos machines con su halo y un camino por link. El
-  // que responde fluye (rápido el cable, lento el Wi-Fi); el que no, va punteado.
+  // The link map of `V3-Network`: the two machines with their halo and one path per link. The
+  // one that responds flows (fast the cable, slow Wi-Fi); the one that does not, is dotted.
   import { LINK_NAME } from "../../lib/machines";
   import { describePath, formatMs, isUp, unpluggedText } from "../../lib/network";
   import type { LinkKind, NetworkView } from "../../lib/store/types";
@@ -26,7 +26,7 @@
 
   let { network, a, b }: Props = $props();
 
-  // Cada camino tiene su ruta: USB-C arriba, Ethernet recto y Wi-Fi abajo.
+  // Each path has its route: USB-C above, Ethernet straight and Wi-Fi below.
   const ROUTE: Record<LinkKind, string> = {
     usb4: "M0 85 C 120 85, 120 30, 200 30 S 280 85, 400 85",
     ethernet: "M0 85 L 400 85",
@@ -35,9 +35,9 @@
   const TOP: Record<LinkKind, number> = { usb4: 18, ethernet: 50, wifi: 82 };
   const BASE: Record<LinkKind, number> = { usb4: 10, ethernet: 8, wifi: 8 };
   const ICON: Record<LinkKind, IconName> = { usb4: "bolt", ethernet: "ethernet", wifi: "wifi" };
-  /** Color de cada link cuando responde. */
+  /** Color of each link when it responds. */
   const TINT: Record<LinkKind, string> = { usb4: "#7aa7e6", ethernet: "#5fbfb0", wifi: "#d9a75a" };
-  /** Borde del rótulo del camino que lleva el tráfico. */
+  /** Border of the label of the path carrying the traffic. */
   const EDGE: Record<LinkKind, string> = { usb4: "#3a4a66", ethernet: "#2c4a47", wifi: "#4a3e26" };
 
   const label = $derived(`Three paths: ${network.paths.map(describePath).join(", ")}`);
@@ -119,7 +119,7 @@
     border: 1px solid #2a2c33;
     position: relative;
   }
-  /* El halo de cada machine respira (`halo`). */
+  /* The halo of each machine breathes (`halo`). */
   .nic::after {
     content: "";
     position: absolute;
@@ -163,8 +163,8 @@
   .flow {
     stroke-linecap: round;
   }
-  /* El flujo de cada camino: un trazo corriendo; los períodos son múltiplos del punteado para
-     que el ciclo no dé un salto. */
+  /* The flow of each path: a stroke running; the periods are multiples of the dash pattern so
+     the cycle does not jump. */
   .flow.usb4 {
     stroke-dasharray: 3 12;
     animation: fa-usb 0.8s linear infinite;
