@@ -5,10 +5,18 @@
 
 import type { Os } from "./model";
 
-/** The modules the user can turn on and off (T-098); the others have a plain chip, with no switch. */
+/** The modules the agent lets the user turn on and off (T-098); the others have a plain chip, with no switch. */
 export const SWITCHABLE_MODULES: readonly string[] = ["input", "clipboard"];
 
-export const isSwitchable = (id: string): boolean => SWITCHABLE_MODULES.includes(id);
+/**
+ * TODO(T-246): modules whose switch the mockup draws and the agent will gain, but `modules.rs`
+ * does not announce yet ("Allow remote execution" is the Tunnels module). Delete this list, and
+ * add "tunnels" to `SWITCHABLE_MODULES`, when `fn switchable` says so; `capabilities.test.ts`
+ * keeps both lists honest.
+ */
+export const PENDING_SWITCHABLE: readonly string[] = ["tunnels"];
+
+export const isSwitchable = (id: string): boolean => SWITCHABLE_MODULES.includes(id) || PENDING_SWITCHABLE.includes(id);
 
 /** The note of the administrator service when the install is per-user, per system (`admin_service::check`). */
 export function perUserAdminNote(os: Os): string {

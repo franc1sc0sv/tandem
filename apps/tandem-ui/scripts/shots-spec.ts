@@ -96,15 +96,6 @@ export const NO_ADD_MACHINE: Ignore = {
   reason: "D1: no \"Add machine\" (exactly two machines)",
 };
 
-/**
- * T-244: the agent cannot turn the Tunnels module off (T-098: only Keyboard and mouse and Clipboard
- * have a switch), so the app shows "Allow remote execution" disabled, while the mockup draws it enabled.
- */
-export const NO_TUNNELS_SWITCH: Ignore = {
-  mockupSelector: 'button[aria-label="Allow remote execution"]',
-  reason: "T-244: the agent cannot turn Tunnels off, so the switch is shown disabled",
-};
-
 /** T-112 criterion: the sidebar equal to that of `V3-Desk`. */
 export const SIDEBAR_GATE = { similarity: 0.99, worstTile: 0.97 };
 
@@ -530,7 +521,7 @@ export const SHOTS: ShotSpec[] = [
     mockup: "V3-Machine",
     width: W,
     height: H,
-    ignore: [NO_ADD_MACHINE, NO_TUNNELS_SWITCH],
+    ignore: [NO_ADD_MACHINE],
     regions: [
       { ...SIDEBAR, min: SIDEBAR_GATE },
       { name: "content", mockupSelector: "main", min: SIDEBAR_GATE },

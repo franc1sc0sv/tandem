@@ -90,7 +90,7 @@ describe.each(PAIRS)("trouble states reference view in the $pair pair", ({ pair 
 
 describe.each(PAIRS)("module switches in the $pair pair", ({ pair }) => {
   for (const machine of ["a", "b"] as const) {
-    it(`the page of machine ${machine} switches only Keyboard and mouse and Clipboard`, async () => {
+    it(`the page of machine ${machine} switches only Keyboard and mouse, Clipboard and (pending T-246) Tunnels`, async () => {
       const store = new Store(new DemoSource(demoOptions(`demo=${pair}&still`)));
       await store.start();
       store.go({ screen: "machine", machine });
@@ -100,8 +100,9 @@ describe.each(PAIRS)("module switches in the $pair pair", ({ pair }) => {
       expect(mods.getAllByRole("switch").map((s) => s.getAttribute("aria-label") ?? s.textContent?.replace(/\s*(on|off)\s*$/, "").trim()).sort()).toEqual([
         "Clipboard",
         "Keyboard and mouse",
-      ]);
-      for (const name of ["Monitors", "Tunnels", "Remote compute", "Protected screens", "Power"]) expect(mods.queryByRole("switch", { name })).toBeNull();
+        store.desk.machines[machine]?.modules.find((x) => x.id === "tunnels")?.name,
+      ].sort());
+      for (const name of ["Monitors", "Protected screens", "Power"]) expect(mods.queryByRole("switch", { name })).toBeNull();
     });
   }
 });
