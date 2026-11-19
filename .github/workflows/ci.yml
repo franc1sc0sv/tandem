@@ -28,7 +28,7 @@ jobs:
       - if: runner.os == 'Linux'
         env:
           PRIVACY_PATTERNS: ${{ secrets.PRIVACY_PATTERNS }}
-        run: scripts/ci/privacy.sh && scripts/ci/safety.sh && scripts/ci/tasks.sh && scripts/ci/timeouts.sh && scripts/ci/english.sh
+        run: scripts/ci/privacy.sh && scripts/ci/safety.sh && scripts/ci/tasks.sh && scripts/ci/protocol.sh && scripts/ci/timeouts.sh && scripts/ci/english.sh
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets
       - name: cargo test
