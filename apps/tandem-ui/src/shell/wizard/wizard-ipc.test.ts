@@ -98,8 +98,8 @@ describe("el asistente contra el agente (IPC real)", () => {
     const { dlg, act } = await mount(0);
     const input = within(dlg).getByRole("textbox", { name: "Name" });
     await userEvent.clear(input);
-    await userEvent.type(input, "Portátil{Enter}");
-    await waitFor(() => expect(act).toHaveBeenCalledWith({ kind: "set_machine", machine: "a", name: "Portátil" }));
+    await userEvent.type(input, "Laptop{Enter}");
+    await waitFor(() => expect(act).toHaveBeenCalledWith({ kind: "set_machine", machine: "a", name: "Laptop" }));
     await userEvent.click(within(dlg).getByRole("radio", { name: "Amber" }));
     await waitFor(() => expect(act).toHaveBeenCalledWith({ kind: "set_machine", machine: "a", color: "#d9a75a" }));
   });
@@ -114,10 +114,10 @@ describe("el asistente contra el agente (IPC real)", () => {
 
   it("paso 1: si el usuario cancela, avisa y la fila vuelve a su estado real sin girar", async () => {
     const { dlg, installAdmin, adminStatus } = await mount(0);
-    installAdmin.mockRejectedValueOnce(new Error("se canceló la petición de administrador"));
+    installAdmin.mockRejectedValueOnce(new Error("the administrator request was canceled"));
     const found = within(dlg).getByRole("region", { name: "What it found" });
     await userEvent.click(await within(found).findByRole("button", { name: "Install" }));
-    expect(await screen.findByText("se canceló la petición de administrador")).toBeInTheDocument();
+    expect(await screen.findByText("the administrator request was canceled")).toBeInTheDocument();
     await waitFor(() => expect(adminStatus.mock.calls.length).toBeGreaterThan(1));
     expect(within(found).getByRole("button", { name: "Install" })).toBeEnabled();
   });

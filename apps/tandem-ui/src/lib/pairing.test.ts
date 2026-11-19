@@ -4,44 +4,44 @@ import type { PairingView, PeerView } from "./model";
 import { codeMatches, isActive, isComplete, needsDismiss, pairButton, pairLine, pairScreen, setDigit, shouldOpen, splitCode } from "./pairing";
 
 const UNPAIRED: PeerView = { kind: "unpaired" };
-const PAIRED: PeerView = { kind: "paired", name: "Taller", link: "usb4" };
+const PAIRED: PeerView = { kind: "paired", name: "Workshop", link: "usb4" };
 const IDLE: PairingView = { kind: "idle" };
 const SEARCHING: PairingView = { kind: "searching" };
-const COMPARING: PairingView = { kind: "comparing", code: "042917", peer: "Taller", confirmed: false };
+const COMPARING: PairingView = { kind: "comparing", code: "042917", peer: "Workshop", confirmed: false };
 
 describe("pantalla", () => {
   it("sin par ofrece emparejar con the other machine", () => {
-    expect(pairScreen("Taller", UNPAIRED, IDLE)).toEqual({ kind: "intro", other: "Taller" });
-    expect(pairScreen("Estudio", UNPAIRED, IDLE)).toEqual({ kind: "intro", other: "Estudio" });
+    expect(pairScreen("Workshop", UNPAIRED, IDLE)).toEqual({ kind: "intro", other: "Workshop" });
+    expect(pairScreen("Studio", UNPAIRED, IDLE)).toEqual({ kind: "intro", other: "Studio" });
   });
 
   it("emparejado muestra con quién y pide confirmar antes de desemparejar", () => {
-    expect(pairScreen("Taller", PAIRED, IDLE)).toEqual({ kind: "paired", name: "Taller" });
-    expect(pairScreen("Taller", PAIRED, IDLE, true)).toEqual({ kind: "unpair", name: "Taller" });
+    expect(pairScreen("Workshop", PAIRED, IDLE)).toEqual({ kind: "paired", name: "Workshop" });
+    expect(pairScreen("Workshop", PAIRED, IDLE, true)).toEqual({ kind: "unpair", name: "Workshop" });
     // Sin par no hay nada que desemparejar.
-    expect(pairScreen("Taller", UNPAIRED, IDLE, true).kind).toBe("intro");
+    expect(pairScreen("Workshop", UNPAIRED, IDLE, true).kind).toBe("intro");
   });
 
   it("buscando dice qué hacer en the other machine", () => {
-    const s = pairScreen("Taller", UNPAIRED, SEARCHING);
-    expect(s).toMatchObject({ kind: "searching", other: "Taller" });
-    expect(s.kind === "searching" && s.hint).toContain("On Taller");
-    expect(pairScreen("Estudio", UNPAIRED, SEARCHING)).toMatchObject({ other: "Estudio" });
+    const s = pairScreen("Workshop", UNPAIRED, SEARCHING);
+    expect(s).toMatchObject({ kind: "searching", other: "Workshop" });
+    expect(s.kind === "searching" && s.hint).toContain("On Workshop");
+    expect(pairScreen("Studio", UNPAIRED, SEARCHING)).toMatchObject({ other: "Studio" });
   });
 
   it("el código se muestra igual en las dos machines, en dos grupos", () => {
-    const a = pairScreen("Taller", UNPAIRED, COMPARING);
-    const b = pairScreen("Estudio", UNPAIRED, { ...COMPARING, peer: "Estudio" });
-    expect(a).toEqual({ kind: "compare", digits: ["042", "917"], peer: "Taller", confirmed: false });
+    const a = pairScreen("Workshop", UNPAIRED, COMPARING);
+    const b = pairScreen("Studio", UNPAIRED, { ...COMPARING, peer: "Studio" });
+    expect(a).toEqual({ kind: "compare", digits: ["042", "917"], peer: "Workshop", confirmed: false });
     expect(b.kind === "compare" && b.digits).toEqual(["042", "917"]);
-    expect(pairScreen("Taller", UNPAIRED, { ...COMPARING, confirmed: true })).toMatchObject({ confirmed: true });
+    expect(pairScreen("Workshop", UNPAIRED, { ...COMPARING, confirmed: true })).toMatchObject({ confirmed: true });
   });
 
   it("el resultado manda sobre el par", () => {
-    expect(pairScreen("Taller", PAIRED, { kind: "done", peer: "Taller" })).toEqual({ kind: "done", peer: "Taller" });
-    expect(pairScreen("Taller", UNPAIRED, { kind: "failed", reason: "se rechazó en Taller" })).toEqual({
+    expect(pairScreen("Workshop", PAIRED, { kind: "done", peer: "Workshop" })).toEqual({ kind: "done", peer: "Workshop" });
+    expect(pairScreen("Workshop", UNPAIRED, { kind: "failed", reason: "rejected on Workshop" })).toEqual({
       kind: "failed",
-      reason: "se rechazó en Taller",
+      reason: "rejected on Workshop",
     });
   });
 });
@@ -56,11 +56,11 @@ describe("código", () => {
 
 describe("línea entre las machines", () => {
   it("sigue el avance", () => {
-    const line = (p: PairingView, peer: PeerView = UNPAIRED, ask = false) => pairLine(pairScreen("Taller", peer, p, ask));
+    const line = (p: PairingView, peer: PeerView = UNPAIRED, ask = false) => pairLine(pairScreen("Workshop", peer, p, ask));
     expect(line(IDLE)).toBe("idle");
     expect(line(SEARCHING)).toBe("searching");
     expect(line(COMPARING)).toBe("found");
-    expect(line({ kind: "done", peer: "Taller" })).toBe("linked");
+    expect(line({ kind: "done", peer: "Workshop" })).toBe("linked");
     expect(line(IDLE, PAIRED)).toBe("linked");
     expect(line(IDLE, PAIRED, true)).toBe("broken");
     expect(line({ kind: "failed", reason: "x" })).toBe("broken");
@@ -75,15 +75,15 @@ describe("abrir y cerrar", () => {
     expect(shouldOpen(null, COMPARING)).toBe(true);
     expect(shouldOpen(SEARCHING, SEARCHING)).toBe(false);
     expect(shouldOpen(COMPARING, { ...COMPARING, confirmed: true })).toBe(false);
-    expect(shouldOpen(null, { kind: "done", peer: "Taller" })).toBe(false);
+    expect(shouldOpen(null, { kind: "done", peer: "Workshop" })).toBe(false);
     expect(shouldOpen(null, { kind: "failed", reason: "x" })).toBe(false);
     expect(shouldOpen(null, IDLE)).toBe(false);
   });
 
   it("cerrar cancela lo vivo y descarta lo terminado", () => {
     expect(isActive(SEARCHING) && isActive(COMPARING)).toBe(true);
-    expect(isActive(IDLE) || isActive({ kind: "done", peer: "Taller" })).toBe(false);
-    expect(needsDismiss({ kind: "done", peer: "Taller" }) && needsDismiss({ kind: "failed", reason: "x" })).toBe(true);
+    expect(isActive(IDLE) || isActive({ kind: "done", peer: "Workshop" })).toBe(false);
+    expect(needsDismiss({ kind: "done", peer: "Workshop" }) && needsDismiss({ kind: "failed", reason: "x" })).toBe(true);
     expect(needsDismiss(IDLE) || needsDismiss(SEARCHING)).toBe(false);
   });
 

@@ -49,7 +49,7 @@
     if (mode === "new" && pair.kind === "compare" && !pair.confirmed) void store.pairAction("confirm_pairing");
   });
 
-  // Un código nuevo empieza con las casillas vacías.
+  // Un código fresh empieza con las casillas vacías.
   $effect(() => {
     if (pair.kind !== "compare") {
       digits = ["", "", "", "", "", ""];

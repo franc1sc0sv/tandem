@@ -76,7 +76,7 @@ describe("Tunnels en modo demo", () => {
     expect(detail().getAllByRole("option")).toHaveLength(2);
   });
 
-  it("un tunnel sin procesos dice «Nothing running right now» y uno cerrado, «Tunnel closed»", async () => {
+  it("un tunnel sin procesos dice «Nothing running right now» y uno closed, «Tunnel closed»", async () => {
     await demo();
     await fireEvent.click(tunnelButton(/Review PR #66/));
     expect(detail().getByText("Nothing running right now")).toBeInTheDocument();
@@ -118,7 +118,7 @@ describe("Tunnels en modo demo", () => {
   it("es de solo lectura: ningún botón detiene, cierra ni abre tunnels o procesos", async () => {
     await demo();
     const names = within(screen.getByRole("main")).getAllByRole("button").map((b) => b.textContent ?? "");
-    expect(names.join("|")).not.toMatch(/detener|cerrar|matar|kill|abrir|nuevo/i);
+    expect(names.join("|")).not.toMatch(/\b(stop|close|kill|open|new)\b/i);
   });
 
   it("«How Claude opens them» copia el comando del servidor MCP", async () => {
@@ -177,7 +177,7 @@ function snapshot(): Snapshot {
 const ID = "f00dfacecafe0001";
 const proc = (id: number, command: string, started: number): ProcessWire => ({ id, command, pid: 900 + id, started, duration: null, state: { kind: "running" } });
 const wire = (running: ProcessWire[], open = true): ProjectWire[] =>
-  open ? [{ name: "tandem", root: "/src/tandem", tunnels: [{ id: ID, title: "Revisar el PR", origin: "a", target: "b", open: true, created: Date.now() - 5 * 60_000 - 5_000, running }] }] : [];
+  open ? [{ name: "tandem", root: "/src/tandem", tunnels: [{ id: ID, title: "Review the PR", origin: "a", target: "b", open: true, created: Date.now() - 5 * 60_000 - 5_000, running }] }] : [];
 
 function bridge(outputs: OutputWire[] = []) {
   const handlers: { tunnels?: (g: ProjectWire[]) => void; transfer?: (t: TransferWire) => void } = {};
@@ -187,7 +187,7 @@ function bridge(outputs: OutputWire[] = []) {
     if (a.kind === "output") {
       const o = outputs[Math.min(call, outputs.length - 1)];
       call += 1;
-      return o ? { kind: "output", output: o } : { kind: "rejected", reason: "sin salida" };
+      return o ? { kind: "output", output: o } : { kind: "rejected", reason: "no output" };
     }
     return { kind: "done" };
   });
@@ -210,12 +210,12 @@ const out = (stdout: string, next: number, stderr = ""): OutputWire => ({ proces
 
 describe("Tunnels con el agente real (IPC)", () => {
   it("pinta los tunnels que manda el agente con los nombres y colores de cada machine", async () => {
-    const { b, handlers } = bridge([out("listo\n", 6)]);
+    const { b, handlers } = bridge([out("ready\n", 6)]);
     await open(new LiveSource(b));
     expect(screen.getAllByText("No open tunnels").length).toBeGreaterThan(0);
     await flush(async () => handlers.tunnels?.(wire([proc(1, "cargo test", 0)])));
     expect(await screen.findByText("1 open · 1 project")).toBeInTheDocument();
-    expect(detail().getByRole("heading", { level: 2 })).toHaveTextContent("Revisar el PR");
+    expect(detail().getByRole("heading", { level: 2 })).toHaveTextContent("Review the PR");
     expect(detail().getByText("MacBook Pro")).toBeInTheDocument();
     expect(detail().getByText("PC-Desktop")).toBeInTheDocument();
     expect(detail().getByText("5 m")).toBeInTheDocument();
@@ -251,14 +251,14 @@ describe("Tunnels con el agente real (IPC)", () => {
     expect(document.querySelector(".pbody")?.textContent).toContain("ojo");
   });
 
-  it("un tunnel que deja de estar en la lista pasa a «cerrado» y conserva su título", async () => {
+  it("un tunnel que deja de estar en la lista pasa a «closed» y conserva su título", async () => {
     const { b, handlers } = bridge([out("x", 1)]);
     await open(new LiveSource(b));
     await flush(async () => handlers.tunnels?.(wire([proc(1, "cargo test", 0)])));
     expect(await screen.findByText("1 open · 1 project")).toBeInTheDocument();
     await flush(async () => handlers.tunnels?.(wire([], false)));
     expect((await screen.findAllByText("No open tunnels")).length).toBeGreaterThan(0);
-    expect(detail().getByRole("heading", { level: 2 })).toHaveTextContent("Revisar el PR");
+    expect(detail().getByRole("heading", { level: 2 })).toHaveTextContent("Review the PR");
     expect(detail().getByText("Tunnel closed")).toBeInTheDocument();
     expect(detail().getAllByText("closed").length).toBeGreaterThan(0);
   });
@@ -274,7 +274,7 @@ describe("Tunnels con el agente real (IPC)", () => {
 
   it("si el agente rechaza la consulta de procesos la pantalla sigue viva", async () => {
     const { b, act, handlers } = bridge();
-    act.mockImplementation(async () => ({ kind: "rejected", reason: "tunnel desconocido" }));
+    act.mockImplementation(async () => ({ kind: "rejected", reason: "unknown tunnel" }));
     await open(new LiveSource(b));
     await flush(async () => handlers.tunnels?.(wire([])));
     expect(await screen.findByText("1 open · 1 project")).toBeInTheDocument();

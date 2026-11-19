@@ -17,7 +17,7 @@ const mon = (id: string, ok = true): MonitorUi => ({
 });
 const monitors = [mon("g5-34"), mon("g5-32", false)];
 const scene = (over: Partial<SceneJson> = {}): SceneJson => ({
-  id: "juego",
+  id: "game",
   name: "Game",
   monitors: [["g5-34", "b"]],
   layout: null,
@@ -44,21 +44,21 @@ describe("scenes (D6)", () => {
 
   it("la tarjeta dice qué muestra cada monitor y qué machine pone la miniatura", () => {
     const v = sceneView(scene(), ctx);
-    expect(v).toMatchObject({ id: "juego", key: "⌃⌥4", desc: '34" → PC-Desktop', shows: "b" });
+    expect(v).toMatchObject({ id: "game", key: "⌃⌥4", desc: '34" → PC-Desktop', shows: "b" });
     expect(sceneView(scene({ monitors: [] }), ctx)).toMatchObject({ desc: "No monitors changed", shows: null });
   });
 
-  it("el borrador nuevo deja cada monitor compatible sin cambiar y no ofrece el no compatible", () => {
+  it("el borrador fresh deja cada monitor compatible sin cambiar y no ofrece el no compatible", () => {
     const d = newDraft(monitors);
     expect(d).toMatchObject({ id: null, name: "", picks: { "g5-34": "keep" }, shortcut: [] });
     expect("g5-32" in d.picks).toBe(false);
   });
 
   it("editar conserva lo que la pantalla no edita y los monitors que hoy no se ven", () => {
-    const base = scene({ icon: "bolt", monitors: [["viejo", "a"]], require_on: "b" });
+    const base = scene({ icon: "bolt", monitors: [["old", "a"]], require_on: "b" });
     const d = draftOf(sceneView(base, ctx), monitors);
-    expect(d.picks).toEqual({ "g5-34": "keep", viejo: "a" });
-    expect(sceneOf({ ...d, name: " Nuevo " })).toMatchObject({ id: "juego", name: "Nuevo", icon: "bolt", require_on: "b", monitors: [["viejo", "a"]] });
+    expect(d.picks).toEqual({ "g5-34": "keep", old: "a" });
+    expect(sceneOf({ ...d, name: " New " })).toMatchObject({ id: "game", name: "New", icon: "bolt", require_on: "b", monitors: [["old", "a"]] });
   });
 
   it("una scene nueva se guarda sin id y sin los monitors «sin cambiar»", () => {
@@ -71,8 +71,8 @@ describe("scenes (D6)", () => {
     const d = newDraft(monitors);
     expect(problemOf(d, [])).toEqual({ field: "name", text: "Give the scene a name" });
     expect(problemOf({ ...d, name: "x".repeat(MAX_NAME + 1) }, [])?.field).toBe("name");
-    const other = sceneView(scene({ name: "Otra" }), ctx);
-    expect(problemOf({ ...d, name: "Nueva", shortcut: ["ControlRight", "AltRight", "Digit4"] }, [other])).toEqual({ field: "shortcut", text: "That shortcut already belongs to “Otra”" });
-    expect(problemOf({ ...d, name: "Nueva", shortcut: ["ControlLeft", "Digit9"] }, [other])).toBeNull();
+    const other = sceneView(scene({ name: "Other" }), ctx);
+    expect(problemOf({ ...d, name: "New", shortcut: ["ControlRight", "AltRight", "Digit4"] }, [other])).toEqual({ field: "shortcut", text: "That shortcut already belongs to “Other”" });
+    expect(problemOf({ ...d, name: "New", shortcut: ["ControlLeft", "Digit9"] }, [other])).toBeNull();
   });
 });

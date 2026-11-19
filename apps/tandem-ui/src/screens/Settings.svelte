@@ -155,7 +155,7 @@
             </div>
           {:else if tab === "shortcuts"}
             <Shortcuts />
-          {:else if tab === "teclado"}
+          {:else if tab === "keyboard"}
             <div class="row first">
               <span class="fill col">Swap Cmd and Ctrl between macOS and Windows<span class="mut sub">Copy is ⌘C on the Mac and Ctrl+C on the PC, with the same finger.</span></span>
               <Switch checked={desk.prefs.cmdCtrl} label="Swap Cmd and Ctrl" onchange={(on) => store.setPrefs({ cmdCtrl: on, dragFiles: desk.prefs.dragFiles })} />

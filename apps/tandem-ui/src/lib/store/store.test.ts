@@ -19,7 +19,7 @@ describe("rutas", () => {
     }
     expect(parseHash("")).toEqual({ screen: "desk" });
     expect(parseHash("#/machine/c")).toEqual({ screen: "desk" });
-    expect(parseHash("#/nada")).toEqual({ screen: "desk" });
+    expect(parseHash("#/nothing")).toEqual({ screen: "desk" });
   });
 });
 
@@ -77,10 +77,10 @@ describe("store", () => {
     vi.useFakeTimers();
     const store = new Store(new DemoSource(demoOptions("demo&still")));
     await store.start();
-    await store.applyScene("juego");
-    expect(store.desk.activeScene).toBe("juego");
+    await store.applyScene("game");
+    expect(store.desk.activeScene).toBe("game");
     expect(store.toasts[0]).toMatchObject({ text: "Scene “Game” active.", tone: "ok" });
-    await store.applyScene("nada");
+    await store.applyScene("nothing");
     expect(store.toasts[0]).toMatchObject({ tone: "bad" });
     vi.advanceTimersByTime(TOAST_MS);
     expect(store.toasts).toEqual([]);
@@ -120,10 +120,10 @@ describe("store", () => {
 
   it("si la fuente falla, el error se muestra", async () => {
     const src = new DemoSource(demoOptions("demo&still"));
-    src.applyScene = () => Promise.reject(new Error("se cayó"));
+    src.applyScene = () => Promise.reject(new Error("it crashed"));
     const store = new Store(src);
     const r = await store.applyScene("x");
-    expect(r).toEqual({ ok: false, reason: "se cayó" });
+    expect(r).toEqual({ ok: false, reason: "it crashed" });
   });
 });
 
@@ -140,7 +140,7 @@ describe("tray", () => {
 });
 
 describe("errores del agente", () => {
-  it("una foto a la que le faltan campos da «sin agente» con la razón, no «conectando»", async () => {
+  it("una foto a la que le faltan campos da «no agent» con la razón, no «conectando»", async () => {
     const broken = { kind: "connected", agent: "a", desk: { screens: [], arrangement: { a_side: "left", offset: 0 } } };
     const bridge = { snapshot: async () => broken, onSnapshot: async () => {} } as unknown as Bridge;
     const store = new Store(new LiveSource(bridge));
@@ -156,10 +156,10 @@ describe("errores del agente", () => {
   });
 
   it("si la fuente no arranca, se muestra el error", async () => {
-    const bridge = { snapshot: async () => Promise.reject(new Error("sin núcleo")), onSnapshot: async () => {} } as unknown as Bridge;
+    const bridge = { snapshot: async () => Promise.reject(new Error("no core")), onSnapshot: async () => {} } as unknown as Bridge;
     const store = new Store(new LiveSource(bridge));
     await store.start();
-    expect(store.desk).toMatchObject({ ready: true, trouble: "no-agent", troubleText: "sin núcleo" });
+    expect(store.desk).toMatchObject({ ready: true, trouble: "no-agent", troubleText: "no core" });
   });
 
   it("una foto rota después de arrancar no tumba la ventana", async () => {
@@ -235,7 +235,7 @@ describe("emparejar y permisos", () => {
       caps: {
         here: {
           machine: "a",
-          name: "Estudio",
+          name: "Studio",
           os: "macos",
           color: "#7aa7e6",
           hub: null,
@@ -298,7 +298,7 @@ describe("modo demo", () => {
     const perms = demoDesk(demoOptions("demo&trouble=permissions"));
     expect(perms.permissions.rows.filter((r) => r.state === "missing").map((r) => r.id)).toEqual(["accessibility", "input_monitoring"]);
     expect(demoDesk(demoOptions("demo&trouble=no-agent")).troubleText).toContain("agent");
-    expect(demoOptions("demo&trouble=otra").trouble).toBe("none");
+    expect(demoOptions("demo&trouble=other").trouble).toBe("none");
   });
 });
 
@@ -378,15 +378,15 @@ describe("fuente real", () => {
   const connected = (over: Partial<Extract<Snapshot, { kind: "connected" }>> = {}): Snapshot => ({
     kind: "connected",
     agent: "b",
-    desk: { machines: { a: { os: "windows", name: "Taller", color: "#6cc59a" }, b: null }, screens: [], arrangement: { a_side: "up", align: "end" }, scenes: [] },
+    desk: { machines: { a: { os: "windows", name: "Workshop", color: "#6cc59a" }, b: null }, screens: [], arrangement: { a_side: "up", align: "end" }, scenes: [] },
     state: { on: { a: true, b: true } },
-    peer: { kind: "paired", name: "Taller", link: "wifi" },
+    peer: { kind: "paired", name: "Workshop", link: "wifi" },
     pairing: { kind: "idle" },
     input: { server: "b", hub_here: null, session: true, locked: false, missing: [], problem: null, defined: true },
     caps: {
       here: {
         machine: "b",
-        name: "Estudio",
+        name: "Studio",
         os: "windows",
         color: "#d9a75a",
         hub: null,
@@ -404,8 +404,8 @@ describe("fuente real", () => {
     const d = deskFromSnapshot(connected());
     expect(d.ready).toBe(true);
     expect(d.here).toBe("b");
-    expect(d.machines.b).toMatchObject({ name: "Estudio", color: "#d9a75a", here: true, power: "on", detail: "Windows" });
-    expect(d.machines.a).toMatchObject({ name: "Taller", color: "#6cc59a", here: false });
+    expect(d.machines.b).toMatchObject({ name: "Studio", color: "#d9a75a", here: true, power: "on", detail: "Windows" });
+    expect(d.machines.a).toMatchObject({ name: "Workshop", color: "#6cc59a", here: false });
     expect(d.link.kind).toBe("wifi");
     expect(d.trouble).toBe("none");
   });
@@ -419,7 +419,7 @@ describe("fuente real", () => {
         peer_screens: [{ id: "m34", x: 0, y: 0, width: 3440, height: 1440, scale_milli: 1500 }],
       },
     });
-    if (snap.kind !== "connected") throw new Error("foto");
+    if (snap.kind !== "connected") throw new Error("snapshot");
     const { screens } = layoutFromDesk(snap);
     const a = screens.find((s) => s.machine === "a");
     const b = screens.find((s) => s.machine === "b");
@@ -490,7 +490,7 @@ describe("fuente real", () => {
       expect(got).toEqual([expect.objectContaining({ from: "a", edge: "left", at: 0, of: 0, ms: null })]);
     });
 
-    it("un crossed nuevo reemplaza al pendiente: solo se informa el último", async () => {
+    it("un crossed fresh reemplaza al pendiente: solo se informa el último", async () => {
       const { got, notice } = await started();
       notice({ kind: "crossed", from: "a", to: "b", edge: "up" });
       vi.advanceTimersByTime(200);
@@ -513,9 +513,9 @@ describe("fuente real", () => {
 
   it("los states difíciles salen de la foto", () => {
     expect(deskFromSnapshot({ kind: "connecting" }).ready).toBe(false);
-    expect(deskFromSnapshot({ kind: "unavailable", endpoint: null, reason: "no corre" })).toMatchObject({ trouble: "no-agent", troubleText: "no corre" });
-    expect(deskFromSnapshot(connected({ state: { on: { a: false, b: true } } }))).toMatchObject({ trouble: "peer-off", troubleText: "Taller is off" });
-    expect(deskFromSnapshot(connected({ peer: { kind: "paired", name: "Taller", link: null } })).trouble).toBe("link-down");
+    expect(deskFromSnapshot({ kind: "unavailable", endpoint: null, reason: "not running" })).toMatchObject({ trouble: "no-agent", troubleText: "not running" });
+    expect(deskFromSnapshot(connected({ state: { on: { a: false, b: true } } }))).toMatchObject({ trouble: "peer-off", troubleText: "Workshop is off" });
+    expect(deskFromSnapshot(connected({ peer: { kind: "paired", name: "Workshop", link: null } })).trouble).toBe("link-down");
     const missing = connected();
     if (missing.kind === "connected") missing.input = { ...missing.input, missing: ["accessibility"] };
     expect(deskFromSnapshot(missing).trouble).toBe("permissions");
@@ -526,11 +526,11 @@ describe("fuente real", () => {
     expect(deskFromSnapshot(snap).deskName).toBe("My desk");
     expect(deskFromSnapshot(snap).machines.a?.wake).toEqual({ mac: null });
     if (snap.kind === "connected") {
-      snap.desk = { ...snap.desk, desk_name: " Oficina " };
+      snap.desk = { ...snap.desk, desk_name: " Office " };
       snap.caps.here.power = { ...snap.caps.here.power, wol_mac: "aa:bb:cc:dd:ee:ff" };
     }
     const d = deskFromSnapshot(snap);
-    expect(d.deskName).toBe("Oficina");
+    expect(d.deskName).toBe("Office");
     expect(d.machines.a?.wake).toEqual({ mac: "aa:bb:cc:dd:ee:ff" });
     expect(d.machines.b?.wake).toBeNull();
   });
@@ -548,9 +548,9 @@ describe("fuente real", () => {
     const src = new LiveSource(bridge);
     const store = new Store(src);
     await store.start();
-    expect(store.desk.machines.b?.name).toBe("Estudio");
-    push?.(connected({ caps: { ...((connected() as Extract<Snapshot, { kind: "connected" }>).caps), here: { ...(connected() as Extract<Snapshot, { kind: "connected" }>).caps.here, name: "Nuevo" } } }));
-    expect(store.desk.machines.b?.name).toBe("Nuevo");
+    expect(store.desk.machines.b?.name).toBe("Studio");
+    push?.(connected({ caps: { ...((connected() as Extract<Snapshot, { kind: "connected" }>).caps), here: { ...(connected() as Extract<Snapshot, { kind: "connected" }>).caps.here, name: "New" } } }));
+    expect(store.desk.machines.b?.name).toBe("New");
     expect(src.can("measure")).toBe(true);
     // Con el agente conectado se aplican scenes y se cambian monitors (T-116).
     expect(src.can("scenes")).toBe(true);
@@ -562,8 +562,8 @@ describe("fuente real", () => {
     expect(await src.measureLink("usb4")).toEqual({ ok: true, text: "USB-C: 410 Mbps" });
     expect(act).toHaveBeenLastCalledWith({ kind: "measure_link", path: "usb4" });
     act.mockResolvedValueOnce({ kind: "accepted", txn: 2 } as never);
-    expect(await src.applyScene("juego")).toEqual({ ok: true });
-    expect(act).toHaveBeenLastCalledWith({ kind: "apply_scene", id: "juego" });
+    expect(await src.applyScene("game")).toEqual({ ok: true });
+    expect(act).toHaveBeenLastCalledWith({ kind: "apply_scene", id: "game" });
     act.mockResolvedValueOnce({ kind: "rejected", reason: "hdmi no signal" } as never);
     expect(await src.switchMonitor("g34", "hdmi")).toEqual({ ok: false, reason: "hdmi no signal" });
     expect(act).toHaveBeenLastCalledWith({ kind: "switch_monitor", monitor: "g34", input: "hdmi" });
@@ -579,7 +579,7 @@ describe("fuente real", () => {
 });
 
 describe("scenes y transacciones contra el puente simulado", () => {
-  const scene: SceneJson = { id: "juego", name: "Game", monitors: [["g34", "b"]], shortcut: ["ControlLeft", "AltLeft", "Digit4"] };
+  const scene: SceneJson = { id: "game", name: "Game", monitors: [["g34", "b"]], shortcut: ["ControlLeft", "AltLeft", "Digit4"] };
 
   function fake() {
     const act = vi.fn(async (_a: unknown) => ({ kind: "done" as const }));

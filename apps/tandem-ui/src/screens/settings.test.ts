@@ -52,7 +52,7 @@ describe("pestañas", () => {
 
   it("nextTab no da la vuelta y ignora otras teclas", () => {
     expect(nextTab("desk", "ArrowUp")).toBeNull();
-    expect(nextTab("avanzado", "ArrowDown")).toBeNull();
+    expect(nextTab("advanced", "ArrowDown")).toBeNull();
     expect(nextTab("desk", "a")).toBeNull();
     expect(nextTab("desk", "End")).toBe(SETTINGS_TABS[SETTINGS_TABS.length - 1].id);
     expect(nextTab("shortcuts", "Home")).toBe("desk");
@@ -66,15 +66,15 @@ describe("Desk and machines", () => {
     expect(screen.queryByRole("textbox", { name: "Desk name" })).toBeNull();
   });
 
-  it("renombrar una machine: Enter manda el nombre nuevo al desk", async () => {
+  it("renombrar una machine: Enter manda el nombre fresh al desk", async () => {
     const store = await mount();
     const edit = vi.spyOn(store, "editMachine");
     const name = store.desk.machines.b?.name ?? "";
     await userEvent.click(screen.getAllByRole("button", { name: "Rename" })[1]);
     const input = screen.getByRole("textbox", { name: `Name of ${name}` });
     await userEvent.clear(input);
-    await userEvent.type(input, "Taller{Enter}");
-    expect(edit).toHaveBeenCalledWith("b", { name: "Taller" });
+    await userEvent.type(input, "Workshop{Enter}");
+    expect(edit).toHaveBeenCalledWith("b", { name: "Workshop" });
   });
 
   it("Escape cancela sin cambiar nada; un nombre vacío o igual tampoco cambia", async () => {
@@ -82,7 +82,7 @@ describe("Desk and machines", () => {
     const edit = vi.spyOn(store, "editMachine");
     const first = store.desk.machines.a?.name ?? "";
     await userEvent.click(screen.getAllByRole("button", { name: "Rename" })[0]);
-    await userEvent.type(screen.getByRole("textbox", { name: `Name of ${first}` }), "Otro{Escape}");
+    await userEvent.type(screen.getByRole("textbox", { name: `Name of ${first}` }), "Other{Escape}");
     expect(screen.queryByRole("textbox", { name: /Name de/ })).toBeNull();
     await userEvent.click(screen.getAllByRole("button", { name: "Rename" })[0]);
     const input = screen.getByRole("textbox", { name: `Name of ${first}` });
@@ -172,7 +172,7 @@ describe("Advanced", () => {
     Object.defineProperty(navigator, "clipboard", {
       value: {
         writeText: async () => {
-          throw new Error("sin permiso");
+          throw new Error("no permission");
         },
       },
       configurable: true,

@@ -19,7 +19,7 @@
     /** Solo ícono (cuadrado): `label` es el nombre accesible y el título. */
     iconOnly?: boolean;
     label?: string;
-    /** El ícono va después del texto (por ejemplo «Siguiente →»). */
+    /** El ícono va después del texto (por ejemplo «Next →»). */
     iconAfter?: boolean;
     motion?: IconMotion;
     /** Tamaño y grosor del ícono si el mockup de la pantalla no usa los del tamaño del botón. */

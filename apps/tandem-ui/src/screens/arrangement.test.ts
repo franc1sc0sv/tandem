@@ -97,7 +97,7 @@ describe("Crossing test (F-CrossingTest)", () => {
   it("cuelga del arrangement: `#/arrangement/crossing`", () => {
     expect(parseHash("#/arrangement/crossing")).toEqual({ screen: "crossing" });
     expect(formatHash({ screen: "crossing" })).toBe("#/arrangement/crossing");
-    expect(parseHash("#/arrangement/otra")).toEqual({ screen: "arrangement" });
+    expect(parseHash("#/arrangement/other")).toEqual({ screen: "arrangement" });
   });
 
 
@@ -107,7 +107,7 @@ describe("Crossing test (F-CrossingTest)", () => {
     src.cross({ from: "a", to: "b", edge: "right", at: 0, of: 0, ms: null });
     expect(await screen.findByText("Crossed fine")).toBeInTheDocument();
     expect(screen.getByText(/It entered PC-Desktop\./)).toBeInTheDocument();
-    expect(screen.queryByText(/Latencia/)).toBeNull();
+    expect(screen.queryByText(/Latency/)).toBeNull();
   });
 
   it("pide cruzar por el borde del arrangement y pasa con el crossing", async () => {
@@ -154,7 +154,7 @@ describe("con el agente real", () => {
     desk: {
       machines: { a: { os: "macos", name: "MacBook Pro", color: "#7aa7e6" }, b: { os: "windows", name: "PC-Desktop", color: "#a99be8" } },
       screens: [
-        { machine: "a", id: "Integrada", x: 0, y: 0, width: 1512, height: 945, scale: 2 },
+        { machine: "a", id: "Built-in", x: 0, y: 0, width: 1512, height: 945, scale: 2 },
         { machine: "b", id: "Odyssey", x: 0, y: 0, width: 3440, height: 1440, scale: 1 },
       ],
       arrangement: { a_side: "right", align: "start" },
@@ -188,11 +188,11 @@ describe("con el agente real", () => {
 
   it("las pantallas y el arrangement salen del desk", () => {
     const snap = connected();
-    if (snap.kind !== "connected") throw new Error("foto");
+    if (snap.kind !== "connected") throw new Error("snapshot");
     const l = layoutFromDesk(snap);
     expect(l.arrangement).toEqual({ aSide: "right", align: "start" });
     expect(l.screens.map((s) => [s.id, s.machine, s.res, s.ratio, s.scale])).toEqual([
-      ["a:Integrada", "a", "1512 × 945", "16:10", "200 %"],
+      ["a:Built-in", "a", "1512 × 945", "16:10", "200 %"],
       ["b:Odyssey", "b", "3440 × 1440", "21:9", "100 %"],
     ]);
     // Sin pantallas declaradas: una por machine, con su nombre.
@@ -204,15 +204,15 @@ describe("con el agente real", () => {
   /** El desk con la PC (b) con dos monitors conectados, uno al lado del otro. */
   const twoScreens = (): Snapshot => {
     const snap = connected();
-    if (snap.kind !== "connected") throw new Error("foto");
+    if (snap.kind !== "connected") throw new Error("snapshot");
     return {
       ...snap,
       desk: {
         ...snap.desk,
         screens: [
-          { machine: "a", id: "Integrada", x: 0, y: 0, width: 1512, height: 945, scale: 2 },
+          { machine: "a", id: "Built-in", x: 0, y: 0, width: 1512, height: 945, scale: 2 },
           { machine: "b", id: "Odyssey", x: 0, y: 0, width: 3440, height: 1440, scale: 1 },
-          { machine: "b", id: "Lateral", x: 3440, y: -200, width: 2560, height: 1440, scale: 1 },
+          { machine: "b", id: "Side", x: 3440, y: -200, width: 2560, height: 1440, scale: 1 },
         ],
       },
     };
@@ -220,13 +220,13 @@ describe("con el agente real", () => {
 
   it("las pantallas de una machine llevan su posición en el escritorio", () => {
     const snap = twoScreens();
-    if (snap.kind !== "connected") throw new Error("foto");
+    if (snap.kind !== "connected") throw new Error("snapshot");
     const l = layoutFromDesk(snap);
-    const lateral = l.screens.find((s) => s.id === "b:Lateral");
+    const side = l.screens.find((s) => s.id === "b:Side");
     const main = l.screens.find((s) => s.id === "b:Odyssey");
-    expect(lateral?.usable).toBe(true);
-    expect(lateral && main && lateral.x - main.x).toBeCloseTo(3440 / 110, 9);
-    expect(lateral?.y).toBeCloseTo(-200 / 110, 9);
+    expect(side?.usable).toBe(true);
+    expect(side && main && side.x - main.x).toBeCloseTo(3440 / 110, 9);
+    expect(side?.y).toBeCloseTo(-200 / 110, 9);
   });
 
   it("una segunda pantalla conectada no es «Unsupported» y edita el mismo arrangement", async () => {
@@ -235,16 +235,16 @@ describe("con el agente real", () => {
       get: (_t, k) => ({ snapshot: async () => twoScreens(), onSnapshot: async () => {}, act })[k as string] ?? (() => new Promise(() => {})),
     });
     await open(new LiveSource(bridgeTwo));
-    await userEvent.click(screen.getByRole("button", { name: /Lateral/ }));
+    await userEvent.click(screen.getByRole("button", { name: /Side/ }));
     expect(screen.queryByText(/Unsupported/)).toBeNull();
-    expect(pad()).toHaveAccessibleName("Where is Integrada?");
+    expect(pad()).toHaveAccessibleName("Where is Built-in?");
     await userEvent.click(slot("Top"));
     await userEvent.click(screen.getByRole("button", { name: /Save/ }));
     // Desde b the MacBook está arriba: se guarda como el lado de A.
     expect(act).toHaveBeenCalledWith({ kind: "set_arrangement", a_side: "up", align: "start" });
   });
 
-  it("al guardar el lienzo no vuelve al arrangement viejo mientras llega el nuevo", async () => {
+  it("al guardar el lienzo no vuelve al arrangement viejo mientras llega el fresh", async () => {
     let push: (s: Snapshot) => void = () => {};
     const act = vi.fn(async (_a: Action) => ({ kind: "done" as const }));
     const known: Partial<Record<keyof Bridge, unknown>> = {
@@ -259,10 +259,10 @@ describe("con el agente real", () => {
     await userEvent.click(slot("Bottom"));
     await userEvent.click(screen.getByRole("button", { name: /Save/ }));
     expect(await screen.findByText("Arrangement saved")).toBeInTheDocument();
-    // El agente respondió, pero el `Desk` nuevo no llegó: sigue viéndose lo guardado.
+    // El agente respondió, pero el `Desk` fresh no llegó: sigue viéndose lo guardado.
     expect(slot("Bottom")).toHaveAttribute("aria-checked", "true");
     const snap = connected();
-    if (snap.kind !== "connected") throw new Error("foto");
+    if (snap.kind !== "connected") throw new Error("snapshot");
     // Una foto que repite el arrangement viejo no suelta el borrador.
     push(snap);
     await tick();
@@ -270,7 +270,7 @@ describe("con el agente real", () => {
     push({ ...snap, desk: { ...snap.desk, arrangement: { a_side: "down", align: "start" } } });
     await tick();
     expect(slot("Bottom")).toHaveAttribute("aria-checked", "true");
-    // Con el arrangement nuevo ya en el desk el borrador se soltó: lo que llegue después se ve.
+    // Con el arrangement fresh ya en el desk el borrador se soltó: lo que llegue después se ve.
     push({ ...snap, desk: { ...snap.desk, arrangement: { a_side: "left", align: "end" } } });
     await tick();
     expect(slot("Left")).toHaveAttribute("aria-checked", "true");
@@ -286,11 +286,11 @@ describe("con el agente real", () => {
   });
 
   it("si el agente rechaza, lo dice y el cambio queda sin guardar", async () => {
-    const act = vi.fn(async () => ({ kind: "rejected" as const, reason: "la machine b todavía no se conoce" }));
+    const act = vi.fn(async () => ({ kind: "rejected" as const, reason: "machine b is not known yet" }));
     const store = await open(new LiveSource(bridge(act)));
     await userEvent.click(slot("Bottom"));
     await userEvent.click(screen.getByRole("button", { name: /Save/ }));
-    expect(await screen.findByText("la machine b todavía no se conoce")).toBeInTheDocument();
+    expect(await screen.findByText("machine b is not known yet")).toBeInTheDocument();
     expect(slot("Bottom")).toHaveAttribute("aria-checked", "true");
     expect(store.desk.layout.arrangement.aSide).toBe("right");
   });

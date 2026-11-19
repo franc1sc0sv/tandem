@@ -54,7 +54,7 @@ describe("Wake-on-LAN (T-159)", () => {
 
 describe("Wake-on-LAN en el demo (T-171)", () => {
   const mac = () => screen.getByRole("textbox", { name: /MAC of/ });
-  const guardar = () => screen.getByRole("button", { name: "Save" });
+  const save = () => screen.getByRole("button", { name: "Save" });
 
   it("guardar una MAC válida la muestra y deja Guardar deshabilitado", async () => {
     const { store } = await mount();
@@ -62,10 +62,10 @@ describe("Wake-on-LAN en el demo (T-171)", () => {
     await vi.waitFor(() => expect(store.desk.machines.b?.power).toBe("off"));
     await userEvent.clear(mac());
     await userEvent.type(mac(), "aa:bb:cc:dd:ee:01");
-    await userEvent.click(guardar());
+    await userEvent.click(save());
     await tick();
     expect(mac()).toHaveValue("aa:bb:cc:dd:ee:01");
-    expect(guardar()).toBeDisabled();
+    expect(save()).toBeDisabled();
     expect(screen.getByRole("button", { name: "Power on" })).toBeEnabled();
   });
 
@@ -85,7 +85,7 @@ describe("Wake-on-LAN en el demo (T-171)", () => {
     const { store } = await mount();
     await userEvent.clear(mac());
     await userEvent.type(mac(), "zz");
-    await userEvent.click(guardar());
+    await userEvent.click(save());
     await tick();
     expect(store.toasts.at(-1)?.text ?? "").toMatch(/invalid MAC address/);
     expect(store.desk.machines.b?.wake?.mac).toBe("aa:bb:cc:dd:ee:ff");
@@ -141,17 +141,17 @@ describe("V3-Machine (the other machine)", () => {
     await userEvent.click(screen.getByRole("button", { name: /PC-Desktop/ }));
     const input = screen.getByRole("textbox", { name: "Machine name" });
     await userEvent.clear(input);
-    await userEvent.type(input, "  Estudio {Enter}");
-    await vi.waitFor(() => expect(store.desk.machines.b?.name).toBe("Estudio"));
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Estudio");
-    await userEvent.click(screen.getByRole("button", { name: /Estudio/ }));
+    await userEvent.type(input, "  Studio {Enter}");
+    await vi.waitFor(() => expect(store.desk.machines.b?.name).toBe("Studio"));
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Studio");
+    await userEvent.click(screen.getByRole("button", { name: /Studio/ }));
     await userEvent.type(screen.getByRole("textbox", { name: "Machine name" }), "XYZ{Escape}");
-    expect(store.desk.machines.b?.name).toBe("Estudio");
+    expect(store.desk.machines.b?.name).toBe("Studio");
     // Vacío: no se manda y se avisa por qué.
-    await userEvent.click(screen.getByRole("button", { name: /Estudio/ }));
+    await userEvent.click(screen.getByRole("button", { name: /Studio/ }));
     await userEvent.clear(screen.getByRole("textbox", { name: "Machine name" }));
     await userEvent.keyboard("{Enter}");
-    expect(store.desk.machines.b?.name).toBe("Estudio");
+    expect(store.desk.machines.b?.name).toBe("Studio");
     expect(store.toasts[0]).toMatchObject({ tone: "bad", text: "The name cannot be empty" });
   });
 
@@ -283,7 +283,7 @@ describe("contra el agente (IPC)", () => {
   const GIB = 2 ** 30;
   const caps = {
     machine: "b",
-    name: "Taller",
+    name: "Workshop",
     os: "windows",
     color: "#a99be8",
     hub: null,
@@ -291,8 +291,8 @@ describe("contra el agente (IPC)", () => {
     power: { wake_peer: false, wakeable: true, power_off: true },
     services: [],
     modules: [
-      { id: "clipboard", name: "Clipboard", detail: "Texto", state: "active", reason: null, switchable: true },
-      { id: "secure_desktop", name: "Protected screens", detail: "UAC", state: "unavailable", reason: "Falta el servicio de administrador", switchable: false },
+      { id: "clipboard", name: "Clipboard", detail: "Text", state: "active", reason: null, switchable: true },
+      { id: "secure_desktop", name: "Protected screens", detail: "UAC", state: "unavailable", reason: "The administrator service is missing", switchable: false },
       { id: "tunnels", name: "Tunnels", detail: "", state: "active", reason: null, switchable: true },
     ],
     environments: [
@@ -306,10 +306,10 @@ describe("contra el agente (IPC)", () => {
     agent: "a",
     desk: { machines: { a: null, b: null }, screens: [], arrangement: null, scenes: [] },
     state: { on: { a: true, b: true } },
-    peer: { kind: "paired", name: "Taller", link: "usb4" },
+    peer: { kind: "paired", name: "Workshop", link: "usb4" },
     pairing: { kind: "idle" },
     input: { server: "a", hub_here: null, session: true, locked: false, missing: [], problem: null, defined: true },
-    caps: { here: { ...caps, machine: "a", name: "Estudio", os: "macos", color: "#7aa7e6", modules: [], environments: [], hardware: undefined }, peer: caps },
+    caps: { here: { ...caps, machine: "a", name: "Studio", os: "macos", color: "#7aa7e6", modules: [], environments: [], hardware: undefined }, peer: caps },
     monitors: [],
   } as unknown as Snapshot;
 
@@ -343,7 +343,7 @@ describe("contra el agente (IPC)", () => {
     expect(screen.getByText("55 °C")).toBeInTheDocument();
     expect(screen.getByText("100 GB free of 500 GB")).toBeInTheDocument();
     // Protected screens no se puede apagar y dice por qué.
-    expect(screen.getByText("Falta el servicio de administrador")).toBeInTheDocument();
+    expect(screen.getByText("The administrator service is missing")).toBeInTheDocument();
     expect(screen.queryByRole("switch", { name: "Protected screens" })).toBeNull();
   });
 
@@ -355,9 +355,9 @@ describe("contra el agente (IPC)", () => {
     expect(act).toHaveBeenCalledWith({ kind: "set_machine", machine: "b", color: "#5fbfb0" });
     await userEvent.click(screen.getByRole("button", { name: "Scan again" }));
     expect(act).toHaveBeenCalledWith({ kind: "rescan", machine: "b" });
-    await userEvent.click(screen.getByRole("button", { name: /Taller/ }));
-    await userEvent.type(screen.getByRole("textbox", { name: "Machine name" }), "{Control>}a{/Control}Nuevo{Enter}");
-    expect(act).toHaveBeenCalledWith({ kind: "set_machine", machine: "b", name: "Nuevo" });
+    await userEvent.click(screen.getByRole("button", { name: /Workshop/ }));
+    await userEvent.type(screen.getByRole("textbox", { name: "Machine name" }), "{Control>}a{/Control}New{Enter}");
+    expect(act).toHaveBeenCalledWith({ kind: "set_machine", machine: "b", name: "New" });
     await userEvent.click(screen.getByRole("switch", { name: "Allow remote execution" }));
     expect(act).toHaveBeenCalledWith({ kind: "set_module", machine: "b", module: "tunnels", on: false });
     await userEvent.click(screen.getByRole("button", { name: "Power off" }));
@@ -366,9 +366,9 @@ describe("contra el agente (IPC)", () => {
 
   it("un rechazo del agente se muestra con su razón", async () => {
     const { store, act } = await mountLive();
-    act.mockResolvedValueOnce({ kind: "rejected", reason: "ese color ya es el de Estudio" } as never);
+    act.mockResolvedValueOnce({ kind: "rejected", reason: "that color is already the one of Studio" } as never);
     await userEvent.click(screen.getByRole("radio", { name: "Amber" }));
-    await vi.waitFor(() => expect(store.toasts[0]).toMatchObject({ tone: "bad", text: "ese color ya es el de Estudio" }));
+    await vi.waitFor(() => expect(store.toasts[0]).toMatchObject({ tone: "bad", text: "that color is already the one of Studio" }));
   });
 
   it("al salir de la página deja de pedir los recursos", async () => {

@@ -66,7 +66,7 @@ export function networkFromWire(w: NetworkWire, now: number): NetworkView {
 
 export const STATE_LABEL: Record<PathState, string> = { primary: "Main", backup: "Backup", unplugged: "No cable", down: "Down" };
 
-/** Un camino sin respuesta: el Wi-Fi no tiene cable, así que no puede estar «no cable». */
+/** Un camino no reply: el Wi-Fi no tiene cable, así que no puede estar «no cable». */
 export const unpluggedText = (kind: LinkKind): string => (kind === "wifi" ? "no signal" : "no cable");
 
 /** El rótulo del estado de un camino («Principal», «No cable», «Sin señal»…). */
@@ -190,7 +190,7 @@ export function bandwidthKpi(n: NetworkView): BandwidthKpi {
 export const CHART = { width: 400, height: 74 } as const;
 
 /**
- * La latencia de la entrada de cada uno de los últimos 60 s, del más viejo al más nuevo (los
+ * La latencia de la entrada de cada uno de los últimos 60 s, del más viejo al más fresh (los
  * que faltan al arrancar quedan `null` to the left of). En cada segundo vale la del camino que
  * la llevaba; si en todo el historial no hubo entrada, el ida y vuelta de los pings.
  */

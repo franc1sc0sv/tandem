@@ -80,7 +80,7 @@ export function buildCommands(desk: DeskView, ctx: CommandContext, mac: boolean)
       run: () => ctx.setPower(peer, !on),
     });
   }
-  // D1: no hay tercera machine; sí se puede cambiar la otra (emparejar de nuevo).
+  // D1: no hay tercera machine; sí se puede cambiar la otra (emparejar de fresh).
   out.push({ id: "pair:change", group: "Machines", title: "Change the other machine…", detail: "", key: "", color: TEAL, run: () => ctx.openWizard(1) });
 
   for (const t of desk.tunnels.filter((t) => t.state !== "closed")) {
@@ -163,7 +163,7 @@ export function flatten(groups: CommandGroup[]): Command[] {
   return groups.flatMap((g) => g.items);
 }
 
-/** El índice nuevo al moverse `delta` posiciones, dando la vuelta. */
+/** El índice fresh al moverse `delta` posiciones, dando la vuelta. */
 export function move(index: number, delta: number, length: number): number {
   if (length === 0) return 0;
   return (((index + delta) % length) + length) % length;

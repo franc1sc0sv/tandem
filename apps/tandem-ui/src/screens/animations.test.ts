@@ -49,7 +49,7 @@ const SCREENS = {
     // El pulso del punto de la barra lateral (`pl`) vive en `Sidebar`; el de los contadores, en la pantalla.
     files: [read("screens", "Tunnels.svelte"), read("shell", "Sidebar.svelte")],
     keyframes: ["tu-up", "tu-dn", "tu-bar", "tu-sp", "tu-mv", "tu-fa", "tu-fb", "tu-halo", "tu-pl", "tu-bl"],
-    // `nw` (el destello de un evento nuevo) lo declara el mockup para una lista que no dibuja; `pl` se
+    // `nw` (el destello de un evento fresh) lo declara el mockup para una lista que no dibuja; `pl` se
     // prueba aparte (la declaración online del mockup no se deja leer como CSS).
     skip: ["nw", "pl"],
   },
@@ -96,7 +96,7 @@ describe("animaciones de Tunnels que el mockup declara online", () => {
     for (const f of SCREENS.tunnels.files) expect(f).toContain("1.8s infinite");
   });
 
-  it("el tubo se detiene y se apaga sin movimiento cuando el tunnel está cerrado", () => {
+  it("el tubo se detiene y se apaga sin movimiento cuando el tunnel está closed", () => {
     expect(SCREENS.tunnels.mock).toContain("animation:none;opacity:.2");
     expect(SCREENS.tunnels.files[0]).toMatch(/\.flowA\.off,\s*\.flowB\.off \{\s*animation: none;\s*opacity: 0\.2;/);
   });

@@ -49,7 +49,7 @@
   });
 
   // Una huella por valor: el efecto solo se rehace si cambia la geometría, no en cada foto del desk
-  // (el demo publica un `desk` nuevo en cada tick y `watchCursor` reiniciaría el recorrido).
+  // (el demo publica un `desk` fresh en cada tick y `watchCursor` reiniciaría el recorrido).
   const geometry = $derived(scene ? JSON.stringify([scene.desks, scene.feet, scene.edge, scene.aspect, desk.layout]) : "");
 
   $effect(() => {
@@ -230,7 +230,7 @@
   .sm {
     font-size: 12px;
   }
-  /* La tercera columna es el hueco de «Agregar machine» (D1): el mockup reparte así el ancho. */
+  /* La tercera columna es el hueco de «Add machine» (D1): el mockup reparte así el ancho. */
   .machines {
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 200px;

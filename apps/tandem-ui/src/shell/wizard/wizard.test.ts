@@ -65,7 +65,7 @@ describe("paso 1: this machine", () => {
     expect(found.querySelectorAll(".wz-spin")).toHaveLength(0);
   });
 
-  it("sin instalador (instalación por usuario) la fila lo explica y no ofrece el botón", async () => {
+  it("sin instalador (per-user install) la fila lo explica y no ofrece el botón", async () => {
     const { dlg } = await mount("demo&still&admin=off");
     const found = within(dlg).getByRole("region", { name: "What it found" });
     expect(await within(found).findByText(/per-user install/)).toBeInTheDocument();
@@ -77,15 +77,15 @@ describe("paso 1: this machine", () => {
     const { dlg, store } = await mount();
     const input = within(dlg).getByRole("textbox", { name: "Name" });
     await userEvent.clear(input);
-    await userEvent.type(input, "Portátil{Enter}");
-    expect(store.desk.machines.a?.name).toBe("Portátil");
+    await userEvent.type(input, "Laptop{Enter}");
+    expect(store.desk.machines.a?.name).toBe("Laptop");
     await userEvent.click(within(dlg).getByRole("radio", { name: "Amber" }));
     expect(store.desk.machines.a?.color).toBe("#d9a75a");
     expect(within(dlg).getByRole("radio", { name: "Amber" })).toHaveAttribute("aria-checked", "true");
     // Un nombre vacío no se guarda.
     await userEvent.clear(input);
     await userEvent.tab();
-    expect(store.desk.machines.a?.name).toBe("Portátil");
+    expect(store.desk.machines.a?.name).toBe("Laptop");
   });
 });
 
@@ -222,7 +222,7 @@ describe("paso 5: arrangement y prueba de crossing", () => {
     expect(next).not.toHaveClass("wait");
   });
 
-  it("por otro borde falla y se puede probar de nuevo", async () => {
+  it("por otro borde falla y se puede probar de fresh", async () => {
     const { dlg, store } = await mount("demo&still&cross=wrong", 4);
     await userEvent.click(within(dlg).getByRole("button", { name: "Test crossing" }));
     expect(await within(dlg).findByText(/Crossed at the top, not the right/)).toBeInTheDocument();

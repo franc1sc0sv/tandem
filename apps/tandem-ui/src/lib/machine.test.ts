@@ -194,7 +194,7 @@ describe("fila «Permisos»", () => {
 
 describe("nombre de la machine", () => {
   it("se recorta, no queda vacío y no pasa de 40 caracteres", () => {
-    expect(checkName("  Estudio ")).toEqual({ ok: true, name: "Estudio" });
+    expect(checkName("  Studio ")).toEqual({ ok: true, name: "Studio" });
     expect(checkName("   ").ok).toBe(false);
     expect(checkName("x".repeat(41)).ok).toBe(false);
     expect(checkName("ñ".repeat(40)).ok).toBe(true);

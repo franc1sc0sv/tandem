@@ -20,7 +20,7 @@
   let draft: Arrangement | null = $state(null);
   let picked: string | null = $state(null);
   let saving = $state(false);
-  /** El arrangement del desk cuando se guardó, mientras no llegue el nuevo: el borrador se queda. */
+  /** El arrangement del desk cuando se guardó, mientras no llegue el fresh: el borrador se queda. */
   let awaiting: Arrangement | null = $state(null);
 
   const arrangement = $derived(draft ?? desk.layout.arrangement);
@@ -87,7 +87,7 @@
     const r = await store.setArrangement(mine);
     saving = false;
     if (!r.ok) return;
-    // El agente responde antes de que llegue el `Desk` nuevo: hasta entonces se sigue viendo lo guardado.
+    // El agente responde antes de que llegue el `Desk` fresh: hasta entonces se sigue viendo lo guardado.
     const now = desk.layout.arrangement;
     if (!same(now, before) || same(now, mine)) draft = null;
     else awaiting = before;
@@ -249,7 +249,7 @@
     position: relative;
     width: 100%;
   }
-  /* Curva con rebote del mockup: las pantallas y el borde se deslizan al nuevo arrangement. */
+  /* Curva con rebote del mockup: las pantallas y el borde se deslizan al fresh arrangement. */
   .scr {
     position: absolute;
     box-sizing: border-box;

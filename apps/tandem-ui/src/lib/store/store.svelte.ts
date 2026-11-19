@@ -90,7 +90,7 @@ export class Store implements CommandContext {
     return this.fixedTopics ?? topicsFor(this.route);
   }
 
-  /** Arranca la fuente. Si falla (agente ausente, respuesta rara) queda el estado «sin agente». */
+  /** Arranca la fuente. Si falla (agente ausente, respuesta rara) queda el estado «no agent». */
   async start(): Promise<void> {
     try {
       await this.source.start(
@@ -279,7 +279,7 @@ export class Store implements CommandContext {
     return this.report(this.source.saveScene(scene, isNew));
   }
 
-  /** El id que el agente le dio a una scene recién guardada (llega con el desk nuevo); `null` si no aparece. */
+  /** El id que el agente le dio a una scene recién guardada (llega con el desk fresh); `null` si no aparece. */
   async waitForScene(name: string, timeoutMs = 3000): Promise<string | null> {
     const until = Date.now() + timeoutMs;
     for (;;) {
@@ -469,7 +469,7 @@ export class Store implements CommandContext {
     this.notify({ text, tone });
   }
 
-  /** Un notice nuevo arriba de la pila; el más viejo sale si pasan de `TOAST_MAX`. */
+  /** Un notice fresh arriba de la pila; el más viejo sale si pasan de `TOAST_MAX`. */
   notify(spec: ToastSpec): void {
     const auto = !spec.action && !spec.progress && !spec.hold;
     const at = spec.key ? this.toasts.findIndex((x) => x.key === spec.key) : -1;

@@ -88,7 +88,7 @@ describe("arnés de capturas", () => {
 describe("Tunnels (T-114)", () => {
   it("compara los seis states del mockup y el plegado con el umbral de pantalla, con los clics del mockup", () => {
     const gated = TUNNELS.filter((s) => s.min);
-    expect(gated.map((s) => s.state ?? "inicial")).toEqual(["inicial", "process-2", "tunnel-2-processes", "tunnel-no-processes", "tunnel-lora", "tunnel-closed", "project-collapsed"]);
+    expect(gated.map((s) => s.state ?? "initial")).toEqual(["initial", "process-2", "tunnel-2-processes", "tunnel-no-processes", "tunnel-lora", "tunnel-closed", "project-collapsed"]);
     for (const s of gated) expect(s.min).toEqual(SCREEN_GATE);
     for (const s of TUNNELS) expect(SHOTS).toContain(s);
   });

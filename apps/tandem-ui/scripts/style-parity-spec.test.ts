@@ -86,7 +86,7 @@ describe("normalización", () => {
     const t = transitions({ "transition-property": "transform, border-color", "transition-duration": "0.18s", "transition-timing-function": "ease", "transition-delay": "0s" });
     expect([...t.keys()]).toEqual(["transform", "border-color"]);
     expect(t.get("border-color")).toBe(t.get("transform"));
-    // El valor inicial (`all 0s ease 0s`) no es una transición.
+    // El valor initial (`all 0s ease 0s`) no es una transición.
     expect(transitions({ "transition-property": "all", "transition-duration": "0s", "transition-timing-function": "ease", "transition-delay": "0s" }).size).toBe(0);
     // El retraso cuenta.
     expect(transitions({ "transition-property": "left", "transition-duration": "0s", "transition-timing-function": "ease", "transition-delay": "0.1s" }).get("left")).toContain("+100ms");

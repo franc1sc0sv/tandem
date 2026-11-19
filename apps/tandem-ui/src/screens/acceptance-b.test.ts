@@ -50,7 +50,7 @@ function snapshot(locked = false, modules: unknown[] = []): Connected {
   } as unknown as Connected;
 }
 
-const wire: ProjectWire[] = [{ name: "tandem", root: "/src/tandem", tunnels: [{ id: "f00dfacecafe0001", title: "Revisar el PR", origin: "a", target: "b", open: true, created: Date.now() - 60_000, running: [] }] }];
+const wire: ProjectWire[] = [{ name: "tandem", root: "/src/tandem", tunnels: [{ id: "f00dfacecafe0001", title: "Review the PR", origin: "a", target: "b", open: true, created: Date.now() - 60_000, running: [] }] }];
 
 /** Un puente simulado: la primera foto la da `first`; las siguientes se empujan a mano. */
 function bridge(first: Snapshot, over: Record<string, unknown> = {}, actions: (a: Action) => ActionResult = () => ({ kind: "done" })) {
@@ -85,10 +85,10 @@ describe("T-153: los botones con can() se habilitan al conectar el agente", () =
   it("«Medir ancho de banda» se habilita cuando llega la primera foto", async () => {
     const { b, push } = bridge({ kind: "connecting" });
     await open(new LiveSource(b), "#/network");
-    const medir = () => screen.getByRole("button", { name: /Measure bandwidth/ });
-    expect(medir()).toBeDisabled();
+    const measure = () => screen.getByRole("button", { name: /Measure bandwidth/ });
+    expect(measure()).toBeDisabled();
     await flush(async () => push(snapshot()));
-    expect(medir()).toBeEnabled();
+    expect(measure()).toBeEnabled();
   });
 
   it("«Aplicar» de Monitors se habilita al llegar la primera foto", async () => {
@@ -115,7 +115,7 @@ describe("T-153: los botones con can() se habilitan al conectar el agente", () =
     const { b, push } = bridge(snapshot());
     await open(new LiveSource(b), "#/network");
     expect(screen.getByRole("button", { name: /Measure bandwidth/ })).toBeEnabled();
-    await flush(async () => push({ kind: "unavailable", endpoint: null, reason: "sin agente" }));
+    await flush(async () => push({ kind: "unavailable", endpoint: null, reason: "no agent" }));
     expect(screen.getByRole("button", { name: /Measure bandwidth/ })).toBeDisabled();
   });
 
@@ -131,7 +131,7 @@ describe("T-154: la ventana pide los tunnels que ya existen", () => {
     const store = await open(new LiveSource(b), "#/tunnels");
     await flush(async () => {});
     expect(act).toHaveBeenCalledWith({ kind: "tunnels" });
-    expect(store.desk.tunnels.map((t) => t.title)).toEqual(["Revisar el PR"]);
+    expect(store.desk.tunnels.map((t) => t.title)).toEqual(["Review the PR"]);
     expect(await screen.findByText("1 open · 1 project")).toBeInTheDocument();
     expect(act.mock.calls.filter(([a]) => a.kind === "tunnels")).toHaveLength(1);
   });
@@ -145,7 +145,7 @@ describe("T-154: la ventana pide los tunnels que ya existen", () => {
     render(Tray, { store, actions: { showMain: vi.fn(), quit: vi.fn() } });
     await vi.waitFor(() => expect(screen.getByText("1 tunnel")).toBeInTheDocument());
     const titles = buildCommands(store.desk, store, false).map((c) => c.title);
-    expect(titles).toContain("Go to tunnel “Revisar el PR”");
+    expect(titles).toContain("Go to tunnel “Review the PR”");
   });
 
   it("espera a que haya agente y luego los pide", async () => {
@@ -227,9 +227,9 @@ describe("T-157: «Lock here» se ve y la palette ofrece solo lo que aplica", ()
   });
 
   it("un rechazo del agente se explica y no cambia el estado", async () => {
-    const { b } = bridge(snapshot(), {}, () => ({ kind: "rejected", reason: "this machine no es la que tiene el teclado" }));
+    const { b } = bridge(snapshot(), {}, () => ({ kind: "rejected", reason: "this machine does not have the keyboard" }));
     const store = await open(new LiveSource(b), "#/desk");
-    expect(await store.lockHere(true)).toEqual({ ok: false, reason: "this machine no es la que tiene el teclado" });
+    expect(await store.lockHere(true)).toEqual({ ok: false, reason: "this machine does not have the keyboard" });
     expect(store.desk.locked).toBe(false);
   });
 
@@ -245,16 +245,16 @@ describe("T-157: «Lock here» se ve y la palette ofrece solo lo que aplica", ()
 
 describe("T-158: los módulos muestran el estado que dice el agente", () => {
   const mods = [
-    { id: "tunnels", name: "Tunnels", detail: "Recibe tunnels de Claude", state: "active", switchable: false },
-    { id: "files", name: "Archivos", detail: "Arrastrar archivos al cruzar el borde", state: "active", switchable: false },
+    { id: "tunnels", name: "Tunnels", detail: "Receives tunnels from Claude", state: "active", switchable: false },
+    { id: "files", name: "Files", detail: "Drag files across the edge", state: "active", switchable: false },
   ];
 
-  it("no inventa «Aún no está en esta versión»: usa el estado del agente", async () => {
+  it("no inventa «Not in this version yet»: usa el estado del agente", async () => {
     const { b } = bridge(snapshot(false, mods));
     const store = await open(new LiveSource(b), "#/machine/a");
     const views = store.desk.machines.a?.modules ?? [];
     expect(views.map((m) => [m.id, m.state])).toEqual([["tunnels", "active"], ["files", "active"]]);
-    expect(document.body.textContent).not.toContain("Aún no está en esta versión");
+    expect(document.body.textContent).not.toContain("Not in this version yet");
   });
 
   it("el resumen del asistente dice que los tunnels funcionan, o por qué no", async () => {
@@ -269,11 +269,11 @@ describe("T-158: los módulos muestran el estado que dice el agente", () => {
       return summaryRows(store.desk, { crossed: true }).find((r) => r.id === "tunnels");
     };
     expect(await rows(both("active"))).toMatchObject({ ok: true, note: "MCP ready for Claude Code on both" });
-    expect(await rows(both("unavailable", "El sistema no dejó abrir nada"))).toMatchObject({ ok: false });
+    expect(await rows(both("unavailable", "The system would not open anything"))).toMatchObject({ ok: false });
   });
 
   it("una razón verdadera sí se muestra", async () => {
-    const reason = "El sistema no dejó abrir el detector de arrastre de archivos";
+    const reason = "The system would not open the file drag detector";
     const down = [{ ...mods[1], state: "unavailable", reason }];
     const { b } = bridge(snapshot(false, down));
     const store = await open(new LiveSource(b), "#/machine/a");

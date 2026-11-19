@@ -67,7 +67,7 @@ describe("formatos", () => {
 
   it("los nombres cortos del camino: por sistema si difieren, por nombre si no (D2)", () => {
     expect(shortLabels({ name: "MacBook Pro", os: "macos" }, { name: "PC-Desktop", os: "windows" })).toEqual(["Mac", "PC"]);
-    expect(shortLabels({ name: "Oficina", os: "windows" }, { name: "Casa-PC", os: "windows" })).toEqual(["Oficina", "Casa"]);
+    expect(shortLabels({ name: "Office", os: "windows" }, { name: "Home-PC", os: "windows" })).toEqual(["Office", "Home"]);
   });
 
   it("con el mismo sistema y la misma primera palabra, lo que distingue (T-141)", () => {
@@ -95,7 +95,7 @@ describe("estado y proyectos con el demo (V3-Compute)", () => {
   const tunnels = demoTunnels(now);
 
   it("`tunnels=notas` (V3-Tray) saca la revisión del PR a un tercer proyecto", () => {
-    expect(groupByProject(demoTunnels(now, "notas")).map((x) => x.name).sort()).toEqual(["ia-local", "notes", "tandem"]);
+    expect(groupByProject(demoTunnels(now, "notes")).map((x) => x.name).sort()).toEqual(["ia-local", "notes", "tandem"]);
   });
 
   it("agrupa en dos proyectos con su proporción de abiertos", () => {
@@ -112,7 +112,7 @@ describe("estado y proyectos con el demo (V3-Compute)", () => {
     expect(summary(groupByProject(tunnels.slice(0, 1)))).toBe("1 open · 1 project");
   });
 
-  it("el texto de estado: activo, inactivo con su tiempo, cerrado", () => {
+  it("el texto de estado: activo, inactivo con su tiempo, closed", () => {
     const [busy, , idle, , closed] = tunnels;
     expect(statusText(busy, now)).toBe("active");
     expect(statusText(idle, now)).toBe("inactive 9 m");
@@ -125,7 +125,7 @@ describe("estado y proyectos con el demo (V3-Compute)", () => {
     expect(emptyLabel(tunnels[2])).toBe("Nothing running right now");
   });
 
-  it("el tubo corre más rápido mientras más activo y se apaga si está cerrado", () => {
+  it("el tubo corre más rápido mientras más activo y se apaga si está closed", () => {
     const busy = tubeSpeed("busy");
     const idle = tubeSpeed("idle");
     expect(busy && idle && busy.a < idle.a).toBe(true);
@@ -134,7 +134,7 @@ describe("estado y proyectos con el demo (V3-Compute)", () => {
 
   it("se elige el pedido, o el primero abierto, o el primero", () => {
     expect(pickTunnel(tunnels, "lora")?.id).toBe("lora");
-    expect(pickTunnel(tunnels, "no-existe")?.id).toBe("t97");
+    expect(pickTunnel(tunnels, "missing")?.id).toBe("t97");
     expect(pickTunnel([tunnels[4]], null)?.id).toBe("comfy");
     expect(pickTunnel([], null)).toBeNull();
   });
@@ -180,7 +180,7 @@ describe("de lo que manda el agente a lo que se dibuja", () => {
     expect(t.projectPath).toBeNull();
   });
 
-  it("lo que ya no está en la lista se queda como cerrado, al final, con su hora", () => {
+  it("lo que ya no está en la lista se queda como closed, al final, con su hora", () => {
     const m = newMemory();
     tunnelsFromWire([proj("p", [tun("1", [proc(1)]), tun("2")])], 5_000, m);
     const out = tunnelsFromWire([proj("p", [tun("2")])], 8_000, m);
@@ -189,12 +189,12 @@ describe("de lo que manda el agente a lo que se dibuja", () => {
       ["1", "closed"],
     ]);
     expect(out[1]).toMatchObject({ closedAt: 8_000, processes: 0 });
-    // Sigue cerrado en las listas siguientes, con la misma hora.
+    // Sigue closed en las listas siguientes, con la misma hora.
     const next = tunnelsFromWire([proj("p", [tun("2")])], 9_000, m);
     expect(next[1]).toMatchObject({ state: "closed", closedAt: 8_000 });
   });
 
-  it("no guarda más de unos cuantos cerrados", () => {
+  it("no guarda más de unos cuantos closeds", () => {
     const m = newMemory();
     const ids = Array.from({ length: CLOSED_KEPT + 5 }, (_, i) => String(i));
     tunnelsFromWire([proj("p", ids.map((id) => tun(id)))], 1, m);
@@ -203,7 +203,7 @@ describe("de lo que manda el agente a lo que se dibuja", () => {
     expect(out.every((t) => t.state === "closed")).toBe(true);
   });
 
-  it("un tunnel que el agente ya marca cerrado no se dibuja como abierto", () => {
+  it("un tunnel que el agente ya marca closed no se dibuja como abierto", () => {
     const out = tunnelsFromWire([proj("p", [tun("1", [], { open: false })])], 0, newMemory());
     expect(out).toEqual([]);
   });
@@ -227,10 +227,10 @@ describe("de lo que manda el agente a lo que se dibuja", () => {
 describe("la salida en vivo", () => {
   const chunk = (text: string, stdout = text.length): OutputChunk => ({ text, next: { stdout, stderr: 0 }, done: false });
 
-  it("junta lo nuevo y avanza el cursor", () => {
-    const a = appendOutput(EMPTY_OUTPUT, chunk("hola\n"));
-    const b = appendOutput(a, chunk("mundo\n", 10));
-    expect(b.text).toBe("hola\nmundo\n");
+  it("junta lo fresh y avanza el cursor", () => {
+    const a = appendOutput(EMPTY_OUTPUT, chunk("hello\n"));
+    const b = appendOutput(a, chunk("world\n", 10));
+    expect(b.text).toBe("hello\nworld\n");
     expect(b.cursor).toEqual({ stdout: 10, stderr: 0 });
   });
 

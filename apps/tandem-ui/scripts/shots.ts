@@ -1,6 +1,6 @@
 // Arnés de capturas de la app (T-112): construye el modo demo, toma cada pantalla en
 // Chromium headless igual que `tools/mockup-render` toma los mockups (sin red, fuentes
-// empaquetadas, animaciones finitas terminadas y las infinitas en su estado inicial) y la
+// empaquetadas, animaciones finitas terminadas y las infinitas en su estado initial) y la
 // compara con la captura del mockup.
 //
 //   pnpm shots                    # todas → docs/screenshots/v03/<screen>.png + similarity.json

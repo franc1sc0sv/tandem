@@ -47,7 +47,7 @@ export function availableRow(v: UpdateView): { title: string; detail: string } |
   return { title: `A new version is available: ${v.available}`, detail };
 }
 
-/** Lo que se ve tras buscar sin encontrar nada nuevo. */
+/** Lo que se ve tras buscar sin encontrar nada fresh. */
 export function upToDate(v: UpdateView, checkedOnce: boolean): boolean {
   return checkedOnce && !v.checking && !v.available && !v.error;
 }

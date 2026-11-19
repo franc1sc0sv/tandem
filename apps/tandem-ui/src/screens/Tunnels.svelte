@@ -78,7 +78,7 @@
     };
   });
 
-  // La salida del proceso elegido desde el principio, y después lo nuevo cada segundo.
+  // La salida del proceso elegido desde el principio, y después lo fresh cada segundo.
   $effect(() => {
     const id = sel?.id;
     const pid = proc?.id;

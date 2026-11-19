@@ -90,10 +90,10 @@ export interface Content {
 /** La barra lateral de las pantallas principales (V3-Desk, V3-Arrangement, V3-Network…). */
 export const SIDEBAR: Region = { name: "sidebar", mockupSelector: 'nav[aria-label="Main"]' };
 
-/** D1: no hay tercera machine, así que la barra lateral no tiene «Agregar machine». */
+/** D1: no hay tercera machine, así que la barra lateral no tiene «Add machine». */
 export const NO_ADD_MACHINE: Ignore = {
   mockupSelector: 'nav[aria-label="Main"] a[href="F-AddHost.dc.html"]',
-  reason: "D1: sin «Agregar machine» (exactamente dos machines)",
+  reason: "D1: sin «Add machine» (exactamente dos machines)",
 };
 
 /** Criterio de T-112: la barra lateral igual a la de `V3-Desk`. */
@@ -111,7 +111,7 @@ const DEMO = "demo&still";
 /** Criterio de aceptación de cada pantalla (ACCEPTANCE: similitud y peor cuadro). */
 export const SCREEN_GATE = { similarity: 0.99, worstTile: 0.97 };
 
-// T-117: el arrangement inicial, the other machine en cada lado × cada alineación (con los mismos
+// T-117: el arrangement initial, the other machine en cada lado × cada alineación (con los mismos
 // clics que el mockup), cada pantalla elegida y la prueba de crossing.
 const ARRANGEMENT_SIDES = [
   ["top", "Top"],
@@ -133,10 +133,10 @@ const arrangementShot = (name: string, extra: Partial<ShotSpec> = {}): ShotSpec 
   min: SCREEN_GATE,
   ...extra,
 });
-/** Los botones «Simular…» son solo del mockup (`mockups/README.md`): se tapan. */
+/** Los botones «Simulate…» son solo del mockup (`mockups/README.md`): se tapan. */
 const SIMULATE: Ignore[] = [
-  { mockupSelector: 'button.sim:has-text("Simulate crossing")', reason: "«Simular crossing» es solo del mockup" },
-  { mockupSelector: 'button.sim:has-text("Simulate no crossing")', reason: "«Simular que no cruza» es solo del mockup" },
+  { mockupSelector: 'button.sim:has-text("Simulate crossing")', reason: "«Simulate crossing» es solo del mockup" },
+  { mockupSelector: 'button.sim:has-text("Simulate no crossing")', reason: "«Simulate que no cruza» es solo del mockup" },
 ];
 const crossingShot = (name: string, cross: string, state?: string): ShotSpec => ({
   name,
@@ -195,8 +195,8 @@ const sceneShot = (name: string, pick: string, state?: string): ShotSpec => ({
   keys: ["Control+Alt+Digit4"],
   min: SCREEN_GATE,
 });
-/** Los botones «Simular…» del mockup (solo del mockup); en «vuelta atrás» bajan con el texto del error. */
-const SIMULAR: Ignore = { mockupSelector: "section.card:nth-of-type(1) > div:last-of-type", reason: "Simular…: botones solo del mockup" };
+/** Los botones «Simulate…» del mockup (solo del mockup); en «vuelta atrás» bajan con el texto del error. */
+const SIMULAR: Ignore = { mockupSelector: "section.card:nth-of-type(1) > div:last-of-type", reason: "Simulate…: botones solo del mockup" };
 /** «Dejar de esperar»: el agente no tiene cómo cancelar un encendido (UiCommand), así que la app no ofrece la acción. */
 const NO_CANCEL: Ignore = { mockupSelector: "section.card:nth-of-type(2) > div:last-of-type", reason: "Dejar de esperar: sin comando de cancelar en la IPC, no se muestra" };
 /** El mockup escribe «de the MacBook»; la app dice el nombre real de la machine (D10). */
@@ -253,7 +253,7 @@ export const MONITORS: ShotSpec[] = [
 ];
 
 /** El hueco vacío que deja D1 en la fila de las tarjetas de machine de `V3-Desk`. */
-const NO_ADD_CARD: Ignore = { mockupSelector: 'a[href="F-AddHost.dc.html"].card', reason: "D1: sin tarjeta «Agregar machine»" };
+const NO_ADD_CARD: Ignore = { mockupSelector: 'a[href="F-AddHost.dc.html"].card', reason: "D1: sin tarjeta «Add machine»" };
 
 /** D2: los escritorios a escala toman el color de cada machine; con dos del mismo sistema el fondo no puede coincidir con el mockup. */
 const D2_DESKS: Ignore = { mockupSelector: 'div:has(> div[role="img"][aria-label^="To scale"])', reason: "D2: el color de las machines cambia el fondo de los escritorios" };
@@ -286,7 +286,7 @@ export const SETTINGS: ShotSpec[] = [
     { app: ".pane > .row:nth-child(1) > .mut", mockup: ".pane > .row:nth-child(1) > input", reason: "El nombre del desk es texto: el campo editable del mockup no tiene función aquí (§3.8)" },
     { app: NONE, mockup: 'button.danger:has-text("Remove from desk")', reason: "D1: sin «Sacar del desk» (exactamente dos machines)" },
     { app: ".pane > .row:nth-child(3) > button", mockup: ".pane > .row:nth-child(3) > button.ic", reason: "Sin «Sacar del desk» a su lado, el lápiz de the other machine cae en el borde derecho de la fila" },
-    { app: ".pane > .row:nth-child(4) > .fill", mockup: ".pane > .row:nth-child(4) > span", reason: "D1: «Change the other machine» en lugar de «Agregar una machine»" },
+    { app: ".pane > .row:nth-child(4) > .fill", mockup: ".pane > .row:nth-child(4) > span", reason: "D1: «Change the other machine» en lugar de «Add una machine»" },
     { app: ".pane > .row:nth-child(4) > button", mockup: ".pane > .row:nth-child(4) > a.btn", reason: "D1: «Pair again» en lugar de «Mostrar código»" },
   ]),
   { ...settingsShot("settings-shortcuts", "shortcuts", [tab("Shortcuts")]), query: `${DEMO}&solopc` },
@@ -315,7 +315,7 @@ export const STATES: ShotSpec = {
     masks: [
       { app: NONE, mockup: 'button.btn:has-text("Send over Wi-Fi anyway")', reason: "El agente no tiene «enviar por Wi-Fi igual»: sin función, sin botón" },
       { app: "article.st:nth-child(1) p", mockup: "article.st:nth-child(1) p", reason: "D1: la frase no dice «Agrega otra machine» (T-142)" },
-      { app: "article.st:nth-child(1) .act button", mockup: "article.st:nth-child(1) a.btn", reason: "D1: «Pair the other machine» en lugar de «Agregar machine» (T-142)" },
+      { app: "article.st:nth-child(1) .act button", mockup: "article.st:nth-child(1) a.btn", reason: "D1: «Pair the other machine» en lugar de «Add machine» (T-142)" },
     ],
     min: SIDEBAR_GATE,
   },
@@ -337,7 +337,7 @@ export const PALETTE: ShotSpec = {
   height: H,
   keys: ["Meta+k"],
   ignore: [
-    { mockupSelector: ROW("Add machine…"), reason: "D1: no hay tercera machine; se cambia la otra" },
+    { mockupSelector: ROW("Add machine…"), reason: "D1: no hay tercera machine; se cambia la other" },
   ],
   regions: [{ name: "dialog", mockupSelector: 'section[role="dialog"]', min: SCREEN_GATE }],
   min: SCREEN_GATE,
@@ -415,10 +415,10 @@ const asisShot = (name: string, mockup: string, query: string, extra: Partial<Sh
   min: SCREEN_GATE,
   ...extra,
 });
-/** Los botones «Simular…» son solo del mockup (README): en la app esos pasos ocurren de verdad. */
+/** Los botones «Simulate…» son solo del mockup (README): en la app esos pasos ocurren de verdad. */
 const SIMULAR_ASIS: Ignore[] = [
-  { mockupSelector: 'button.sim:has-text("Simulate crossing")', reason: "«Simular crossing» es solo del mockup" },
-  { mockupSelector: 'button.sim:has-text("Simulate another edge")', reason: "«Simular otro borde» es solo del mockup" },
+  { mockupSelector: 'button.sim:has-text("Simulate crossing")', reason: "«Simulate crossing» es solo del mockup" },
+  { mockupSelector: 'button.sim:has-text("Simulate another edge")', reason: "«Simulate otro borde» es solo del mockup" },
 ];
 /**
  * `F-Setup5`: su CSS declara `.cur` para el cursor del dibujo y esa clase también la lleva el paso
@@ -481,7 +481,7 @@ export const SHOTS: ShotSpec[] = [
     height: H,
     ignore: [NO_ADD_MACHINE, NO_ADD_CARD],
     regions: [{ ...SIDEBAR, min: SIDEBAR_GATE }],
-    // T-113: toda la pantalla. Solo se tapa el hueco vacío que D1 quita («Agregar machine»); la
+    // T-113: toda la pantalla. Solo se tapa el hueco vacío que D1 quita («Add machine»); la
     // app no tiene ninguna tarjeta oculta (Encender/Apagar van dentro de la tarjeta de the other machine).
     min: SCREEN_GATE,
   },
@@ -498,7 +498,7 @@ export const SHOTS: ShotSpec[] = [
   ...MONITORS,
   ...ARRANGEMENT,
   ...ASISTENTE,
-  // T-118: la pantalla Red entera contra `V3-Network`. Se tapa lo que D1 quita («Agregar machine») y
+  // T-118: la pantalla Red entera contra `V3-Network`. Se tapa lo que D1 quita («Add machine») y
   // el rótulo de la ventana de la gráfica: el agente guarda 60 s, el mockup dice «10 min».
   {
     name: "network",

@@ -97,7 +97,7 @@ describe("qué atiende la ventana", () => {
 
   it("solo los que el sistema no dejó registrar como globales, con la combinación exacta", () => {
     expect(localAction(key("Digit0"), view({}))).toBeNull();
-    expect(localAction(key("Digit0"), view({ toggle_window: "ocupado" }))).toBe("toggle_window");
+    expect(localAction(key("Digit0"), view({ toggle_window: "busy" }))).toBe("toggle_window");
     expect(localAction(key("Digit0", { shiftKey: true }), view({ toggle_window: "x" }))).toBeNull();
     expect(localAction(key("Digit1"), view({ toggle_window: "x" }))).toBeNull();
   });

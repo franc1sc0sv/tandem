@@ -6,7 +6,7 @@ import { advance, capsOf, isRunning, machineColor, machineName, other, stepLabel
 function machineCaps(machine: "a" | "b", extra: Partial<MachineCaps> = {}): MachineCaps {
   return {
     machine,
-    name: machine === "a" ? "Estudio" : "Taller",
+    name: machine === "a" ? "Studio" : "Workshop",
     os: "windows",
     color: machine === "a" ? "#6cc59a" : "#d9a75a",
     hub: null,
@@ -18,7 +18,7 @@ function machineCaps(machine: "a" | "b", extra: Partial<MachineCaps> = {}): Mach
 }
 
 const desk: Desk = {
-  machines: { a: { os: "macos", name: "Guardada A", color: "#111111" }, b: null },
+  machines: { a: { os: "macos", name: "Saved A", color: "#111111" }, b: null },
   screens: [],
   arrangement: null,
   scenes: [],
@@ -32,8 +32,8 @@ describe("lados", () => {
 
   it("los nombres salen del anuncio, del desk o son «machine A/B»; nunca Mac/PC fijos", () => {
     const caps: Caps = { here: machineCaps("b"), peer: null };
-    expect(machineName("b", caps, desk)).toBe("Taller");
-    expect(machineName("a", caps, desk)).toBe("Guardada A");
+    expect(machineName("b", caps, desk)).toBe("Workshop");
+    expect(machineName("a", caps, desk)).toBe("Saved A");
     expect(machineName("b", null, { ...desk, machines: { a: null, b: null } })).toBe("machine B");
     expect(machineName("a")).toBe("machine A");
   });
@@ -56,12 +56,12 @@ describe("lados", () => {
 });
 
 describe("progress por pasos", () => {
-  const name = (m: "a" | "b") => (m === "a" ? "Estudio" : "Taller");
+  const name = (m: "a" | "b") => (m === "a" ? "Studio" : "Workshop");
 
   it("nombra cada paso con la machine", () => {
-    expect(stepLabel({ step: "power_on", machine: "b" }, name)).toBe("Power on Taller");
-    expect(stepLabel({ step: "power_off", machine: "a" }, name)).toBe("Power off Estudio");
-    expect(stepLabel({ step: "show_machine", monitor: "34", machine: "b" }, name)).toBe("Monitor 34 → Taller");
+    expect(stepLabel({ step: "power_on", machine: "b" }, name)).toBe("Power on Workshop");
+    expect(stepLabel({ step: "power_off", machine: "a" }, name)).toBe("Power off Studio");
+    expect(stepLabel({ step: "show_machine", monitor: "34", machine: "b" }, name)).toBe("Monitor 34 → Workshop");
     expect(stepLabel({ step: "geometry" }, name)).toBe("Keyboard and mouse: new geometry");
   });
 
@@ -76,9 +76,9 @@ describe("progress por pasos", () => {
     expect(isRunning(p)).toBe(false);
 
     let f = advance(null, { type: "started", txn: 2, steps: [{ step: "power_off", machine: "a" }] });
-    f = advance(f, { type: "step_failed", txn: 2, index: 0, error: "sin respuesta" });
+    f = advance(f, { type: "step_failed", txn: 2, index: 0, error: "no reply" });
     f = advance(f, { type: "failed", txn: 2, state: { on: { a: true, b: false } } });
-    expect(f?.outcome).toEqual({ kind: "failed", error: "sin respuesta" });
+    expect(f?.outcome).toEqual({ kind: "failed", error: "no reply" });
 
     // Una scene que falla en el segundo monitor deshace el primero.
     const show = (monitor: string) => ({ step: "show_machine" as const, monitor, machine: "b" as const });

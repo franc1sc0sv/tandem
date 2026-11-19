@@ -97,7 +97,7 @@ describe("New scene (F-NewScene) en modo demo", () => {
 
   it("el shortcut se graba con la combinación y avisa si ya es de otra scene", async () => {
     await open("#/monitors/scene");
-    await userEvent.type(screen.getByRole("textbox"), "Otra");
+    await userEvent.type(screen.getByRole("textbox"), "Other");
     const kbd = screen.getByRole("button", { name: "Shortcut" });
     expect(kbd).toHaveTextContent("No shortcut");
     kbd.focus();

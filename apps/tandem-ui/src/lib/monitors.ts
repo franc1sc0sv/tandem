@@ -9,7 +9,7 @@ import type { MonitorEventView, MonitorUi } from "./store/types";
 
 export const INPUT_LABEL: Record<MonitorInput, string> = { display_port: "DP", hdmi: "HDMI" };
 
-/** Cuántos eventos se listan en la tarjeta (los más nuevos). */
+/** Cuántos eventos se listan en la tarjeta (los más freshs). */
 export const EVENTS_SHOWN = 3;
 
 /** El nombre corto de un monitor para frases («34"» de `Odyssey G5 34"`). */

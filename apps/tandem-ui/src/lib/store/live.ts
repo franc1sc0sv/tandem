@@ -217,7 +217,7 @@ export function layoutFromDesk(snap: Extract<Snapshot, { kind: "connected" }>): 
     const engine = (snap.agent === m ? snap.input.screens : snap.input.peer_screens) ?? [];
     const own = declared.length > 0 ? declared : engine.map((s) => ({ id: s.id, x: s.x, y: s.y, width: s.width, height: s.height, scale: s.scale_milli / 1000 }));
     if (own.length === 0) {
-      screens.push({ id: `escritorio-${m}`, machine: m, name, short: name.split(" ")[0] ?? name, ask: name, x: 0, y: 0, w: 16, h: 10, size: "—", res: "—", ratio: "—", scale: "—", usable: true, line: name });
+      screens.push({ id: `desk-${m}`, machine: m, name, short: name.split(" ")[0] ?? name, ask: name, x: 0, y: 0, w: 16, h: 10, size: "—", res: "—", ratio: "—", scale: "—", usable: true, line: name });
       continue;
     }
     // Las posiciones (`x`, `y`) van en las coordenadas de la machine: se pasan a puntos con la
@@ -274,7 +274,7 @@ export class LiveSource implements Source {
   private groups: ProjectWire[] = [];
   private readonly memory: Memory = newMemory();
   private tunnels: TunnelView[] = [];
-  /** Ya llegaron tunnels (por evento o por pedido): un pedido tardío no pisa lo más nuevo. */
+  /** Ya llegaron tunnels (por evento o por pedido): un pedido tardío no pisa lo más fresh. */
   private gotTunnels = false;
   private askedTunnels = false;
   /** Quién recibe el cursor en vivo; el agente solo lo manda mientras haya alguien. */
@@ -283,7 +283,7 @@ export class LiveSource implements Source {
   constructor(private readonly bridge: Bridge) {}
 
   async start(onDesk: (d: DeskView) => void, onChange?: (c: DeskChange) => void, onTransfer?: (t: TransferView) => void): Promise<void> {
-    // Un error al leer una foto no cuelga la ventana: se muestra como «sin agente» con la razón.
+    // Un error al leer una foto no cuelga la ventana: se muestra como «no agent» con la razón.
     const push = (s: Snapshot) => {
       try {
         const d = deskFromSnapshot(s, this.live, s.kind === "connected" ? this.network : EMPTY_NETWORK, s.kind === "connected" ? this.tunnels : []);

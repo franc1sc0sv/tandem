@@ -29,7 +29,7 @@ it("dice a qué binario se concede, con la ruta real que anuncia el agente", () 
   expect(grantTo(here)).toBe("Grant the permission to this binary: /Applications/Tandem.app/Contents/MacOS/tandemd (pid 4242)");
 });
 
-it("sin ruta (agente que no la dio) o sin agente no inventa ninguna", () => {
+it("sin ruta (agente que no la dio) o no agent no inventa ninguna", () => {
   expect(grantTo(mac(""))).toBeNull();
   expect(agentBinary(null)).toBeNull();
   expect(grantTo(null)).toBeNull();

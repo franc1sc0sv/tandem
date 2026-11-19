@@ -119,16 +119,16 @@ export interface LinkView {
   kind: LinkKind | null;
   /** Bandwidth medido, en Gbps (`null` not measured). */
   gbps: number | null;
-  /** Latencia del link, en ms. */
+  /** Latency del link, en ms. */
   ms: number | null;
   /** p99 de la latencia de entrada, en ms. */
   inputP99: number | null;
 }
 
-/** Papel de un camino (T-102): lleva el tráfico, espera de respaldo, nunca respondió, o se cayó. */
+/** Papel de un camino (T-102): lleva el tráfico, espera de respaldo, nunca respondió, o it crashed. */
 export type PathState = "primary" | "backup" | "unplugged" | "down";
 
-/** Un segundo del historial de un camino; `null` sin respuesta o sin entrada. */
+/** Un segundo del historial de un camino; `null` no reply o sin entrada. */
 export interface LatencyPoint {
   rttMs: number | null;
   inputP99Ms: number | null;
@@ -157,7 +157,7 @@ export interface PathSwitchView {
   at: number;
   from: LinkKind | null;
   to: LinkKind | null;
-  /** Cuánto tardó si el anterior se cayó; `null` si fue una subida sin corte. */
+  /** Cuánto tardó si el anterior it crashed; `null` si fue una subida sin corte. */
   tookMs: number | null;
 }
 
@@ -165,7 +165,7 @@ export interface PathSwitchView {
 export interface NetworkView {
   /** USB-C, Ethernet y Wi-Fi, en ese orden. */
   paths: PathView[];
-  /** Del más nuevo al más viejo (hasta 50). */
+  /** Del más fresh al más viejo (hasta 50). */
   switches: PathSwitchView[];
   /** El camino que se está midiendo. */
   measuring: LinkKind | null;
@@ -220,7 +220,7 @@ export interface TunnelView {
   created: number;
   /** Desde cuándo está inactivo (ms Unix), si se sabe. */
   idleSince: number | null;
-  /** Cuándo se cerró (ms Unix); solo en los cerrados. */
+  /** Cuándo se cerró (ms Unix); solo en los closeds. */
   closedAt: number | null;
   /** Dónde corren los procesos en la machine destino («WSL · Ubuntu»); `null` si el agente no lo dice. */
   env: string | null;
@@ -297,7 +297,7 @@ export interface MonitorUi {
   ports: Partial<Record<Machine, MonitorInput>>;
   /** La machine cuya señal se ve ahora, si se deduce de `input` y los cables. */
   shows: Machine | null;
-  /** Del más nuevo al más viejo (hasta 3). */
+  /** Del más fresh al más viejo (hasta 3). */
   events: MonitorEventView[];
 }
 
@@ -402,7 +402,7 @@ export type ActResult = { ok: true; text?: string } | { ok: false; reason: strin
 
 /**
  * De dónde salen los datos. El store le dice qué temas quiere (los de la pantalla visible)
- * y recibe el estado nuevo cada vez que cambia.
+ * y recibe el estado fresh cada vez que cambia.
  */
 export interface Source {
   start(onDesk: (d: DeskView) => void, onChange?: (c: DeskChange) => void, onTransfer?: (t: TransferView) => void): Promise<void>;
@@ -433,7 +433,7 @@ export interface Source {
   watchTxn(onEvent: (e: TxnView, at?: number, origin?: { title: string; doneText: string }) => void): Promise<() => void>;
   /** Es el modo demo: las pantallas de referencia (States) muestran su galería completa. */
   readonly demo?: boolean;
-  /** El avance de los arrastres de archivos entre las machines; las fuentes sin agente no lo tienen. */
+  /** El avance de los arrastres de archivos entre las machines; las fuentes no agent no lo tienen. */
   watchDrag?(onStatus: (s: DragStatus) => void): Promise<() => void>;
   /** La hora de la fuente si no es la del reloj (el demo quieto, para capturas deterministas). */
   now?(): number;
@@ -441,7 +441,7 @@ export interface Source {
   /** Medir el ancho de banda de un camino (por omisión, el que lleva el tráfico). */
   measureLink(path?: LinkKind): Promise<ActResult>;
   setModule(machine: Machine, module: string, on: boolean): Promise<ActResult>;
-  /** Scan again los entornos de `machine` (lo nuevo llega con el desk). */
+  /** Scan again los entornos de `machine` (lo fresh llega con el desk). */
   rescan(machine: Machine): Promise<ActResult>;
   /** Nombre o color de una machine (el desk compartido, D4/D17). */
   editMachine(machine: Machine, edit: { name?: string; color?: string }): Promise<ActResult>;

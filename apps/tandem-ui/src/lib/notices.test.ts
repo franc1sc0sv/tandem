@@ -19,7 +19,7 @@ describe("changeToast (D5)", () => {
 });
 
 describe("deskEvents", () => {
-  it("sin cambios no hay notices, y sin agente tampoco", () => {
+  it("sin cambios no hay notices, y no agent tampoco", () => {
     expect(deskEvents(desk(), desk())).toEqual([]);
     const off = { ready: false } as unknown as DeskView;
     expect(deskEvents(off, desk())).toEqual([]);
@@ -33,14 +33,14 @@ describe("deskEvents", () => {
     expect(deskEvents(wifi, usb)).toEqual([expect.objectContaining({ text: `The ${KIND_NAME.usb4} cable is back`, tone: "ok" })]);
   });
 
-  it("un tunnel nuevo lo abrió Claude; uno cerrado o ya conocido no avisa", () => {
+  it("un tunnel fresh lo abrió Claude; uno closed o ya conocido no avisa", () => {
     const d = desk();
     const t0 = d.tunnels[0];
-    const nuevo = { ...t0, id: "nuevo", title: "Servidor de pruebas", state: "busy" as const };
-    const cerrado = { ...t0, id: "otro", state: "closed" as const };
-    const out = deskEvents(d, { ...d, tunnels: [...d.tunnels, nuevo, cerrado] });
+    const fresh = { ...t0, id: "fresh", title: "Test server", state: "busy" as const };
+    const closed = { ...t0, id: "otro", state: "closed" as const };
+    const out = deskEvents(d, { ...d, tunnels: [...d.tunnels, fresh, closed] });
     expect(out).toHaveLength(1);
-    expect(out[0]).toMatchObject({ text: "Claude opened the tunnel “Servidor de pruebas”", tone: "claude" });
+    expect(out[0]).toMatchObject({ text: "Claude opened the tunnel “Test server”", tone: "claude" });
   });
 
   it("the other machine que se apaga, se pierde o vuelve", () => {
@@ -64,14 +64,14 @@ describe("transferToast (alcance 3)", () => {
   const peer = d.machines[d.here === "a" ? "b" : "a"]?.name;
 
   it("mientras avanza trae la barra, el porcentaje y los bytes, y no se va solo", () => {
-    const t = transferToast({ upload: true, path: "/home/yo/fotos/boda.zip", done: 500_000_000, total: 2_000_000_000, finished: false }, d);
-    expect(t).toMatchObject({ key: "transfer:/home/yo/fotos/boda.zip", text: `Sending “boda.zip” to ${peer}`, body: "25 % · 500 MB of 2.0 GB", tone: "info" });
+    const t = transferToast({ upload: true, path: "/home/me/photos/wedding.zip", done: 500_000_000, total: 2_000_000_000, finished: false }, d);
+    expect(t).toMatchObject({ key: "transfer:/home/me/photos/wedding.zip", text: `Sending “wedding.zip” to ${peer}`, body: "25 % · 500 MB of 2.0 GB", tone: "info" });
     expect(t.progress).toEqual({ done: 500_000_000, total: 2_000_000_000 });
   });
 
   it("al recibir lo dice en la otra dirección, con la ruta de Windows también", () => {
-    const t = transferToast({ upload: false, path: "C:\\datos\\notas.txt", done: 0, total: 0, finished: false }, d);
-    expect(t.text).toBe(`Receiving “notas.txt” from ${peer}`);
+    const t = transferToast({ upload: false, path: "C:\\data\\notes.txt", done: 0, total: 0, finished: false }, d);
+    expect(t.text).toBe(`Receiving “notes.txt” from ${peer}`);
     expect(t.body).toBe("0 % · 0 KB of 0 KB");
   });
 

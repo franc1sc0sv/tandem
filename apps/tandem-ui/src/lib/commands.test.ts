@@ -29,7 +29,7 @@ describe("comandos", () => {
     expect(titles).toContain("Change the other machine…");
     expect(titles).toContain("Measure the link");
     expect(titles).toContain("Open setup");
-    // Los tunnels cerrados no se ofrecen.
+    // Los tunnels closeds no se ofrecen.
     expect(titles.some((t) => t.includes("ComfyUI"))).toBe(false);
   });
 
@@ -43,12 +43,12 @@ describe("comandos", () => {
 
   it("D1: nunca ofrece agregar una tercera machine", () => {
     const titles = buildCommands(desk, ctx(), true).map((c) => c.title.toLowerCase());
-    expect(titles.some((t) => t.includes("agregar"))).toBe(false);
+    expect(titles.some((t) => t.includes("add"))).toBe(false);
   });
 
   it("la scene activa lo dice y lleva su shortcut", () => {
-    const trabajo = buildCommands(desk, ctx(), true).find((c) => c.id === "scene:trabajo");
-    expect(trabajo).toMatchObject({ detail: "active", key: "⌃⌥1" });
+    const work = buildCommands(desk, ctx(), true).find((c) => c.id === "scene:trabajo");
+    expect(work).toMatchObject({ detail: "active", key: "⌃⌥1" });
   });
 
   it("lo que la fuente no sabe hacer no aparece", () => {
@@ -91,7 +91,7 @@ describe("búsqueda", () => {
     const hits = flatten(filterCommands(cmds, "tunnels")).map((c) => c.id);
     expect(hits).toContain("go:tunnels");
     const both = flatten(filterCommands(cmds, "apply game")).map((c) => c.id);
-    expect(both).toEqual(["scene:juego"]);
+    expect(both).toEqual(["scene:game"]);
   });
 
   it("el nombre del grupo también cuenta", () => {
@@ -121,7 +121,7 @@ describe("ejecutar", () => {
     const cmds = buildCommands(desk, c, true);
     const cmdsLocked = buildCommands({ ...desk, locked: true }, c, true);
     const run = (id: string) => cmds.find((x) => x.id === id)?.run();
-    await run("scene:juego");
+    await run("scene:game");
     await run("power:b");
     await run("link:measure");
     await run("lock:on");
@@ -130,7 +130,7 @@ describe("ejecutar", () => {
     run("go:machine:a");
     run("pair:change");
     run("tunnel:t97");
-    expect(c.calls).toEqual(["scene:juego", "power:b:false", "measure", "lock:true", "lock:false", "wizard", "go:machine/a", "wizard:1", "go:tunnels"]);
+    expect(c.calls).toEqual(["scene:game", "power:b:false", "measure", "lock:true", "lock:false", "wizard", "go:machine/a", "wizard:1", "go:tunnels"]);
   });
 
   it("con la otra apagada ofrece encenderla", () => {

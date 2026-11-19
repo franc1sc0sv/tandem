@@ -66,8 +66,8 @@ describe("Button", () => {
   });
 
   it("el ícono puede ir después y moverse distinto al pasar", () => {
-    render(Button, { icon: "arrow-right", iconAfter: true, motion: "go", children: text("Siguiente") });
-    const b = screen.getByRole("button", { name: "Siguiente" });
+    render(Button, { icon: "arrow-right", iconAfter: true, motion: "go", children: text("Next") });
+    const b = screen.getByRole("button", { name: "Next" });
     expect(b.lastElementChild?.tagName.toLowerCase()).toBe("svg");
     expect(b).toHaveClass("m-go");
   });
@@ -149,8 +149,8 @@ describe("Switch", () => {
 
   it("deshabilitado no cambia", async () => {
     const onchange = vi.fn();
-    render(Switch, { checked: false, label: "Módulo", disabled: true, onchange });
-    await userEvent.click(screen.getByRole("switch", { name: "Módulo" }));
+    render(Switch, { checked: false, label: "Module", disabled: true, onchange });
+    await userEvent.click(screen.getByRole("switch", { name: "Module" }));
     expect(onchange).not.toHaveBeenCalled();
   });
 });
@@ -180,15 +180,15 @@ describe("Chip", () => {
 
 describe("Card", () => {
   it("entra con retraso y no lleva línea de color arriba", () => {
-    const { container } = render(Card, { delay: 0.12, children: text("hola") });
+    const { container } = render(Card, { delay: 0.12, children: text("hello") });
     const card = container.querySelector(".card") as HTMLElement;
     expect(card.style.animationDelay).toBe("0.12s");
     expect(card.style.borderTop).toBe("");
   });
 
   it("con href es un link que se eleva", () => {
-    render(Card, { href: "#/machine/a", label: "Estudio", children: text("x") });
-    const a = screen.getByRole("link", { name: "Estudio" });
+    render(Card, { href: "#/machine/a", label: "Studio", children: text("x") });
+    const a = screen.getByRole("link", { name: "Studio" });
     expect(a).toHaveClass("card", "lift");
   });
 });

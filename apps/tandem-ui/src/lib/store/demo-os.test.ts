@@ -21,7 +21,7 @@ describe.each(["mac-win", "win-win", "mac-mac"] as DemoPair[])("demo %s", (pair)
     for (const m of [desk.machines.a, desk.machines.b]) {
       const mon = m.modules.find((x) => x.id === "monitors");
       if (m.os !== "macos") continue;
-      expect(mon?.detail).not.toMatch(/muestra la Mac\./);
+      expect(mon?.detail).not.toMatch(/shows the Mac\./);
       if (!m.name.startsWith("MacBook")) expect(mon?.detail).toContain(`shows the ${m.name}.`);
     }
   });

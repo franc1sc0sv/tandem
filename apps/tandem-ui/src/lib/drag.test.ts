@@ -27,7 +27,7 @@ describe("notice del arrastre de archivos", () => {
   it("los finales cierran el notice y un fallo va en tono de error", () => {
     expect(dragNotice({ kind: "dropped" }).ongoing).toBe(false);
     expect(dragNotice({ kind: "cancelled" }).ongoing).toBe(false);
-    expect(dragNotice({ kind: "failed", reason: "sin espacio" })).toEqual({ text: "Could not drag: sin espacio", tone: "bad", ongoing: false });
+    expect(dragNotice({ kind: "failed", reason: "no space" })).toEqual({ text: "Could not drag: no space", tone: "bad", ongoing: false });
   });
 
   it("LiveSource reparte el notice con el mismo oyente de notices que las transacciones", async () => {
@@ -64,7 +64,7 @@ describe("notice del arrastre de archivos", () => {
     const { src, emit } = fake();
     const store = new Store(src);
     await store.start();
-    emit({ kind: "failed", reason: "sin espacio" });
+    emit({ kind: "failed", reason: "no space" });
     expect(store.toasts[0]).toMatchObject({ tone: "bad" });
   });
 });

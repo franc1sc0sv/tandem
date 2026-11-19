@@ -89,7 +89,7 @@ export const newMemory = (): Memory => ({ seen: new Map(), idle: new Map(), traf
 /**
  * El nombre corto de una machine en el camino de la lista: «Mac», «PC» si son de sistemas distintos.
  * Con el mismo sistema, su primera palabra; si las primeras palabras no las distinguen («PC-Escritorio»
- * y «PC-Taller», «MacBook Pro» y «Mac mini»), lo que sigue; y el nombre completo si tampoco alcanza.
+ * y «PC-Workshop», «MacBook Pro» y «Mac mini»), lo que sigue; y el nombre completo si tampoco alcanza.
  * Dos nombres distintos nunca dan el mismo rótulo.
  */
 export function shortLabels(a: { name: string; os: "macos" | "windows" }, b: { name: string; os: "macos" | "windows" }): [string, string] {
@@ -104,7 +104,7 @@ export function shortLabels(a: { name: string; os: "macos" | "windows" }, b: { n
   return [a.name, b.name];
 }
 
-/** Cuántos tunnels cerrados se muestran como mucho: la lista no crece sin fin. */
+/** Cuántos tunnels closeds se muestran como mucho: la lista no crece sin fin. */
 export const CLOSED_KEPT = 10;
 
 /** Suma el avance de una copia al tráfico de su tunnel (por la diferencia con el último notice). */
@@ -122,7 +122,7 @@ export function addTransfer(m: Memory, t: TransferWire): void {
 
 /**
  * La lista del agente como la pantalla la dibuja. Lo que ya no está en ella se cerró: se queda
- * como «cerrado» con lo último que se vio de él.
+ * como «closed» con lo último que se vio de él.
  */
 export function tunnelsFromWire(groups: ProjectWire[], now: number, m: Memory): TunnelView[] {
   const out: TunnelView[] = [];
@@ -176,7 +176,7 @@ export interface ProjectGroup {
   name: string;
   path: string | null;
   tunnels: TunnelView[];
-  /** Cuántos no están cerrados. */
+  /** Cuántos no están closeds. */
   live: number;
 }
 
@@ -225,7 +225,7 @@ export function bytesLabel(n: number): string {
   return `${r} ${units[i]}`;
 }
 
-/** «activo», «inactivo 9 m», «cerrado». */
+/** «activo», «inactivo 9 m», «closed». */
 export function statusText(t: TunnelView, now: number): string {
   if (t.state === "busy") return "active";
   if (t.state === "closed") return "closed";
@@ -247,7 +247,7 @@ export function tubeSpeed(state: TunnelView["state"]): { a: number; b: number } 
   return null;
 }
 
-/** El tunnel elegido: el que se pidió si sigue, y si no, el primero que no esté cerrado (o el primero). */
+/** El tunnel elegido: el que se pidió si sigue, y si no, el primero que no esté closed (o el primero). */
 export function pickTunnel(tunnels: TunnelView[], wanted: string | null): TunnelView | null {
   return tunnels.find((t) => t.id === wanted) ?? tunnels.find((t) => t.state !== "closed") ?? tunnels[0] ?? null;
 }

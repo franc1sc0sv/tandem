@@ -229,7 +229,7 @@ describe("panel", () => {
     const p = panelFor(MOCK, "g32");
     expect(p?.other).toBeNull();
     expect(p?.question).toBe("");
-    expect(panelFor(MOCK, "nada")).toBeNull();
+    expect(panelFor(MOCK, "nothing")).toBeNull();
   });
 
   it("poner the other machine en una casilla y volver a leerla da la misma casilla, desde las dos", () => {
@@ -275,7 +275,7 @@ describe("datos y colores", () => {
     expect(fillOf("rojo")).toBe("#16171b");
   });
 
-  it("el borde de salida de cada machine es el opuesto del de la otra", () => {
+  it("el borde de salida de cada machine es el opuesto del de la other", () => {
     for (const side of SIDES) {
       const arr = { aSide: side, align: "center" as const };
       expect(exitSide(arr, "b")).toBe(side);

@@ -130,7 +130,7 @@ const isMonitorStep = (s: Step) => s.step === "show_machine" || s.step === "swit
 
 /** El error de una entrada que no dio imagen (lo que dice el agente) en una frase corta. */
 function noImage(error: string): string | null {
-  const m = /(?:no mostró imagen en|showed no picture (?:on|over|in)) (\S+?)(?:;|$)/.exec(error);
+  const m = /showed no image (?:on|over|in) (\S+?)(?:;|$)/.exec(error);
   return m ? (LONG[m[1]] ?? m[1]) : null;
 }
 

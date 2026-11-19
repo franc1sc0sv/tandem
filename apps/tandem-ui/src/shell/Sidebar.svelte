@@ -27,7 +27,7 @@
 </script>
 
 <!-- Barra lateral (D16, `V3-Desk`): las pantallas, una página por machine con su color y
-     Settings abajo. Sin «Agregar machine» (D1). -->
+     Settings abajo. Sin «Add machine» (D1). -->
 <nav aria-label="Main" class="side">
   <!-- El nombre del desk junto al logo solo en las páginas de machine (`V3-Machine`); las
        demás pantallas no lo dibujan (`V3-Desk`, `V3-Network`…). -->

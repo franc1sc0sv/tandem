@@ -29,7 +29,7 @@ const factory: MonitorJson = {
 describe("monitors (V3-Monitors)", () => {
   it("el nombre corto es la diagonal en pulgadas", () => {
     expect(shortMonitor('Odyssey G5 34"')).toBe('34"');
-    expect(shortMonitor("Sin medida")).toBe("Sin medida");
+    expect(shortMonitor("Unmeasured")).toBe("Unmeasured");
   });
 
   it("el acento del indicador es el del mockup para los colores por omisión y se oscurece para el resto", () => {
@@ -62,7 +62,7 @@ describe("monitors (V3-Monitors)", () => {
     expect(monitorUi(factory)).toMatchObject({ compat: { ok: false, reason: "It joins only once its firmware meets the standard." }, connected: false, shows: null });
   });
 
-  it("los compatibles van primero y solo se listan los eventos más nuevos", () => {
+  it("los compatibles van primero y solo se listan los eventos más freshs", () => {
     const events = Array.from({ length: 5 }, (_, i) => ({ at_ms: i, kind: "Signal" as const, input: null }));
     const list = monitorsUi([factory, std({ report: { id: "x", input: null, power_on: true, signal: true, events } })]);
     expect(list.map((m) => m.id)).toEqual(["g5-34", "g5-32"]);

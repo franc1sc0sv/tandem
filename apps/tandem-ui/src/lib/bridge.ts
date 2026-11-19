@@ -22,7 +22,7 @@ export interface Bridge {
   /** Lo que pasó con un pedido hecho desde fuera de la ventana (shortcut global, menú del ícono). */
   onMessage(cb: (text: string) => void): Promise<void>;
   shortcuts(): Promise<ShortcutsView>;
-  /** Los shortcuts nuevos cada vez que se cambian (desde cualquier ventana). */
+  /** Los shortcuts freshs cada vez que se cambian (desde cualquier ventana). */
   onShortcuts(cb: (view: ShortcutsView) => void): Promise<void>;
   /** Rechaza con la razón si no se pueden usar (repetidos, inválidos, sin poder guardar). */
   setShortcuts(bindings: Bindings): Promise<ShortcutsView>;

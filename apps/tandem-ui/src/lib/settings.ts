@@ -2,14 +2,14 @@
 
 import type { IconName } from "../ui/icons";
 
-export type SettingsTab = "desk" | "shortcuts" | "teclado" | "upd" | "avanzado";
+export type SettingsTab = "desk" | "shortcuts" | "keyboard" | "upd" | "advanced";
 
 export const SETTINGS_TABS: { id: SettingsTab; name: string; icon: IconName }[] = [
   { id: "desk", name: "Desk and machines", icon: "puesto" },
   { id: "shortcuts", name: "Shortcuts", icon: "keyboard" },
-  { id: "teclado", name: "Keyboard and mouse", icon: "mouse" },
+  { id: "keyboard", name: "Keyboard and mouse", icon: "mouse" },
   { id: "upd", name: "Updates", icon: "download" },
-  { id: "avanzado", name: "Advanced", icon: "sliders" },
+  { id: "advanced", name: "Advanced", icon: "sliders" },
 ];
 
 /** La pestaña a la que llevan las flechas, Inicio y Fin (lista vertical, sin dar la vuelta). */

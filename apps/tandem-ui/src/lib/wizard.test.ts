@@ -35,7 +35,7 @@ async function current(query: string) {
   const s = new DemoSource(demoOptions(query));
   let out: Parameters<Parameters<DemoSource["start"]>[0]>[0] | null = null;
   await s.start((v) => (out = v));
-  if (!out) throw new Error("sin estado");
+  if (!out) throw new Error("no state");
   return out as Parameters<Parameters<DemoSource["start"]>[0]>[0];
 }
 
@@ -69,8 +69,8 @@ describe("paso 1", () => {
     expect(rows.at(-1)).toMatchObject({ id: "service", state: "wait", install: true });
     expect(serviceRow({ state: "off", canInstall: true, note: "" }, false)).toMatchObject({ state: "off", install: true });
     expect(serviceRow({ state: "ok", canInstall: false, note: "" }, false)).toMatchObject({ state: "ok", install: false });
-    // Sin botón, la fila explica por qué (instalación por usuario).
-    expect(serviceRow({ state: "off", canInstall: false, note: "instalación por usuario" }, false)).toMatchObject({ state: "off", note: "instalación por usuario", install: false });
+    // Sin botón, la fila explica por qué (per-user install).
+    expect(serviceRow({ state: "off", canInstall: false, note: "per-user install" }, false)).toMatchObject({ state: "off", note: "per-user install", install: false });
     // Sin lectura de la app: el módulo decide y, si no está activo, `off`; jamás `wait`.
     expect(serviceRow(null, true).state).toBe("ok");
     expect(serviceRow(null, false).state).toBe("off");
@@ -94,9 +94,9 @@ describe("paso 3", () => {
     ]);
     expect(missingOf(cards)).toBe(2);
     // Lo que el agente no puede comprobar (Red local en un agente real) no bloquea ni se da por concedido.
-    const sinComprobar = permCards([{ id: "accessibility", state: "granted" }, { id: "local_network", state: "unknown" }]);
-    expect(sinComprobar.map((c) => [c.granted, c.missing])).toEqual([[true, false], [false, false]]);
-    expect(missingOf(sinComprobar)).toBe(0);
+    const unchecked = permCards([{ id: "accessibility", state: "granted" }, { id: "local_network", state: "unknown" }]);
+    expect(unchecked.map((c) => [c.granted, c.missing])).toEqual([[true, false], [false, false]]);
+    expect(missingOf(unchecked)).toBe(0);
     expect(permFooter(2)).toBe("Missing 2");
     expect(permFooter(1)).toBe("Missing 1");
     expect(permFooter(0)).toBe("All granted");

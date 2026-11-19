@@ -9,9 +9,9 @@ export function reducedMotion(): boolean {
 }
 
 export interface EnterParams {
-  /** Desplazamiento vertical inicial, en px. */
+  /** Desplazamiento vertical initial, en px. */
   y?: number;
-  /** Desplazamiento horizontal inicial, en px. */
+  /** Desplazamiento horizontal initial, en px. */
   x?: number;
   scale?: number;
   duration?: number;

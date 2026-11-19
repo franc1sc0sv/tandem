@@ -211,7 +211,7 @@ describe("la nota del último cambio", () => {
   });
 });
 
-describe("camino sin respuesta (T-147)", () => {
+describe("camino no reply (T-147)", () => {
   const kinds = ["usb4", "ethernet", "wifi"] as const;
   const mk = (kind: PathView["kind"], state: PathView["state"]): PathView => ({ ...path(demo(), "usb4"), kind, state });
 

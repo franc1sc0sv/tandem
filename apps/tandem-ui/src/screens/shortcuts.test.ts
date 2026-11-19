@@ -104,7 +104,7 @@ describe("editar shortcuts en modo demo", () => {
     await vi.waitFor(() => expect(store.desk.lockShortcut).toEqual(["F13"]));
   });
 
-  it("una scene guarda su shortcut nuevo", async () => {
+  it("una scene guarda su shortcut fresh", async () => {
     const store = await demo();
     const combo = await comboOf("Scene “Work”");
     await userEvent.click(combo);
@@ -114,13 +114,13 @@ describe("editar shortcuts en modo demo", () => {
 
   it("rechaza el shortcut de otra fila y no guarda nada", async () => {
     const store = await demo();
-    const antes = store.desk.scenes.map((s) => s.shortcut);
+    const before = store.desk.scenes.map((s) => s.shortcut);
     const combo = await comboOf("Scene “Work”");
     await userEvent.click(combo);
     // ⌃⌥2 es el de la segunda scene.
     await fireEvent.keyDown(combo, { key: "2", code: "Digit2", ...chord });
     expect(screen.getByRole("alert")).toHaveTextContent(/Already used by “Scene “/);
-    expect(store.desk.scenes.map((s) => s.shortcut)).toEqual(antes);
+    expect(store.desk.scenes.map((s) => s.shortcut)).toEqual(before);
     // ⌃⌥0 es el de la ventana.
     await fireEvent.keyDown(combo, { key: "0", code: "Digit0", ...chord });
     expect(screen.getByRole("alert")).toHaveTextContent("Already used by “Show or hide Tandem”");
@@ -141,24 +141,24 @@ function connected(): Snapshot {
     kind: "connected",
     agent: "b",
     desk: {
-      machines: { a: { os: "windows", name: "Taller", color: "#6cc59a" }, b: null },
+      machines: { a: { os: "windows", name: "Workshop", color: "#6cc59a" }, b: null },
       screens: [],
       arrangement: { a_side: "up", align: "end" },
       scenes: [
         { id: "trabajo", name: "Work", monitors: [], shortcut: ["ControlLeft", "AltLeft", "Digit1"] },
-        { id: "juego", name: "Game", monitors: [], shortcut: [] },
+        { id: "game", name: "Game", monitors: [], shortcut: [] },
       ],
       shortcuts: { lock: ["ScrollLock"] },
     },
     state: { on: { a: true, b: true } },
     monitors: [],
-    peer: { kind: "paired", name: "Taller", link: "wifi" },
+    peer: { kind: "paired", name: "Workshop", link: "wifi" },
     pairing: { kind: "idle" },
     input: { server: "b", hub_here: null, session: true, locked: false, missing: [], problem: null, defined: true },
     caps: {
       here: {
         machine: "b",
-        name: "Estudio",
+        name: "Studio",
         os: "windows",
         color: "#d9a75a",
         hub: null,
@@ -215,7 +215,7 @@ describe("editar shortcuts contra el agente real (IPC simulada)", () => {
     await vi.waitFor(() =>
       expect(act).toHaveBeenCalledWith({
         kind: "edit_scene",
-        scene: expect.objectContaining({ id: "juego", name: "Game", shortcut: ["ControlLeft", "AltLeft", "Digit3"] }),
+        scene: expect.objectContaining({ id: "game", name: "Game", shortcut: ["ControlLeft", "AltLeft", "Digit3"] }),
       }),
     );
   });
@@ -241,10 +241,10 @@ describe("editar shortcuts contra el agente real (IPC simulada)", () => {
 
   it("si el agente rechaza el cambio, se muestra el motivo", async () => {
     const { act } = await live();
-    act.mockImplementation(async () => ({ kind: "rejected" as const, reason: "tecla desconocida" }));
+    act.mockImplementation(async () => ({ kind: "rejected" as const, reason: "unknown key" }));
     const combo = await comboOf("Lock the keyboard on this machine");
     await userEvent.click(combo);
     await fireEvent.keyDown(combo, { key: "l", code: "KeyL", ctrlKey: true });
-    expect(await screen.findByRole("alert")).toHaveTextContent("tecla desconocida");
+    expect(await screen.findByRole("alert")).toHaveTextContent("unknown key");
   });
 });

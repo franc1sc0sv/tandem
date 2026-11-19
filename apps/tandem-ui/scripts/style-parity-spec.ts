@@ -40,7 +40,7 @@ export interface StylePair {
   app: Target;
   /** Mockup (sin `.dc.html`) y elemento. */
   mockup: string;
-  /** Estado con nombre del mockup (`tools/mockup-render/src/states.ts`) si el elemento no está en el inicial. */
+  /** Estado con nombre del mockup (`tools/mockup-render/src/states.ts`) si el elemento no está en el initial. */
   state?: string;
   ref: Target;
   groups: Group[];
@@ -127,7 +127,7 @@ function cycle(list: string[], i: number): string {
 
 /**
  * Transiciones de un elemento como `propiedad → «duración curva retraso»`. Las de duración y
- * retraso 0 (el valor inicial `all 0s ease 0s`) no animan nada y se omiten.
+ * retraso 0 (el valor initial `all 0s ease 0s`) no animan nada y se omiten.
  */
 export function transitions(s: Styles): Map<string, string> {
   const props = splitList(s["transition-property"] ?? "");

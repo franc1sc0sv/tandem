@@ -114,10 +114,10 @@ describe("contra el agente (IPC)", () => {
     },
     monitors: [],
     state: { on: { a: true, b: true } },
-    peer: { kind: "paired", name: "Taller", link: "usb4" },
+    peer: { kind: "paired", name: "Workshop", link: "usb4" },
     pairing: { kind: "idle" },
     input: { server: "a", hub_here: null, session: true, locked: false, missing: [], problem: null, defined: true },
-    caps: { here: machine("a", "Estudio", "macos", "#7aa7e6"), peer: machine("b", "Taller", "windows", "#a99be8") },
+    caps: { here: machine("a", "Studio", "macos", "#7aa7e6"), peer: machine("b", "Workshop", "windows", "#a99be8") },
   } as unknown as Snapshot;
 
   async function mountLive(reply: "done" | "rejected" = "done") {

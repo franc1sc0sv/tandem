@@ -16,7 +16,7 @@ export interface ToastAction {
 
 /** Lo que pide un notice; el store le pone el id y lo apaga a los 6 s si no pide una decisión. */
 export interface ToastSpec {
-  /** Con clave, un notice nuevo reemplaza al que ya la tenga (el avance de una copia). */
+  /** Con clave, un notice fresh reemplaza al que ya la tenga (el avance de una copia). */
   key?: string;
   /** Avance con barra: el notice no se va solo hasta que termina. */
   progress?: { done: number; total: number };
@@ -33,7 +33,7 @@ export const KIND_NAME: Record<LinkKind, string> = { usb4: "USB-C", ethernet: "E
 const nameOf = (d: DeskView, m: Machine) => d.machines[m]?.name ?? `machine ${m.toUpperCase()}`;
 
 /**
- * Notices de ejemplo del modo demo (`?demo&notices`): los tres con que abre `F-Notices`, del más nuevo
+ * Notices de ejemplo del modo demo (`?demo&notices`): los tres con que abre `F-Notices`, del más fresh
  * al más viejo. Solo se siembran a pedido, para ver y capturar la pila. El botón «Send over Wi-Fi anyway» no hace nada: el agente no tiene esa función y la app real no lo muestra; está aquí para que la pila mida lo mismo que el mockup.
  */
 export const DEMO_NOTICES: ToastSpec[] = [

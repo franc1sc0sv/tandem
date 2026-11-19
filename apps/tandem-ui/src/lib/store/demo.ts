@@ -92,7 +92,7 @@ export interface DemoOptions {
   /** Aplicar esta scene falla en su monitor y se deshace. */
   failScene?: string;
   /** Los tunnels del demo: los de `V3-Compute`, ninguno o uno con 12 procesos. */
-  tunnels?: "normal" | "none" | "many" | "notas" | "palette" | "tray";
+  tunnels?: "normal" | "none" | "many" | "notes" | "palette" | "tray";
   /** Los datos que dibuja `F-Palette`: «Trabajo» sobre la Mac, la tercera scene «PC only» y un tunnel por proyecto. */
   palette?: boolean;
   /** Los datos que dibuja `V3-Tray`: link de 0.4 ms, carga de la Mac al 18 %, «PC only» y tunnels en tres proyectos. */
@@ -117,7 +117,7 @@ export function demoOptions(query: string): DemoOptions {
     perms: p.get("perms") === "missing" ? "missing" : undefined,
     txn: p.get("txn") === "run" || p.get("txn") === "ok" || p.get("txn") === "fail" ? (p.get("txn") as "run" | "ok" | "fail") : undefined,
     failScene: p.get("fail") ?? undefined,
-    tunnels: p.has("palette") ? "palette" : p.has("tray") ? "tray" : p.get("tunnels") === "none" ? "none" : p.get("tunnels") === "many" ? "many" : p.get("tunnels") === "notas" ? "notas" : "normal",
+    tunnels: p.has("palette") ? "palette" : p.has("tray") ? "tray" : p.get("tunnels") === "none" ? "none" : p.get("tunnels") === "many" ? "many" : p.get("tunnels") === "notes" ? "notes" : "normal",
     palette: p.has("palette"),
     tray: p.has("tray"),
     peerEdit: p.has("peeredit"),
@@ -329,12 +329,12 @@ function demoMonitors(sa: Spec, sb: Spec): MonitorUi[] {
 }
 
 /** Las scenes del demo sobre el primer monitor compatible (como el mockup). */
-export function demoScenes(a: string, b: string, monitors: MonitorUi[], mac: boolean, soloPc = false, trabajoEnA = false): SceneView[] {
+export function demoScenes(a: string, b: string, monitors: MonitorUi[], mac: boolean, soloPc = false, workOnA = false): SceneView[] {
   const m = monitors.find((x) => x.compat.ok)?.id;
   const raw: SceneJson[] = [
-    { id: "trabajo", name: "Work", monitors: m ? [[m, trabajoEnA ? "a" : "b"]] : [], shortcut: ctrlAlt(1) },
+    { id: "trabajo", name: "Work", monitors: m ? [[m, workOnA ? "a" : "b"]] : [], shortcut: ctrlAlt(1) },
     { id: "solo-a", name: `${a.split(" ")[0]} only`, monitors: m ? [[m, "a"]] : [], shortcut: ctrlAlt(2) },
-    { id: "juego", name: soloPc ? "PC only" : "Game", monitors: m ? [[m, "b"]] : [], shortcut: ctrlAlt(3) },
+    { id: "game", name: soloPc ? "PC only" : "Game", monitors: m ? [[m, "b"]] : [], shortcut: ctrlAlt(3) },
   ];
   return raw.map((r) => sceneView(r, { monitors, name: (x) => (x === "a" ? a : b), mac }));
 }
@@ -430,7 +430,7 @@ export function demoTunnels(now: number, which: DemoOptions["tunnels"] = "normal
   if (which === "palette") return [{ ...list[3], title: "ia-local" }, { ...list[0], title: "tandem" }];
   // `V3-Tray`: dos proyectos activos con un tunnel cada uno y las «notas» en reposo.
   if (which === "tray") return [{ ...list[3], title: "ia-local" }, { ...list[0], title: "tandem" }, { ...list[2], project: "notes", projectPath: "~/…/notes" }];
-  if (which === "notas") return list.map((x) => (x.id === "pr" ? { ...x, project: "notes", projectPath: "~/…/notes" } : x));
+  if (which === "notes") return list.map((x) => (x.id === "pr" ? { ...x, project: "notes", projectPath: "~/…/notes" } : x));
   return list;
 }
 
@@ -808,13 +808,13 @@ export class DemoSource implements Source {
     emit({ type: "step_started", txn, index: 0 }, t0 + 100);
     if (at === "run") return;
     if (at === "fail") {
-      emit({ type: "step_failed", txn, index: 0, error: "the monitor showed no picture over DisplayPort; it stays on HDMI" }, t0 + 3000);
+      emit({ type: "step_failed", txn, index: 0, error: "the monitor showed no image over DisplayPort; it stays on HDMI" }, t0 + 3000);
       return;
     }
     emit({ type: "step_done", txn, index: 0 }, t0 + 1900);
     emit({ type: "step_started", txn, index: 1 }, t0 + 1900);
     emit({ type: "step_done", txn, index: 1 }, t0 + 2300);
-    emit({ type: "committed", txn, state: { on: { a: true, b: true }, scene: "juego" } }, t0 + 2300);
+    emit({ type: "committed", txn, state: { on: { a: true, b: true }, scene: "game" } }, t0 + 2300);
   }
 
   private emitTxn(e: TxnView): void {
@@ -844,7 +844,7 @@ export class DemoSource implements Source {
       this.emitTxn({ type: "step_started", txn, index: i });
       after(gap, () => {
         if (i === failAt) {
-          this.emitTxn({ type: "step_failed", txn, index: i, error: "the monitor showed no picture over DisplayPort; it stays on HDMI" });
+          this.emitTxn({ type: "step_failed", txn, index: i, error: "the monitor showed no image over DisplayPort; it stays on HDMI" });
           undo(i - 1);
           return;
         }
@@ -1197,7 +1197,7 @@ export class DemoSource implements Source {
 
   async output(tunnel: string, process: number, from: OutputCursor): Promise<OutputChunk> {
     const text = demoLog(tunnel, process, this.opts.tunnels);
-    // El demo da toda la salida de una vez; con el cursor al final no hay nada nuevo.
+    // El demo da toda la salida de una vez; con el cursor al final no hay nada fresh.
     return { text: from.stdout > 0 ? "" : text, next: { stdout: text.length, stderr: 0 }, done: false };
   }
 

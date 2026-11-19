@@ -12,7 +12,7 @@ function run(events: TxnView[], t0 = 0): Run {
   events.forEach((e, i) => {
     r = feedRun(r, e, t0 + i * 100);
   });
-  if (!r) throw new Error("sin corrida");
+  if (!r) throw new Error("no run");
   return r;
 }
 const started: TxnView = { type: "started", txn: 2, steps };

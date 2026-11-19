@@ -90,7 +90,7 @@ describe("Red (V3-Network) en modo demo", () => {
   it("no hay textos de relleno ni restos de plantilla", async () => {
     await demo();
     const text = document.body.innerText ?? document.body.textContent ?? "";
-    for (const bad of ["{{", "undefined", "NaN", "Agregar machine", "Simular", "lorem"]) expect(text).not.toContain(bad);
+    for (const bad of ["{{", "undefined", "NaN", "Add machine", "Simulate", "lorem"]) expect(text).not.toContain(bad);
     // Sin la búsqueda de otras pantallas: V3-Network no la tiene.
     expect(screen.queryByText("Search or run…")).toBeNull();
   });
@@ -250,11 +250,11 @@ describe("Red con el agente real (IPC)", () => {
   });
 
   it("si el agente rechaza la prueba, se dice por qué", async () => {
-    const { b, handlers } = bridge({ kind: "rejected", reason: "la entrada pasó su objetivo" });
+    const { b, handlers } = bridge({ kind: "rejected", reason: "the input went past its target" });
     await open(new LiveSource(b));
     await flush(() => handlers.network?.(wire()));
     await userEvent.click(screen.getByRole("button", { name: "Measure bandwidth" }));
-    expect(await screen.findByText("la entrada pasó su objetivo")).toBeInTheDocument();
+    expect(await screen.findByText("the input went past its target")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Measure bandwidth" })).toBeEnabled();
   });
 

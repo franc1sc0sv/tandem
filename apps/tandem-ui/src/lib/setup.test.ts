@@ -7,7 +7,7 @@ const VIEW: SetupView = {
   available: true,
   show: true,
   permissions: ["accessibility", "input_monitoring", "local_network"],
-  agent: { ok: true, text: "tandemd quedó instalado" },
+  agent: { ok: true, text: "tandemd is installed" },
 };
 
 it("tiene una bienvenida y una pantalla por permiso, en el orden del núcleo", () => {
@@ -30,7 +30,7 @@ it("avanza y retrocede sin salirse", () => {
   expect(back(w).index).toBe(2);
 });
 
-it("sin permisos que pedir, la bienvenida es la última", () => {
+it("no permissions que pedir, la bienvenida es la última", () => {
   const w = start({ ...VIEW, permissions: [] });
   expect(isFirst(w) && isLast(w)).toBe(true);
 });

@@ -1,4 +1,4 @@
-// El asistente de configuración inicial (DESIGN §5, sin monitors): un paso por pantalla y
+// El asistente de configuración initial (DESIGN §5, sin monitors): un paso por pantalla y
 // cada paso verificado antes de pasar al siguiente: (1) this machine y sus permisos, (2)
 // emparejar y ver el ping del link, (3) «presiona una tecla» y (4) el resumen. El arrangement
 // de pantallas llega con T-117. Aquí, lo que no depende del DOM: el estado del asistente, lo

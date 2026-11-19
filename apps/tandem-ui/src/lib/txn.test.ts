@@ -19,7 +19,7 @@ function play(events: TxnView[], at = 1000): Run {
   events.forEach((e, i) => {
     run = feedRun(run, e, at + i * 600, origin);
   });
-  if (!run) throw new Error("sin corrida");
+  if (!run) throw new Error("no run");
   return run;
 }
 const started: TxnView = { type: "started", txn: 7, steps };
@@ -58,14 +58,14 @@ describe("progress de una transacción (F-Transactions)", () => {
     const run = play([
       started,
       { type: "step_started", txn: 7, index: 0 },
-      { type: "step_failed", txn: 7, index: 0, error: "the monitor no mostró imagen en DisplayPort" },
+      { type: "step_failed", txn: 7, index: 0, error: "the monitor showed no image on DisplayPort" },
     ]);
     const v = viewOf(run, names, 5000);
     expect(v.rows.map((r) => r.icon)).toEqual(["done", "bad", "back"]);
     expect(v.rows[1]).toMatchObject({ tone: "bad", detail: "the monitor said: change failed" });
     expect(v.rows[2]).toMatchObject({ text: "Rolling back to how it was", detail: '34" → MacBook Pro' });
     expect(v.message).toEqual({ text: "There was no DisplayPort signal. Everything goes back to how it was; nothing was left half done.", tone: "warn" });
-    const over = play([started, { type: "step_started", txn: 7, index: 0 }, { type: "step_failed", txn: 7, index: 0, error: "the monitor no mostró imagen en DisplayPort" }, { type: "failed", txn: 7, state: { on: { a: true, b: true } } }]);
+    const over = play([started, { type: "step_started", txn: 7, index: 0 }, { type: "step_failed", txn: 7, index: 0, error: "the monitor showed no image on DisplayPort" }, { type: "failed", txn: 7, state: { on: { a: true, b: true } } }]);
     expect(viewOf(over, names, 5000)).toMatchObject({ outcome: "failed" });
     expect(viewOf(over, names, 5000).rows[2]?.icon).toBe("done");
   });

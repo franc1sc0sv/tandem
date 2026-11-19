@@ -56,10 +56,10 @@ describe("lib/states: qué tarjetas aplican", () => {
   });
 
   it("la scene fallida sale con su nombre y su id, no con la primera ni la activa", () => {
-    const cards = stateCards(base, { gallery: false, failedScene: { id: "juego", name: "Game" } });
+    const cards = stateCards(base, { gallery: false, failedScene: { id: "game", name: "Game" } });
     const scene = cards.find((c) => c.id === "scene");
     expect(scene?.title).toBe("The scene “Game” was not applied");
-    expect(scene?.action).toMatchObject({ does: "retry-scene", sceneId: "juego" });
+    expect(scene?.action).toMatchObject({ does: "retry-scene", sceneId: "game" });
   });
 
   it("ningún texto inventa datos: sin épocas, pérdida, GPU ni nombres de ejemplo", () => {
@@ -86,7 +86,7 @@ describe("pantalla States", () => {
 
   it("ninguna tarjeta habla de «agregar» una machine (D1)", async () => {
     await mount();
-    expect(document.body.textContent).not.toMatch(/agrega(r)? (otra )?machine/i);
+    expect(document.body.textContent).not.toMatch(/add (another )?machine/i);
   });
 
   it("«Pair the other machine» abre el asistente de emparejar", async () => {
@@ -119,12 +119,12 @@ describe("pantalla States", () => {
   it("«Reintentar» reaplica la scene que falló, no la primera", async () => {
     const store = await mount();
     const apply = vi.spyOn(store, "applyScene").mockResolvedValue({ ok: true });
-    store.failedScene = { id: "juego", name: "Game" };
+    store.failedScene = { id: "game", name: "Game" };
     await tick();
     expect(screen.getByText("The scene “Game” was not applied")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: /Retry/ }));
-    expect(apply).toHaveBeenCalledWith("juego");
-    expect(apply).not.toHaveBeenCalledWith(store.desk.scenes[0].id === "juego" ? "" : store.desk.scenes[0].id);
+    expect(apply).toHaveBeenCalledWith("game");
+    expect(apply).not.toHaveBeenCalledWith(store.desk.scenes[0].id === "game" ? "" : store.desk.scenes[0].id);
   });
 });
 
