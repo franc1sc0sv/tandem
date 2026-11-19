@@ -33,7 +33,7 @@ Local run (commit gate, full `cargo test --workspace` on `develop` bbdc245): `ne
 
 ## English-only (report only; T-210 owns the guard)
 
-Remaining Spanish prose: `apps/tandem-ui/vite.config.ts` comments, `mockups/main.html` and `next.html` comments, `docs/reports/acceptance/2026-11-18-b/harness/acc_bridge.rs:294`, `docs/tasks/T-191.md` notes (T-232); `docs/examples/*.toml` and `docs/examples/v0.2/*.toml` comments, and about 27 Spanish-named files in `docs/screenshots/` (T-233). Legitimate Spanish data left alone: keyboard layout labels in `keymap.rs`, `ñ`/`é` test fixtures, `elevación` in `tandem-link`, legacy ids in `tandem-core/src/legacy.rs` and `tandem-sim` tests, and the GLOSSARY table.
+Remaining Spanish prose: `apps/tandem-ui/vite.config.ts` comments, `mockups/main.html` and `next.html` comments, `docs/reports/acceptance/2026-11-18-b/harness/acc_bridge.rs:294`, `docs/tasks/T-191.md` notes (T-232); `docs/examples/*.toml` and `docs/examples/v0.2/*.toml` comments, and about 27 Spanish-named files in `docs/screenshots/` (T-233). Legitimate Spanish data left alone: keyboard layout labels in `keymap.rs`, accented test fixtures, Spanish `netsh` words in `tandem-link`, legacy ids in `tandem-core/src/legacy.rs` and `tandem-sim` tests, and the GLOSSARY table.
 
 ## Fix tasks
 
