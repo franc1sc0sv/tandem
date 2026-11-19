@@ -4,103 +4,103 @@ import type { PairingView, PeerView } from "./model";
 import { codeMatches, isActive, isComplete, needsDismiss, pairButton, pairLine, pairScreen, setDigit, shouldOpen, splitCode } from "./pairing";
 
 const UNPAIRED: PeerView = { kind: "unpaired" };
-const PAIRED: PeerView = { kind: "paired", name: "Taller", link: "usb4" };
+const PAIRED: PeerView = { kind: "paired", name: "Workshop", link: "usb4" };
 const IDLE: PairingView = { kind: "idle" };
 const SEARCHING: PairingView = { kind: "searching" };
-const COMPARING: PairingView = { kind: "comparing", code: "042917", peer: "Taller", confirmed: false };
+const COMPARING: PairingView = { kind: "comparing", code: "042917", peer: "Workshop", confirmed: false };
 
-describe("pantalla", () => {
-  it("sin par ofrece emparejar con the other machine", () => {
-    expect(pairScreen("Taller", UNPAIRED, IDLE)).toEqual({ kind: "intro", other: "Taller" });
-    expect(pairScreen("Estudio", UNPAIRED, IDLE)).toEqual({ kind: "intro", other: "Estudio" });
+describe("screen", () => {
+  it("without a peer offers to pair with the other machine", () => {
+    expect(pairScreen("Workshop", UNPAIRED, IDLE)).toEqual({ kind: "intro", other: "Workshop" });
+    expect(pairScreen("Studio", UNPAIRED, IDLE)).toEqual({ kind: "intro", other: "Studio" });
   });
 
-  it("emparejado muestra con quién y pide confirmar antes de desemparejar", () => {
-    expect(pairScreen("Taller", PAIRED, IDLE)).toEqual({ kind: "paired", name: "Taller" });
-    expect(pairScreen("Taller", PAIRED, IDLE, true)).toEqual({ kind: "unpair", name: "Taller" });
-    // Sin par no hay nada que desemparejar.
-    expect(pairScreen("Taller", UNPAIRED, IDLE, true).kind).toBe("intro");
+  it("paired shows with whom and asks to confirm before unpairing", () => {
+    expect(pairScreen("Workshop", PAIRED, IDLE)).toEqual({ kind: "paired", name: "Workshop" });
+    expect(pairScreen("Workshop", PAIRED, IDLE, true)).toEqual({ kind: "unpair", name: "Workshop" });
+    // Without a peer there is nothing to unpair.
+    expect(pairScreen("Workshop", UNPAIRED, IDLE, true).kind).toBe("intro");
   });
 
-  it("buscando dice qué hacer en the other machine", () => {
-    const s = pairScreen("Taller", UNPAIRED, SEARCHING);
-    expect(s).toMatchObject({ kind: "searching", other: "Taller" });
-    expect(s.kind === "searching" && s.hint).toContain("On Taller");
-    expect(pairScreen("Estudio", UNPAIRED, SEARCHING)).toMatchObject({ other: "Estudio" });
+  it("searching says what to do on the other machine", () => {
+    const s = pairScreen("Workshop", UNPAIRED, SEARCHING);
+    expect(s).toMatchObject({ kind: "searching", other: "Workshop" });
+    expect(s.kind === "searching" && s.hint).toContain("On Workshop");
+    expect(pairScreen("Studio", UNPAIRED, SEARCHING)).toMatchObject({ other: "Studio" });
   });
 
-  it("el código se muestra igual en las dos máquinas, en dos grupos", () => {
-    const a = pairScreen("Taller", UNPAIRED, COMPARING);
-    const b = pairScreen("Estudio", UNPAIRED, { ...COMPARING, peer: "Estudio" });
-    expect(a).toEqual({ kind: "compare", digits: ["042", "917"], peer: "Taller", confirmed: false });
+  it("the code is shown the same on both machines, in two groups", () => {
+    const a = pairScreen("Workshop", UNPAIRED, COMPARING);
+    const b = pairScreen("Studio", UNPAIRED, { ...COMPARING, peer: "Studio" });
+    expect(a).toEqual({ kind: "compare", digits: ["042", "917"], peer: "Workshop", confirmed: false });
     expect(b.kind === "compare" && b.digits).toEqual(["042", "917"]);
-    expect(pairScreen("Taller", UNPAIRED, { ...COMPARING, confirmed: true })).toMatchObject({ confirmed: true });
+    expect(pairScreen("Workshop", UNPAIRED, { ...COMPARING, confirmed: true })).toMatchObject({ confirmed: true });
   });
 
-  it("el resultado manda sobre el par", () => {
-    expect(pairScreen("Taller", PAIRED, { kind: "done", peer: "Taller" })).toEqual({ kind: "done", peer: "Taller" });
-    expect(pairScreen("Taller", UNPAIRED, { kind: "failed", reason: "se rechazó en Taller" })).toEqual({
+  it("the result takes precedence over the peer", () => {
+    expect(pairScreen("Workshop", PAIRED, { kind: "done", peer: "Workshop" })).toEqual({ kind: "done", peer: "Workshop" });
+    expect(pairScreen("Workshop", UNPAIRED, { kind: "failed", reason: "rejected on Workshop" })).toEqual({
       kind: "failed",
-      reason: "se rechazó en Taller",
+      reason: "rejected on Workshop",
     });
   });
 });
 
-describe("código", () => {
-  it("siempre son 6 dígitos con los ceros", () => {
+describe("code", () => {
+  it("it is always 6 digits with the zeros", () => {
     expect(splitCode("000042")).toEqual(["000", "042"]);
     expect(splitCode("42")).toEqual(["000", "042"]);
     expect(splitCode("123 456")).toEqual(["123", "456"]);
   });
 });
 
-describe("línea entre las máquinas", () => {
-  it("sigue el avance", () => {
-    const line = (p: PairingView, peer: PeerView = UNPAIRED, ask = false) => pairLine(pairScreen("Taller", peer, p, ask));
+describe("line between the machines", () => {
+  it("follows the progress", () => {
+    const line = (p: PairingView, peer: PeerView = UNPAIRED, ask = false) => pairLine(pairScreen("Workshop", peer, p, ask));
     expect(line(IDLE)).toBe("idle");
     expect(line(SEARCHING)).toBe("searching");
     expect(line(COMPARING)).toBe("found");
-    expect(line({ kind: "done", peer: "Taller" })).toBe("linked");
+    expect(line({ kind: "done", peer: "Workshop" })).toBe("linked");
     expect(line(IDLE, PAIRED)).toBe("linked");
     expect(line(IDLE, PAIRED, true)).toBe("broken");
     expect(line({ kind: "failed", reason: "x" })).toBe("broken");
   });
 });
 
-describe("abrir y cerrar", () => {
-  it("se abre solo al empezar o al aparecer el código, no con un resultado viejo", () => {
+describe("open and close", () => {
+  it("opens by itself when starting or when the code appears, not with an old result", () => {
     expect(shouldOpen(null, SEARCHING)).toBe(true);
     expect(shouldOpen(IDLE, SEARCHING)).toBe(true);
     expect(shouldOpen(SEARCHING, COMPARING)).toBe(true);
     expect(shouldOpen(null, COMPARING)).toBe(true);
     expect(shouldOpen(SEARCHING, SEARCHING)).toBe(false);
     expect(shouldOpen(COMPARING, { ...COMPARING, confirmed: true })).toBe(false);
-    expect(shouldOpen(null, { kind: "done", peer: "Taller" })).toBe(false);
+    expect(shouldOpen(null, { kind: "done", peer: "Workshop" })).toBe(false);
     expect(shouldOpen(null, { kind: "failed", reason: "x" })).toBe(false);
     expect(shouldOpen(null, IDLE)).toBe(false);
   });
 
-  it("cerrar cancela lo vivo y descarta lo terminado", () => {
+  it("closing cancels what is live and discards what is finished", () => {
     expect(isActive(SEARCHING) && isActive(COMPARING)).toBe(true);
-    expect(isActive(IDLE) || isActive({ kind: "done", peer: "Taller" })).toBe(false);
-    expect(needsDismiss({ kind: "done", peer: "Taller" }) && needsDismiss({ kind: "failed", reason: "x" })).toBe(true);
+    expect(isActive(IDLE) || isActive({ kind: "done", peer: "Workshop" })).toBe(false);
+    expect(needsDismiss({ kind: "done", peer: "Workshop" }) && needsDismiss({ kind: "failed", reason: "x" })).toBe(true);
     expect(needsDismiss(IDLE) || needsDismiss(SEARCHING)).toBe(false);
   });
 
-  it("la píldora ofrece emparejar si no hay par", () => {
+  it("the pill offers to pair if there is no peer", () => {
     expect(pairButton(UNPAIRED)).toBe("Pair");
     expect(pairButton(PAIRED)).toBe("Pair again");
   });
 });
 
-describe("escribir el código", () => {
-  it("cada casilla guarda un dígito y borra con vacío", () => {
+describe("typing the code", () => {
+  it("each box holds one digit and clears when emptied", () => {
     expect(setDigit(["", "", "", "", "", ""], 1, "7")).toEqual(["", "7", "", "", "", ""]);
     expect(setDigit(["1", "2", "", "", "", ""], 1, "")).toEqual(["1", "", "", "", "", ""]);
     expect(setDigit(["", "", "", "", "", ""], 0, "x")).toEqual(["", "", "", "", "", ""]);
   });
 
-  it("solo coincide con las seis casillas llenas y el mismo código", () => {
+  it("it only matches with all six boxes filled and the same code", () => {
     const full = ["4", "1", "8", "0", "2", "7"];
     expect(isComplete(full)).toBe(true);
     expect(isComplete(["4", "1", "8", "0", "2", ""])).toBe(false);

@@ -1,15 +1,15 @@
 <script lang="ts">
-  // Miniatura de una pantalla (`.thumb` + `.wall` de V3-Monitors): el fondo de la máquina que
-  // muestra; con `flashKey`, un destello blanco al montarse y cada vez que cambia (cambio de entrada).
+  // Thumbnail of a screen (`.thumb` + `.wall` of V3-Monitors): the background of the machine it
+  // shows; with `flashKey`, a white flash on mounting and every time it changes (input change).
   interface Props {
     width: number;
     height: number;
-    /** Relleno entre el marco y el fondo (5 px; 3 en las miniaturas de escena). */
+    /** Padding between the frame and the background (5 px; 3 on the scene thumbnails). */
     pad?: number;
-    /** Valor de `background` del fondo. */
+    /** Value of the background's `background`. */
     wall: string;
     flashKey?: string | null;
-    /** Marco punteado y apagado (monitor no compatible). */
+    /** Dotted, dimmed frame (incompatible monitor). */
     dim?: boolean;
     label?: string;
   }

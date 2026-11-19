@@ -7,10 +7,10 @@ const VIEW: SetupView = {
   available: true,
   show: true,
   permissions: ["accessibility", "input_monitoring", "local_network"],
-  agent: { ok: true, text: "tandemd quedó instalado" },
+  agent: { ok: true, text: "tandemd is installed" },
 };
 
-it("tiene una bienvenida y una pantalla por permiso, en el orden del núcleo", () => {
+it("has a welcome and one screen per permission, in the core's order", () => {
   expect(screensOf(VIEW)).toEqual([
     { kind: "intro" },
     { kind: "permission", permission: "accessibility" },
@@ -19,7 +19,7 @@ it("tiene una bienvenida y una pantalla por permiso, en el orden del núcleo", (
   ]);
 });
 
-it("avanza y retrocede sin salirse", () => {
+it("advances and goes back without leaving", () => {
   let w = start(VIEW);
   expect(w).toEqual({ index: 0, total: 4 });
   expect(isFirst(w)).toBe(true);
@@ -30,12 +30,12 @@ it("avanza y retrocede sin salirse", () => {
   expect(back(w).index).toBe(2);
 });
 
-it("sin permisos que pedir, la bienvenida es la última", () => {
+it("with no permissions to request, the welcome is the last", () => {
   const w = start({ ...VIEW, permissions: [] });
   expect(isFirst(w) && isLast(w)).toBe(true);
 });
 
-it("explica cada permiso", () => {
+it("explains each permission", () => {
   for (const p of VIEW.permissions) {
     const info = PERMISSION_INFO[p];
     expect(info.title).not.toBe("");

@@ -1,20 +1,20 @@
-// Arnés de capturas de la app (T-112): construye el modo demo, toma cada pantalla en
-// Chromium headless igual que `tools/mockup-render` toma los mockups (sin red, fuentes
-// empaquetadas, animaciones finitas terminadas y las infinitas en su estado inicial) y la
-// compara con la captura del mockup.
+// App screenshot harness (T-112): builds the demo mode, captures each screen in
+// headless Chromium the same way `tools/mockup-render` captures the mockups (no network, bundled
+// fonts, finite animations finished and infinite ones in their initial state) and
+// compares it with the mockup capture.
 //
-//   pnpm shots                    # todas → docs/screenshots/v03/<screen>.png + similarity.json
+//   pnpm shots                    # all → docs/screenshots/v03/<screen>.png + similarity.json
 //   pnpm shots --only desk        # one
-//   pnpm shots --check            # falla si una zona con umbral no lo cumple
-//   pnpm shots --no-build         # reutiliza dist-demo/
-//   pnpm shots --diff-dir d/      # guarda las diferencias de cada comparación
+//   pnpm shots --check            # fails if a region with a threshold does not meet it
+//   pnpm shots --no-build         # reuses dist-demo/
+//   pnpm shots --diff-dir d/      # saves the differences of each comparison
 //   pnpm shots --only styles      # only the component style parity (T-127)
 //
-// Además de las pantallas, compara los estilos calculados de cada componente de la galería
-// (`gallery.html`) con el mismo elemento del mockup (`style-parity-spec.ts`); con `--check`,
-// una propiedad distinta también hace fallar.
+// Besides the screens, it compares the computed styles of each gallery component
+// (`gallery.html`) with the same element of the mockup (`style-parity-spec.ts`); with `--check`,
+// a differing property also fails.
 //
-// Necesita `pnpm install` en tools/mockup-render (fuentes de los mockups) y Chromium de
+// Needs `pnpm install` in tools/mockup-render (mockup fonts) and the Chromium of
 // Playwright (`pnpm exec playwright install chromium`).
 
 import { execFileSync } from "node:child_process";
@@ -80,7 +80,7 @@ interface ShotResult {
   regions: Measure[];
 }
 
-/** Cajas de los selectores en el mockup (para tapar y para recortar zonas). */
+/** Boxes of the selectors in the mockup (to mask and to crop regions). */
 async function mockupRects(browser: Browser, spec: ShotSpec, selectors: string[]): Promise<Record<string, Rect | null>> {
   const context = await browser.newContext({ viewport: { width: spec.width, height: spec.height }, deviceScaleFactor: 1, locale: "en-US", colorScheme: "dark" });
   try {
@@ -89,7 +89,7 @@ async function mockupRects(browser: Browser, spec: ShotSpec, selectors: string[]
     await page.goto(`${ORIGIN}/${spec.mockup}.dc.html`);
     await waitForMockup(page);
     await settle(page);
-    // Las cajas se miden en el estado de la captura (en «vuelta atrás» el texto cambia el alto de la tarjeta).
+    // Boxes are measured in the state of the capture (in "rollback" the text changes the card height).
     const state = spec.state ? statesOf(spec.mockup).find((x) => x.name === spec.state) : undefined;
     for (const step of state?.steps ?? []) {
       if ("click" in step) await page.locator(step.click).click({ timeout: 5_000 });
@@ -107,7 +107,7 @@ async function mockupRects(browser: Browser, spec: ShotSpec, selectors: string[]
   }
 }
 
-/** Las cajas de todos los elementos de cada selector. */
+/** The boxes of all the elements of each selector. */
 async function boxes(page: Page, selectors: string[]): Promise<Record<string, Rect[]>> {
   const out: Record<string, Rect[]> = {};
   for (const sel of selectors) {
@@ -120,7 +120,7 @@ async function boxes(page: Page, selectors: string[]): Promise<Record<string, Re
   return out;
 }
 
-/** Cajas del mockup (todas las de cada selector). */
+/** Mockup boxes (all those of each selector). */
 async function mockupBoxes(browser: Browser, spec: ShotSpec, selectors: string[]): Promise<Record<string, Rect[]>> {
   const context = await browser.newContext({ viewport: { width: spec.width, height: spec.height }, deviceScaleFactor: 1, locale: "en-US", colorScheme: "dark" });
   try {
@@ -136,8 +136,8 @@ async function mockupBoxes(browser: Browser, spec: ShotSpec, selectors: string[]
 }
 
 /**
- * Compara solo el contenido (`ShotSpec.content`): recorta la app y el mockup desde la esquina
- * de su elemento, del mismo tamaño, y tapa en los dos las zonas permitidas de cada lado.
+ * Compares only the content (`ShotSpec.content`): crops the app and the mockup from the corner
+ * of their element, of the same size, and masks the allowed regions of each side in both.
  */
 function compareContent(spec: ShotSpec, png: Buffer, appBoxes: Record<string, Rect[]>, mockBoxes: Record<string, Rect[]>, diffPath?: string): Measure {
   const c = spec.content;
@@ -188,7 +188,7 @@ async function shoot(browser: Browser, spec: ShotSpec, args: Args): Promise<Shot
     timezoneId: "UTC",
     colorScheme: "dark",
     reducedMotion: "no-preference",
-    // Los mockups están dibujados en macOS (⌘K): la app se captura con ese atajo.
+    // The mockups are drawn on macOS (⌘K): the app is captured with that shortcut.
     userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
   });
   let png: Buffer;
@@ -208,13 +208,13 @@ async function shoot(browser: Browser, spec: ShotSpec, args: Args): Promise<Shot
       await page.locator(f.selector).first().fill(f.text, { timeout: 5_000 });
       await settle(page);
     }
-    // Los mismos clics que llevan al estado del mockup (`tools/mockup-render/src/states.ts`).
+    // The same clicks that lead to the mockup state (`tools/mockup-render/src/states.ts`).
     for (const sel of spec.clicks ?? []) {
       await page.locator(sel).click({ timeout: 5_000 });
       await settle(page);
     }
     if ((spec.clicks?.length ?? 0) > 0) {
-      // Igual que el renderizador de mockups: sin el puntero encima del último botón (su :hover cambiaría la captura).
+      // Same as the mockup renderer: without the pointer over the last button (its :hover would change the capture).
       await page.mouse.move(0, 0);
       await settle(page);
     }
@@ -243,8 +243,8 @@ async function shoot(browser: Browser, spec: ShotSpec, args: Args): Promise<Shot
     const content = compareContent(spec, png, appBoxes, mock, diffPath);
     return { name: spec.name, mockup: spec.state ? `${spec.mockup}--${spec.state}` : spec.mockup, file, errors, full: content, regions: [content] };
   }
-  // Con zonas tapadas se compara contra la referencia tapada igual; si no, directo contra la
-  // captura del mockup (`compareWithMockup`).
+  // With masked regions, comparison is against the equally masked reference; otherwise directly against the
+  // mockup capture (`compareWithMockup`).
   let ref: Buffer | null = null;
 
   const ignoreSel = (spec.ignore ?? []).flatMap((i) => (i.mockupSelector ? [i.mockupSelector] : []));
@@ -293,7 +293,7 @@ async function main(): Promise<void> {
   if (args.diffDir) mkdirSync(args.diffDir, { recursive: true });
   const specs = args.only.length ? SHOTS.filter((s) => args.only.includes(s.name)) : SHOTS;
   const styles = args.only.length === 0 || args.only.includes("styles");
-  // Mismas opciones de Chromium que las capturas de los mockups (`--disable-partial-raster`).
+  // Same Chromium options as the mockup captures (`--disable-partial-raster`).
   const browser = await launchBrowser();
   const results: ShotResult[] = [];
   let styleFailed = false;
@@ -322,7 +322,7 @@ async function main(): Promise<void> {
     for (const e of r.errors) console.log(`${"".padEnd(10)} ! ${e}`);
   }
 
-  // El resumen se fusiona con el que ya había, así `--only` no borra las otras pantallas.
+  // The summary is merged with the existing one, so `--only` does not erase the other screens.
   const summaryFile = join(OUT, "similarity.json");
   const prev: Record<string, unknown> = existsSync(summaryFile) ? (JSON.parse(readFileSync(summaryFile, "utf8")) as Record<string, unknown>) : {};
   for (const r of results) prev[r.name] = { mockup: r.mockup, screen: r.full, regions: r.regions, errors: r.errors };

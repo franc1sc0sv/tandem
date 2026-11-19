@@ -1,24 +1,24 @@
-// Modo demo: un puesto simulado y coherente para cada pantalla y cada estado. Lo usan las
-// capturas (`pnpm shots`), las pruebas y `pnpm dev` (`/?demo`). Los datos son los de los
-// mockups de ejemplo; en la app real todo sale del escaneo de cada máquina (D10).
+// Demo mode: a simulated, coherent desk for each screen and each state. Used by the
+// screenshots (`pnpm shots`), the tests and `pnpm dev` (`/?demo`). The data is that of the sample
+// mockups; in the real app everything comes from each machine's scan (D10).
 //
-// Parámetros de la URL:
-// - `demo` o `demo=mac-win` (por omisión), `demo=win-win`, `demo=mac-mac`: qué sistemas hay
-//   en cada lado (D2).
-// - `here=b`: la ventana es la de la máquina B.
-// - `trouble=no-agent|peer-off|link-down|permissions`: un estado difícil (`V3-States`).
-// - `still`: sin recursos que cambien solos (para capturas deterministas).
-// - `peer=none`: sin emparejar; emparejar simula a the other machine (código y confirmación).
-//   `pair=code` arranca mostrando el código; `pair=reject`: the other machine rechaza.
-// - `cross=ok|wrong|timeout`: la prueba de cruce cruza por el borde del acomodo, por otro,
-//   o se queda sin tiempo apenas empieza (para las capturas). Sin esto (y sin `still`), cruza
-//   bien a los pocos segundos.
-// - `txn=run|ok|fail`: la pantalla de progreso de una escena ya in progress, terminada o
-//   deshaciéndose (para capturas). `fail=<escena>`: aplicar esa escena falla y se deshace.
-//   Con `still`, un cambio de entrada o de escena se aplica al instante y no agrega eventos ni
-//   cambia la escena activa: así las capturas no dependen del reloj.
+// URL parameters:
+// - `demo` or `demo=mac-win` (the default), `demo=win-win`, `demo=mac-mac`: which systems are
+//   on each side (D2).
+// - `here=b`: the window is machine B's.
+// - `trouble=no-agent|peer-off|link-down|permissions`: a trouble state (`V3-States`).
+// - `still`: no resources that change by themselves (for deterministic screenshots).
+// - `peer=none`: unpaired; pairing simulates the other machine (code and confirmation).
+//   `pair=code` starts by showing the code; `pair=reject`: the other machine rejects.
+// - `cross=ok|wrong|timeout`: the crossing test crosses through the arrangement edge, through another one,
+//   or times out right away (for screenshots). Without this (and without `still`), it crosses
+//   fine after a few seconds.
+// - `txn=run|ok|fail`: the progress screen of a scene in progress, finished or
+//   being undone (for screenshots). `fail=<scene>`: applying that scene fails and is undone.
+//   With `still`, an input or scene change is applied instantly and adds no events or
+//   changes the active scene: so screenshots do not depend on the clock.
 
-import { exitSide, isVertical, type Arrangement, type LayoutScreen, type LayoutView } from "../acomodo";
+import { exitSide, isVertical, type Arrangement, type LayoutScreen, type LayoutView } from "../arrangement";
 import type { CrossSample } from "../crossing";
 import type { AdminView, Bindings, MonitorInput, PairingView, Permission, SceneJson, SetupView, ShortcutsView, Step, TxnView } from "../model";
 import { measuredText } from "../network";
@@ -26,7 +26,7 @@ import { sceneView } from "../scenes";
 import { DEFAULT_BINDINGS } from "../shortcuts";
 import { checkName } from "../machine";
 import { reducedMotion } from "../motion";
-import { DEMO_LOOP_MS, demoPath, sampleAt, sceneOf } from "../puesto";
+import { DEMO_LOOP_MS, demoPath, sampleAt, sceneOf } from "../desk";
 import type { UpdateView } from "../updates";
 import { EMPTY_NETWORK, INPUT_TARGET_MS } from "./types";
 import type {
@@ -71,33 +71,33 @@ export interface DemoOptions {
   here: Machine;
   trouble: Trouble;
   still: boolean;
-  /** Arranca sin emparejar. */
+  /** Starts unpaired. */
   unpaired?: boolean;
-  /** Cómo responde the other machine al emparejar. */
+  /** How the other machine responds to pairing. */
   pairing?: "code" | "reject";
-  /** La guía de permisos del primer arranque se abre sola. */
+  /** The first-run permissions guide opens by itself. */
   firstRun?: boolean;
-  /** Abre el asistente en ese paso (0 a 5), para capturas y pruebas. */
+  /** Opens the setup at that step (0 to 5), for screenshots and tests. */
   wizard?: number;
-  /** macOS con Accesibilidad y Monitorización sin conceder y Red local concedida (`F-Setup3`). */
+  /** macOS with Accessibility and Monitoring not granted and Local network granted (`F-Setup3`). */
   perms?: "missing";
-  /** El servicio de administrador de macOS sin instalar: el asistente lo muestra pendiente (`F-Setup1`). */
+  /** The macOS administrator service not installed: the setup shows it pending (`F-Setup1`). */
   admin?: "pending" | "off";
-  /** Cómo termina la prueba de cruce. */
+  /** How the crossing test ends. */
   cross?: "ok" | "wrong" | "timeout";
-  /** La tercera escena se llama «PC only», como en `F-Settings` (el resto del mockup la llama «Juego»). */
-  soloPc?: boolean;
-  /** La pantalla de progreso de una escena en este punto. */
+  /** The third scene is called "PC only", as in `F-Settings` (the rest of the mockup calls it "Game"). */
+  pcOnly?: boolean;
+  /** The progress screen of a scene at this point. */
   txn?: "run" | "ok" | "fail";
-  /** Aplicar esta escena falla en su monitor y se deshace. */
+  /** Applying this scene fails on its monitor and is undone. */
   failScene?: string;
-  /** Los túneles del demo: los de `V3-Compute`, ninguno o uno con 12 procesos. */
-  tunnels?: "normal" | "none" | "many" | "notas" | "paleta" | "bandeja";
-  /** Los datos que dibuja `F-Palette`: «Trabajo» sobre la Mac, la tercera escena «PC only» y un túnel por proyecto. */
-  paleta?: boolean;
-  /** Los datos que dibuja `V3-Tray`: enlace de 0.4 ms, carga de la Mac al 18 %, «PC only» y túneles en tres proyectos. */
-  bandeja?: boolean;
-  /** The other machine cambia el puesto poco después de abrir (aviso «Cambiado desde…», D5). */
+  /** The demo tunnels: those of `V3-Compute`, none or one with 12 processes. */
+  tunnels?: "normal" | "none" | "many" | "notes" | "palette" | "tray";
+  /** The data `F-Palette` draws: "Work" on the Mac, the third scene "PC only" and one tunnel per project. */
+  palette?: boolean;
+  /** The data `V3-Tray` draws: 0.4 ms link, Mac load at 18 %, "PC only" and tunnels in three projects. */
+  tray?: boolean;
+  /** The other machine changes the desk shortly after opening ("Changed from…" notice, D5). */
   peerEdit?: boolean;
 }
 
@@ -117,12 +117,12 @@ export function demoOptions(query: string): DemoOptions {
     perms: p.get("perms") === "missing" ? "missing" : undefined,
     txn: p.get("txn") === "run" || p.get("txn") === "ok" || p.get("txn") === "fail" ? (p.get("txn") as "run" | "ok" | "fail") : undefined,
     failScene: p.get("fail") ?? undefined,
-    tunnels: p.has("paleta") ? "paleta" : p.has("bandeja") ? "bandeja" : p.get("tunnels") === "none" ? "none" : p.get("tunnels") === "many" ? "many" : p.get("tunnels") === "notas" ? "notas" : "normal",
-    paleta: p.has("paleta"),
-    bandeja: p.has("bandeja"),
+    tunnels: p.has("palette") ? "palette" : p.has("tray") ? "tray" : p.get("tunnels") === "none" ? "none" : p.get("tunnels") === "many" ? "many" : p.get("tunnels") === "notes" ? "notes" : "normal",
+    palette: p.has("palette"),
+    tray: p.has("tray"),
     peerEdit: p.has("peeredit"),
     admin: p.get("admin") === "pending" ? "pending" : p.get("admin") === "off" ? "off" : undefined,
-    soloPc: p.has("solopc") || p.has("paleta") || p.has("bandeja"),
+    pcOnly: p.has("pconly") || p.has("palette") || p.has("tray"),
     cross: p.get("cross") === "ok" ? "ok" : p.get("cross") === "wrong" ? "wrong" : p.get("cross") === "timeout" ? "timeout" : undefined,
   };
 }
@@ -134,7 +134,7 @@ export function isDemo(query: string): boolean {
 const BLUE = "#7aa7e6";
 const VIOLET = "#a99be8";
 
-/** Una pantalla de ejemplo (datos del mockup `V3-Arrangement`). */
+/** A sample screen (data from the `V3-Arrangement` mockup). */
 interface DemoScreen {
   id: string;
   name: string;
@@ -146,9 +146,9 @@ interface DemoScreen {
   res: string;
   ratio: string;
   scale: string;
-  /** Monitor externo: lo que muestra depende de la escena. */
+  /** External monitor: what it shows depends on the scene. */
   external?: boolean;
-  /** Desconectado: no entra en el acomodo. */
+  /** Disconnected: does not take part in the arrangement. */
   off?: boolean;
 }
 
@@ -168,7 +168,7 @@ interface Spec {
 
 const GIB = 2 ** 30;
 
-/** Una línea de los mockups (alturas `y` en un lienzo de `h`) como valores 0–100. */
+/** A line of the mockups (`y` heights on a canvas of `h`) as 0–100 values. */
 const fromY = (h: number, ys: number[]) => ys.map((y) => ((h - y) / h) * 100);
 
 const BUILTIN_14: DemoScreen = { id: "mbp", name: "MacBook Pro", short: "Mac", ask: "MacBook Pro", w: 12, h: 7.8, size: '14"', res: "1512 × 982", ratio: "16:10", scale: "200 % (Retina)" };
@@ -267,10 +267,10 @@ const PAIRS: Record<DemoPair, [Spec, Spec]> = {
 
 function modulesOf(os: Os, name: string, otherName: string, envs: number, adminPending = false): ModuleView[] {
   const mac = os === "macos";
-  // «the MacBook» (el mockup la nombra así); cualquier otra Mac, con su nombre completo («el Mac mini»), sin cortarlo.
+  // "the MacBook" (the mockup names it that way); any other Mac, with its full name ("the Mac mini"), without cutting it.
   const shown = name.startsWith("MacBook") ? "the MacBook" : `the ${name}`;
-  // Con un permiso de macOS faltando, la página lo muestra en su propia fila («Permisos», como
-  // `F-MachineMac`); el módulo sigue con lo que sí puede hacer.
+  // With a macOS permission missing, the page shows it in its own row ("Permissions", like
+  // `F-MachineMac`); the module goes on with what it can do.
   const list: ModuleView[] = [
     { id: "input", name: "Keyboard and mouse", state: "active", detail: mac ? "Capture with CGEventTap and injection with CGEventPost" : "Capture and injection (low-level hooks, SendInput)", switchable: true },
     { id: "clipboard", name: "Clipboard", state: "active", detail: "Text, HTML and image", switchable: true },
@@ -296,7 +296,7 @@ function modulesOf(os: Os, name: string, otherName: string, envs: number, adminP
 
 const ctrlAlt = (n: number): string[] => ["ControlLeft", "AltLeft", `Digit${n}`];
 
-/** Los monitores del demo: los externos de cada máquina. Los desconectados no son compatibles (D11). */
+/** The demo monitors: the external ones of each machine. The disconnected ones are not compatible (D11). */
 function demoMonitors(sa: Spec, sb: Spec): MonitorUi[] {
   const out: MonitorUi[] = [];
   for (const [owner, spec] of [["b", sb] as const, ["a", sa] as const]) {
@@ -306,7 +306,7 @@ function demoMonitors(sa: Spec, sb: Spec): MonitorUi[] {
         continue;
       }
       const input: MonitorInput = owner === "a" ? "hdmi" : "display_port";
-      // La hora del demo es fija (hora local): las capturas no dependen de la zona horaria.
+      // The demo time is fixed (local time): screenshots do not depend on the time zone.
       const at = (h: number, m: number) => new Date(2026, 10, 17, h, m).getTime();
       out.push({
         id: d.id,
@@ -328,24 +328,24 @@ function demoMonitors(sa: Spec, sb: Spec): MonitorUi[] {
   return out.sort((x, y) => Number(y.compat.ok) - Number(x.compat.ok));
 }
 
-/** Las escenas del demo sobre el primer monitor compatible (como el mockup). */
-export function demoScenes(a: string, b: string, monitors: MonitorUi[], mac: boolean, soloPc = false, trabajoEnA = false): SceneView[] {
+/** The demo scenes over the first compatible monitor (like the mockup). */
+export function demoScenes(a: string, b: string, monitors: MonitorUi[], mac: boolean, pcOnly = false, workOnA = false): SceneView[] {
   const m = monitors.find((x) => x.compat.ok)?.id;
   const raw: SceneJson[] = [
-    { id: "work", name: "Work", monitors: m ? [[m, trabajoEnA ? "a" : "b"]] : [], shortcut: ctrlAlt(1) },
+    { id: "work", name: "Work", monitors: m ? [[m, workOnA ? "a" : "b"]] : [], shortcut: ctrlAlt(1) },
     { id: "only-a", name: `${a.split(" ")[0]} only`, monitors: m ? [[m, "a"]] : [], shortcut: ctrlAlt(2) },
-    { id: "game", name: soloPc ? "PC only" : "Game", monitors: m ? [[m, "b"]] : [], shortcut: ctrlAlt(3) },
+    { id: "game", name: pcOnly ? "PC only" : "Game", monitors: m ? [[m, "b"]] : [], shortcut: ctrlAlt(3) },
   ];
   return raw.map((r) => sceneView(r, { monitors, name: (x) => (x === "a" ? a : b), mac }));
 }
 
 const MIN = 60_000;
-/** Medio minuto de más: las horas se leen «34 m» aunque pase un instante entre armar el demo y dibujarlo. */
+/** Half a minute extra: the times read "34 m" even if an instant passes between building the demo and drawing it. */
 const PAD = 20_000;
 
 interface DemoProc {
   cmd: string;
-  /** Hace cuánto empezó (ms). */
+  /** How long ago it started (ms). */
   ago: number;
   pid: number;
   log: string;
@@ -353,7 +353,7 @@ interface DemoProc {
 
 const p = (cmd: string, min: number, pid: number, log: string): DemoProc => ({ cmd, ago: min * MIN + PAD, pid, log });
 
-/** Los procesos que corren en cada túnel del demo (los de `V3-Compute`) y su salida. */
+/** The processes running in each demo tunnel (those of `V3-Compute`) and their output. */
 const DEMO_PROCS: Record<string, DemoProc[]> = {
   t97: [
     p("cargo test -p tandem-monitor", 2, 4127, "   Compiling tandem-monitor v0.3.0\n     Running unittests src/lib.rs\ntest probe_never_sends_vendor_codes ... ok\ntest hotplug_adds_monitor ... ok\ntest owner_failover_when_pc_sleeps ... ok\ntest verdict_failed_rolls_back_scene ... "),
@@ -376,7 +376,7 @@ const DEMO_PROCS: Record<string, DemoProc[]> = {
   comfy: [],
 };
 
-/** Un túnel con muchos procesos (`tunnels=many`): la lista tiene que aguantarlos con scroll. */
+/** A tunnel with many processes (`tunnels=many`): the list has to withstand them with scrolling. */
 const MANY_COMMANDS = [
   "cargo build --workspace",
   "cargo test -p tandem-link",
@@ -391,12 +391,12 @@ const MANY_COMMANDS = [
   "tensorboard --logdir out",
   "nvidia-smi -l 5",
 ];
-const MANY: DemoProc[] = MANY_COMMANDS.map((c, i) => p(c, 3 + i * 4, 6000 + i, `$ ${c}\nlisto\n`));
+const MANY: DemoProc[] = MANY_COMMANDS.map((c, i) => p(c, 3 + i * 4, 6000 + i, `$ ${c}\nready\n`));
 
-/** El demo de los túneles: los cinco de `V3-Compute`, ninguno (`tunnels=none`) o uno con 12 procesos (`tunnels=many`). */
+/** The tunnels demo: the five of `V3-Compute`, none (`tunnels=none`) or one with 12 processes (`tunnels=many`). */
 export function demoTunnels(now: number, which: DemoOptions["tunnels"] = "normal", oses: Record<Machine, Os> = { a: "macos", b: "windows" }): TunnelView[] {
   if (which === "none") return [];
-  // El entorno sale del sistema de la máquina destino (G2): en Windows, WSL o el propio Windows; en macOS, zsh.
+  // The environment comes from the target machine's system (G2): on Windows, WSL or Windows itself; on macOS, zsh.
   const env = (to: Machine, windows: string) => (oses[to] === "macos" ? "zsh" : windows);
   const t = (id: string, project: string, path: string, title: string, branch: string, from: Machine, to: Machine, state: TunnelState, openMin: number, env: string, o: Partial<TunnelView>): TunnelView => ({
     id,
@@ -425,43 +425,43 @@ export function demoTunnels(now: number, which: DemoOptions["tunnels"] = "normal
     t("comfy", "ia-local", "~/…/ia-local", "Try ComfyUI workflow", "main", "a", "b", "closed", 0, env("b", "Windows"), { commands: 4, closedAt: now - 60 * MIN, traffic: { up: 12e6, down: 1e6 } }),
   ];
   if (which === "many") return [{ ...list[0], processes: MANY.length }, ...list.slice(1)];
-  // `V3-Tray` dibuja la revisión del PR como un tercer proyecto («notas»); `V3-Compute` la deja en «tandem».
-  // `F-Palette` lista un túnel por proyecto, con el proyecto como título.
-  if (which === "paleta") return [{ ...list[3], title: "ia-local" }, { ...list[0], title: "tandem" }];
-  // `V3-Tray`: dos proyectos activos con un túnel cada uno y las «notas» en reposo.
-  if (which === "bandeja") return [{ ...list[3], title: "ia-local" }, { ...list[0], title: "tandem" }, { ...list[2], project: "notes", projectPath: "~/…/notes" }];
-  if (which === "notas") return list.map((x) => (x.id === "pr" ? { ...x, project: "notes", projectPath: "~/…/notes" } : x));
+  // `V3-Tray` draws the PR review as a third project ("notes"); `V3-Compute` leaves it in "tandem".
+  // `F-Palette` lists one tunnel per project, with the project as the title.
+  if (which === "palette") return [{ ...list[3], title: "ia-local" }, { ...list[0], title: "tandem" }];
+  // `V3-Tray`: two active projects with one tunnel each and the "notes" idle.
+  if (which === "tray") return [{ ...list[3], title: "ia-local" }, { ...list[0], title: "tandem" }, { ...list[2], project: "notes", projectPath: "~/…/notes" }];
+  if (which === "notes") return list.map((x) => (x.id === "pr" ? { ...x, project: "notes", projectPath: "~/…/notes" } : x));
   return list;
 }
 
-/** Los procesos del demo de un túnel, como los daría el agente. */
+/** The demo processes of a tunnel, as the agent would give them. */
 export function demoProcesses(id: string, now: number, which: DemoOptions["tunnels"] = "normal"): ProcessRow[] {
   const procs = which === "many" && id === "t97" ? MANY : (DEMO_PROCS[id] ?? []);
   return procs.map((q, i) => ({ id: i + 1, command: q.cmd, pid: q.pid, startedAt: now - q.ago, state: "running", code: null }));
 }
 
-/** La salida del demo de un proceso (entera: no tiene cursor que avanzar). */
+/** The demo output of a process (whole: it has no cursor to advance). */
 export function demoLog(id: string, process: number, which: DemoOptions["tunnels"] = "normal"): string {
   const procs = which === "many" && id === "t97" ? MANY : (DEMO_PROCS[id] ?? []);
   return procs[process - 1]?.log ?? "";
 }
 
-/** La hora del demo (fija: capturas deterministas). Los cambios de camino se fechan desde aquí. */
+/** The demo time (fixed: deterministic screenshots). Path changes are dated from here. */
 export const DEMO_NOW = 1_763_400_000_000;
 
-/** Lo que da cada camino en el demo, en Gbps (los números de `V3-Network`). */
+/** What each path gives in the demo, in Gbps (the numbers of `V3-Network`). */
 const DEMO_GBPS: Record<LinkKind, number> = { usb4: 9.4, ethernet: 2.3, wifi: 0.41 };
 
 const HISTORY = 60;
-/** Segundo del historial en que se desconectó el cable y en que volvió. */
+/** Second of the history in which the cable was disconnected and in which it came back. */
 const CUT_AT = 23;
 const BACK_AT = 31;
 
 const round = (n: number, d = 10) => Math.round(n * d) / d;
 
 /**
- * El p99 de la entrada de cada segundo (ms): la línea baja de `V3-Network` y, entre el corte y la
- * vuelta del cable, el pico, que lleva el Wi-Fi.
+ * The input p99 of each second (ms): the low line of `V3-Network` and, between the cut and the
+ * cable's return, the peak, which Wi-Fi carries.
  */
 const DEMO_INPUT = [
   1.2, 1.22, 1.25, 1.27, 1.29, 1.27, 1.23, 1.18, 1.14, 1.11, 1.18, 1.25, 1.31, 1.38, 1.37, 1.32, 1.28, 1.23, 1.21, 1.23, 1.25, 1.27, 1.3, 2.15, 3.12,
@@ -470,8 +470,8 @@ const DEMO_INPUT = [
 ];
 
 /**
- * El segundo `i` del historial de un camino (determinista). El USB-C lleva la entrada salvo
- * entre el corte y la vuelta, cuando la lleva el Wi-Fi: ahí está el pico de la gráfica.
+ * Second `i` of a path's history (deterministic). USB-C carries the input except
+ * between the cut and the return, when Wi-Fi carries it: that is where the chart peak is.
  */
 function demoPoint(kind: LinkKind, i: number): LatencyPoint {
   const jitter = ((i * 7) % 5) / 5;
@@ -484,10 +484,10 @@ function demoPoint(kind: LinkKind, i: number): LatencyPoint {
   return { rttMs: round(3.6 + jitter * 0.6, 100), inputP99Ms: cut ? (DEMO_INPUT[i] ?? null) : null };
 }
 
-/** Lo que se sabe de cada enlace en el demo (los textos de `V3-Network`). */
+/** What is known about each link in the demo (the texts of `V3-Network`). */
 const DEMO_DETAIL: Record<LinkKind, string> = { usb4: "USB4 · 20 Gbps", ethernet: "2.5 GbE", wifi: "Wi-Fi 7 · home" };
 
-/** La red del demo: USB-C principal, Ethernet no cable y Wi-Fi de respaldo (`V3-Network`). */
+/** The demo network: primary USB-C, Ethernet with no cable and backup Wi-Fi (`V3-Network`). */
 export function demoNetwork(linkUp: boolean): NetworkView {
   if (!linkUp) return { ...EMPTY_NETWORK, paths: EMPTY_NETWORK.paths.map((p) => ({ ...p })) };
   const path = (kind: LinkKind, state: PathView["state"], rttMs: number | null, input: [number, number] | null, gbps: number | null): PathView => {
@@ -530,10 +530,10 @@ function permissionsFor(os: Os, missing: boolean, netGranted = false): Permissio
   };
 }
 
-/** Como en el mockup: the other machine to the left of del 34", alineada abajo. */
+/** As in the mockup: the other machine to the left of the 34", aligned at the bottom. */
 export const DEMO_ARRANGEMENT: Arrangement = { aSide: "left", align: "end" };
 
-/** Las pantallas de ejemplo: las de A primero (como el mockup), las desconectadas al final. */
+/** The sample screens: A's first (like the mockup), the disconnected ones last. */
 function demoLayout(sa: Spec, sb: Spec, scenes: SceneView[], active: string | null): LayoutView {
   const scene = scenes.find((x) => x.id === active) ?? null;
   const screens: LayoutScreen[] = [];
@@ -555,14 +555,14 @@ function demoLayout(sa: Spec, sb: Spec, scenes: SceneView[], active: string | nu
   return { screens: [...screens, ...off], arrangement: { ...DEMO_ARRANGEMENT } };
 }
 
-/** Con el puesto emparejado the other machine va por el cable; antes solo se la encuentra por la red (Wi-Fi). */
+/** With the desk paired, the other machine goes over the cable; before that it is only found over the network (Wi-Fi). */
 const PAIRED_LINK: LinkView = { kind: "usb4", gbps: 9.4, ms: 0.3, inputP99: 1.9 };
-/** `V3-Tray` dice 0.4 ms (el Puesto, 0.3). */
+/** `V3-Tray` says 0.4 ms (the Desk, 0.3). */
 const TRAY_LINK: LinkView = { ...PAIRED_LINK, ms: 0.4 };
 const UNPAIRED_LINK: LinkView = { kind: "wifi", gbps: 0.41, ms: 3.8, inputP99: null };
 const NO_LINK: LinkView = { kind: null, gbps: null, ms: null, inputP99: null };
 
-/** El puesto simulado para unas opciones (puro: mismas opciones, mismo puesto). */
+/** The simulated desk for some options (pure: same options, same desk). */
 export function demoDesk(o: DemoOptions): DeskView {
   const [sa, sb] = PAIRS[o.pair];
   const peer: Machine = o.here === "a" ? "b" : "a";
@@ -578,7 +578,7 @@ export function demoDesk(o: DemoOptions): DeskView {
       detail: s.detail,
       here,
       power,
-      resources: power === "on" ? { ...s.resources, ...(o.bandeja && s.os === "macos" ? { gpu: { percent: 18, label: "18 %" } } : {}), history: [...s.resources.history] } : null,
+      resources: power === "on" ? { ...s.resources, ...(o.tray && s.os === "macos" ? { gpu: { percent: 18, label: "18 %" } } : {}), history: [...s.resources.history] } : null,
       modules: modulesOf(s.os, s.name, otherName, s.environments.length, o.admin === "pending"),
       system: s.system,
       hardware: s.hardware,
@@ -589,7 +589,7 @@ export function demoDesk(o: DemoOptions): DeskView {
     };
   };
   const monitors = demoMonitors(sa, sb).map((m) => (o.txn === "fail" && m.compat.ok ? { ...m, input: "hdmi" as const, shows: "a" as const, owner: "b" as const } : m));
-  const scenes = demoScenes(sa.name, sb.name, monitors, (o.here === "a" ? sa : sb).os === "macos", o.soloPc, o.paleta);
+  const scenes = demoScenes(sa.name, sb.name, monitors, (o.here === "a" ? sa : sb).os === "macos", o.pcOnly, o.palette);
   const linkUp = o.trouble !== "peer-off" && o.trouble !== "link-down" && o.trouble !== "no-agent";
   return {
     ready: true,
@@ -601,7 +601,7 @@ export function demoDesk(o: DemoOptions): DeskView {
     troubleText: TROUBLE_TEXT[o.trouble](peerSpec.name),
     here: o.here,
     machines: { a: mk("a", sa, sb.name), b: mk("b", sb, sa.name) },
-    link: linkUp ? (o.unpaired ? UNPAIRED_LINK : o.bandeja ? TRAY_LINK : PAIRED_LINK) : NO_LINK,
+    link: linkUp ? (o.unpaired ? UNPAIRED_LINK : o.tray ? TRAY_LINK : PAIRED_LINK) : NO_LINK,
     network: o.txn && linkUp ? { ...demoNetwork(linkUp), measuring: "usb4" } : demoNetwork(linkUp),
     tunnels: demoTunnels(o.still ? DEMO_NOW : Date.now(), o.tunnels, { a: sa.os, b: sb.os }),
     scenes,
@@ -616,32 +616,32 @@ export function demoDesk(o: DemoOptions): DeskView {
   };
 }
 
-/** Cuánto tarda el cruce simulado cuando nadie dijo cómo termina. */
+/** How long the simulated crossing takes when nobody said how it ends. */
 const CROSS_MS = 2500;
 
 const PAIR_FOUND_MS = 1400;
 const PAIR_OTHER_MS = 1200;
 
-/** Cuánto tarda the other machine en «editar» el puesto cuando el demo lo pide. */
+/** How long the other machine takes to "edit" the desk when the demo asks for it. */
 const PEER_EDIT_MS = 1200;
 
 const CURSOR_MS = 33;
 const TICK_MS = 1500;
 const RESCAN_MS = 900;
-/** Lo que tarda la medición de ancho de banda en el demo. */
+/** How long the bandwidth measurement takes in the demo. */
 const DEMO_MEASURE_MS = 1500;
 
-/** Lo que tarda cada paso de una transacción simulada. */
+/** How long each step of a simulated transaction takes. */
 const STEP_MS = 700;
 
-/** Una fuente simulada: responde a las acciones como lo haría el agente. */
+/** A simulated source: it responds to actions as the agent would. */
 export class DemoSource implements Source {
   readonly demo = true;
   private desk: DeskView;
   private emit: (d: DeskView) => void = () => {};
   private timer: ReturnType<typeof setInterval> | undefined;
   private topics: Topic[] = [];
-  /** Lo que se pidió en vivo, para las pruebas. */
+  /** What was asked live, for the tests. */
   readonly watched: Topic[][] = [];
 
   constructor(private readonly opts: DemoOptions) {
@@ -659,22 +659,22 @@ export class DemoSource implements Source {
   private onChange: ((c: DeskChange) => void) | undefined;
   private onTransfer: ((t: TransferView) => void) | undefined;
 
-  /** El avance de una copia de archivos, como lo mandaría el agente. */
+  /** The progress of a file copy, as the agent would send it. */
   simulateTransfer(t: TransferView): void {
     this.onTransfer?.(t);
   }
 
-  /** The other machine cambió el puesto (D5): lo que haría `DeskChanged` del agente. */
+  /** The other machine changed the desk (D5): what the agent's `DeskChanged` would do. */
   simulateChange(c: DeskChange): void {
     this.onChange?.(c);
   }
 
-  /** Versión del puesto en el demo: cada cambio la sube. */
+  /** Desk version in the demo: each change raises it. */
   rev = 1;
-  /** El puesto tal como estaba en cada versión, para que «Deshacer» lo restaure de verdad. */
+  /** The desk as it was at each version, so "Undo" really restores it. */
   private readonly history = new Map<number, DeskView>();
 
-  /** Guarda el puesto actual como la versión vigente y sube la versión; devuelve la anterior. */
+  /** Saves the current desk as the current version and raises the version; returns the previous one. */
   private bump(): number {
     const before = this.rev;
     this.history.set(before, this.desk);
@@ -682,7 +682,7 @@ export class DemoSource implements Source {
     return before;
   }
 
-  /** Un cambio hecho desde the other machine (acomodo): se aplica y avisa con «Deshacer». */
+  /** A change made from the other machine (arrangement): it is applied and announces itself with "Undo". */
   peerEdit(summary = "Keyboard and mouse: the shared clipboard is off"): void {
     const undoTo = this.bump();
     this.set({ ...this.desk, prefs: { ...this.desk.prefs, clipboard: !this.desk.prefs.clipboard } });
@@ -724,22 +724,22 @@ export class DemoSource implements Source {
     this.watched.push(this.topics);
     clearInterval(this.timer);
     this.timer = undefined;
-    // Los recursos y la red cambian solos, y solo si la pantalla visible los muestra.
+    // Resources and the network change by themselves, and only if the visible screen shows them.
     const live = topics.includes("resources") || topics.includes("network");
     if (!this.opts.still && live) this.timer = setInterval(() => this.tick(), TICK_MS);
   }
 
-  /** Avanza una muestra lo que la pantalla visible muestra: recursos y red. */
+  /** Advances a sample of what the visible screen shows: resources and network. */
   tick(): void {
     if (this.topics.includes("resources")) this.tickResources();
     if (this.topics.includes("network")) this.tickNetwork();
   }
 
-  /** El historial de cada camino que responde avanza un segundo. */
+  /** The history of each responding path advances a second. */
   private tickNetwork(): void {
     const paths = this.desk.network.paths.map((p) => {
       if (p.state !== "primary" && p.state !== "backup") return p;
-      // Tráfico normal (los segundos de antes del corte), en ciclo.
+      // Normal traffic (the seconds before the cut), in a cycle.
       const point = demoPoint(p.kind, this.ticks % CUT_AT);
       return { ...p, rttMs: point.rttMs ?? p.rttMs, history: [...p.history.slice(1), point] };
     });
@@ -749,7 +749,7 @@ export class DemoSource implements Source {
 
   private ticks = 0;
 
-  /** Mueve un poco los recursos: la sparkline avanza una muestra. */
+  /** Moves the resources a little: the sparkline advances a sample. */
   private tickResources(): void {
     const next = { ...this.desk, machines: { ...this.desk.machines } };
     for (const id of ["a", "b"] as Machine[]) {
@@ -770,13 +770,13 @@ export class DemoSource implements Source {
     this.emit(d);
   }
 
-  // ---- Monitores, escenas y su progreso --------------------------------------------------
+  // ---- Monitors, scenes and their progress ---------------------------------------------
 
   private txnListeners = new Set<(e: TxnView, at?: number, origin?: { title: string; doneText: string }) => void>();
   private nextTxn = 1;
   private txnTimers: ReturnType<typeof setTimeout>[] = [];
 
-  /** La hora de la fuente: fija en las capturas (progreso fijo o demo quieto), si no la del reloj. */
+  /** The source time: fixed in screenshots (fixed progress or still demo), otherwise the clock's. */
   now(): number {
     const t = this.opts.txn;
     return t ? DEMO_NOW + (t === "run" ? 1200 : t === "ok" ? 2300 : 3000) : this.opts.still ? DEMO_NOW : Date.now();
@@ -790,7 +790,7 @@ export class DemoSource implements Source {
     };
   }
 
-  /** El progreso de «Juego» en un punto fijo, con las horas de `F-Transactions`. */
+  /** The progress of "Game" at a fixed point, with the times of `F-Transactions`. */
   private replay(emit: (e: TxnView, at?: number, origin?: { title: string; doneText: string }) => void, at: "run" | "ok" | "fail"): void {
     const g34 = this.desk.monitors.find((m) => m.compat.ok);
     const steps: Step[] = [
@@ -799,8 +799,8 @@ export class DemoSource implements Source {
     ];
     const t0 = DEMO_NOW;
     const txn = 1;
-    // Las otras dos tarjetas de `F-Transactions`: la PC encendiéndose lleva 18 s esperando
-    // (el reloj de la fuente corre a la par) y el enlace USB-C se está midiendo (en `demoDesk`).
+    // The other two cards of `F-Transactions`: the PC powering on has been waiting 18 s
+    // (the source clock runs alongside) and the USB-C link is being measured (in `demoDesk`).
     const boot = this.now() - 18_000;
     emit({ type: "started", txn: 2, steps: [{ step: "power_on", machine: "b" }] }, boot);
     emit({ type: "step_started", txn: 2, index: 0 }, boot + 100);
@@ -808,7 +808,7 @@ export class DemoSource implements Source {
     emit({ type: "step_started", txn, index: 0 }, t0 + 100);
     if (at === "run") return;
     if (at === "fail") {
-      emit({ type: "step_failed", txn, index: 0, error: "the monitor showed no picture over DisplayPort; it stays on HDMI" }, t0 + 3000);
+      emit({ type: "step_failed", txn, index: 0, error: "the monitor showed no image over DisplayPort; it stays on HDMI" }, t0 + 3000);
       return;
     }
     emit({ type: "step_done", txn, index: 0 }, t0 + 1900);
@@ -822,8 +822,8 @@ export class DemoSource implements Source {
   }
 
   /**
-   * Corre una transacción simulada: cada paso tarda un poco y avisa. Con `still` todo ocurre
-   * al instante. `failAt` hace fallar ese paso y deshace los anteriores.
+   * Runs a simulated transaction: each step takes a little and announces itself. With `still` everything happens
+   * instantly. `failAt` makes that step fail and undoes the previous ones.
    */
   private runTxn(steps: Step[], effect: (step: Step) => void, done: () => void, failAt: number | null = null): void {
     const txn = this.nextTxn++;
@@ -844,7 +844,7 @@ export class DemoSource implements Source {
       this.emitTxn({ type: "step_started", txn, index: i });
       after(gap, () => {
         if (i === failAt) {
-          this.emitTxn({ type: "step_failed", txn, index: i, error: "the monitor showed no picture over DisplayPort; it stays on HDMI" });
+          this.emitTxn({ type: "step_failed", txn, index: i, error: "the monitor showed no image over DisplayPort; it stays on HDMI" });
           undo(i - 1);
           return;
         }
@@ -870,11 +870,11 @@ export class DemoSource implements Source {
     return { ok: true };
   }
 
-  /** La entrada real de un monitor cambió (por el cambio pedido o por la escena). */
+  /** The real input of a monitor changed (by the requested change or by the scene). */
   private setMonitor(id: string, input: MonitorInput, shows: Machine | null): void {
     const monitors = this.desk.monitors.map((m) => {
       if (m.id !== id) return m;
-      // Con `still` no se agrega el evento: llevaría la hora del reloj (capturas deterministas).
+      // With `still` the event is not added: it would carry the clock time (deterministic screenshots).
       const events = this.opts.still ? m.events : [{ at: Date.now(), kind: "switch" as const, text: `Input → ${input === "hdmi" ? "HDMI" : "DP"}, requested by Tandem` }, ...m.events].slice(0, 3);
       return { ...m, input, shows, events };
     });
@@ -942,13 +942,13 @@ export class DemoSource implements Source {
     return { ok: true, text: on ? `${m.name} powered on` : `${m.name} powered off` };
   }
 
-  /** Mide al instante lo que da cada camino en el demo. */
+  /** Instantly measures what each path gives in the demo. */
   async measureLink(path?: LinkKind): Promise<ActResult> {
     const kind = path ?? this.desk.link.kind;
     const target = this.desk.network.paths.find((p) => p.kind === kind);
     if (!kind || !target || (target.state !== "primary" && target.state !== "backup")) return { ok: false, reason: "No link with the other machine over that path" };
     if (!this.opts.still) {
-      // La prueba real dura 3 s: la pantalla muestra qué camino se está midiendo.
+      // The real test lasts 3 s: the screen shows which path is being measured.
       this.set({ ...this.desk, network: { ...this.desk.network, measuring: kind } });
       await new Promise((done) => setTimeout(done, DEMO_MEASURE_MS));
     }
@@ -970,7 +970,7 @@ export class DemoSource implements Source {
     return { ok: true };
   }
 
-  /** Re-escanear tarda un poco, como en la máquina real; lo encontrado vuelve con el puesto. */
+  /** Rescanning takes a while, as on the real machine; what is found returns with the desk. */
   async rescan(machine: Machine): Promise<ActResult> {
     const m = this.desk.machines[machine];
     if (!m) return { ok: false, reason: "That machine is not known" };
@@ -998,7 +998,7 @@ export class DemoSource implements Source {
     return { ok: true };
   }
 
-  /** Lo mismo que valida el puesto: nombre no vacío y corto, color de la paleta y distinto. */
+  /** The same thing the desk validates: non-empty and short name, a color from the palette and distinct. */
   async editMachine(machine: Machine, edit: { name?: string; color?: string }): Promise<ActResult> {
     const m = this.desk.machines[machine];
     if (!m) return { ok: false, reason: `machine ${machine.toUpperCase()} is not known yet` };
@@ -1026,7 +1026,7 @@ export class DemoSource implements Source {
     this.set({ ...this.desk, link, pair: { peer, pairing } });
   }
 
-  /** Simula a the other machine: aparece el código y, al confirmar, confirma ella también. */
+  /** Simulates the other machine: the code appears and, on confirming, it confirms too. */
   async setArrangement(a: Arrangement): Promise<ActResult> {
     if (this.desk.trouble === "no-agent") return { ok: false, reason: "The Tandem agent is not running on this machine" };
     this.set({ ...this.desk, layout: { ...this.desk.layout, arrangement: { ...a } } });
@@ -1035,20 +1035,20 @@ export class DemoSource implements Source {
 
   private listeners = new Set<(m: Machine) => void>();
 
-  /** Escuchar teclas en cada máquina; el demo las recibe de `heardKey` (las pruebas) o de la ventana. */
+  /** Listen for keys on each machine; the demo receives them from `heardKey` (the tests) or from the window. */
   async watchKeyProbe(onHeard: (m: Machine) => void): Promise<() => void> {
     this.listeners.add(onHeard);
     return () => void this.listeners.delete(onHeard);
   }
 
-  /** Una tecla oída en `m`. */
+  /** A key heard on `m`. */
   heardKey(m: Machine): void {
     for (const f of [...this.listeners]) f(m);
   }
 
   private crossers = new Set<(s: CrossSample) => void>();
 
-  /** La prueba de cruce: con `cross=…` termina como se pidió; si no, cruza bien a los pocos segundos. */
+  /** The crossing test: with `cross=…` it ends as requested; otherwise it crosses fine after a few seconds. */
   async watchCrossing(onCross: (s: CrossSample) => void): Promise<() => void> {
     this.crossers.add(onCross);
     const { here, layout } = this.desk;
@@ -1056,7 +1056,7 @@ export class DemoSource implements Source {
     const how = this.opts.cross;
     let timer: ReturnType<typeof setTimeout> | undefined;
     if (how === "ok" || how === "wrong") {
-      // El borde equivocado: uno de los dos que no son el del acomodo ni el opuesto.
+      // The wrong edge: one of the two that are neither the arrangement's nor the opposite.
       const wrong = isVertical(edge) ? "up" : "right";
       this.cross({ from: here, to: here === "a" ? "b" : "a", edge: how === "ok" ? edge : wrong, at: 612, of: 1440, ms: 0.4 });
     } else if (!how && !this.opts.still) {
@@ -1069,8 +1069,8 @@ export class DemoSource implements Source {
   }
 
   /**
-   * El cursor en vivo: sigue el recorrido del mockup (7 s, de the MacBook al 34" y de vuelta) y
-   * avisa cada cruce. Con `still` (o sin movimiento permitido) manda solo el punto de partida.
+   * The live cursor: follows the mockup path (7 s, from the MacBook to the 34" and back) and
+   * announces each crossing. With `still` (or without allowed motion) it sends only the starting point.
    */
   async watchCursor(onEvent: (e: CursorEvent) => void): Promise<() => void> {
     const names = (m: Machine) => this.desk.machines[m]?.name ?? m;
@@ -1096,12 +1096,12 @@ export class DemoSource implements Source {
     };
   }
 
-  /** Un cruce del cursor (lo que informaría el motor de entrada). */
+  /** A cursor crossing (what the input engine would report). */
   cross(s: CrossSample): void {
     for (const f of [...this.crossers]) queueMicrotask(() => f(s));
   }
 
-  /** Con `cross=timeout` la prueba se queda sin tiempo apenas empieza. */
+  /** With `cross=timeout` the test runs out of time right away. */
   get crossTimeoutMs(): number | undefined {
     return this.opts.cross === "timeout" ? 0 : undefined;
   }
@@ -1132,7 +1132,7 @@ export class DemoSource implements Source {
     }
   }
 
-  /** El demo no tiene motor de entrada: el bloqueo solo cambia el estado que se ve. */
+  /** The demo has no input engine: locking only changes the state shown. */
   async lockHere(on: boolean): Promise<ActResult> {
     this.set({ ...this.desk, locked: on });
     return { ok: true, text: on ? "Cursor locked here" : "Lock removed" };
@@ -1142,7 +1142,7 @@ export class DemoSource implements Source {
     return { ok: true };
   }
 
-  /** En el demo, abrir el panel equivale a que el usuario lo concede. */
+  /** In the demo, opening the panel is equivalent to the user granting it. */
   async openPermission(p: Permission): Promise<ActResult> {
     const perms = this.desk.permissions;
     const rows = perms.rows.map((r) => (r.id === p && r.state === "missing" ? { ...r, state: "granted" as const } : r));
@@ -1197,11 +1197,11 @@ export class DemoSource implements Source {
 
   async output(tunnel: string, process: number, from: OutputCursor): Promise<OutputChunk> {
     const text = demoLog(tunnel, process, this.opts.tunnels);
-    // El demo da toda la salida de una vez; con el cursor al final no hay nada nuevo.
+    // The demo gives all the output at once; with the cursor at the end there is nothing new.
     return { text: from.stdout > 0 ? "" : text, next: { stdout: text.length, stderr: 0 }, done: false };
   }
 
-  // Actualizaciones simuladas (`F-Settings`): las dos en 0.3.0 y, al buscar, aparece 0.3.1.
+  // Simulated updates (`F-Settings`): both on 0.3.0 and, when searching, 0.3.1 appears.
   private upd: UpdateView = { here: "0.3.0", peer: "0.3.0", paired: true, available: null, checking: false, step: null, error: null, auto: true };
   private onUpd: ((v: UpdateView) => void) | null = null;
 
@@ -1220,7 +1220,7 @@ export class DemoSource implements Source {
     return this.setUpd({ ...this.upd, checking: false, available: "0.3.1", error: null });
   }
 
-  /** En el demo no se instala nada: se muestra el primer paso y queda ahí. */
+  /** Nothing is installed in the demo: the first step is shown and stays there. */
   async updateAll(): Promise<UpdateView> {
     if (!this.upd.available) throw new Error("there is no new version: check first");
     return this.setUpd({ ...this.upd, step: "ask_peer" });
@@ -1230,7 +1230,7 @@ export class DemoSource implements Source {
     return this.setUpd({ ...this.upd, auto: on });
   }
 
-  /** Todo se puede simular; medir, solo con un camino que responda. */
+  /** Everything can be simulated; measuring, only with a responding path. */
   can(what: Capability): boolean {
     return what !== "measure" || this.desk.link.kind !== null;
   }

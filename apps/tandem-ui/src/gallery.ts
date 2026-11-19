@@ -1,4 +1,4 @@
-// Galería de componentes para el arnés (solo en builds con modo demo).
+// Component gallery for the harness (only in builds with demo mode).
 import "./styles/fonts";
 import "./styles/global.css";
 

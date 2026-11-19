@@ -1,12 +1,12 @@
-// Entorno de las pruebas de componentes (jsdom): matchers de DOM y un `matchMedia` que se
-// puede cambiar para probar `prefers-reduced-motion`.
+// Environment of the component tests (jsdom): DOM matchers and a `matchMedia` that can be
+// changed to test `prefers-reduced-motion`.
 import "@testing-library/jest-dom/vitest";
 import { cleanup } from "@testing-library/svelte";
 import { afterEach } from "vitest";
 
 let reduced = false;
 
-/** Simula la preferencia del sistema de reducir el movimiento. */
+/** Simulates the system preference to reduce motion. */
 export function setReducedMotion(on: boolean): void {
   reduced = on;
 }
@@ -30,7 +30,7 @@ Object.defineProperty(window, "matchMedia", {
   }),
 });
 
-// jsdom no trae la API de animaciones web que usan las transiciones de Svelte.
+// jsdom does not have the web animations API that Svelte transitions use.
 if (!Element.prototype.animate) {
   Element.prototype.animate = function () {
     const anim = {

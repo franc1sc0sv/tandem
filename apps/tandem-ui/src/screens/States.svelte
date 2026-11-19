@@ -1,0 +1,60 @@
+<script lang="ts">
+  // Trouble states, reference view (`V3-States`, Settings → Advanced): the nine
+  // cards with the real names of the desk and the action that fixes each one.
+  import { useStore } from "../lib/context";
+  import { stateCards, type StateDo } from "../lib/states";
+  import { WIZARD_PAIR } from "../lib/store/store.svelte";
+  import StateCard from "../ui/StateCard.svelte";
+
+  const store = useStore();
+  const desk = $derived(store.desk);
+  const cards = $derived(stateCards(desk, { gallery: store.demo, failedScene: store.failedScene, example: store.demo && new URLSearchParams(location.search).has("states") }));
+  const peer = $derived(desk.here === "a" ? "b" : "a");
+
+  function run(does: StateDo, sceneId?: string) {
+    if (does === "pair-peer") store.openWizard(WIZARD_PAIR);
+    else if (does === "power-on") void store.setPower(peer, true);
+    else if (does === "tunnels") store.go({ screen: "tunnels" });
+    else if (does === "permission") void store.openPermission("input_monitoring");
+    else if (sceneId) void store.applyScene(sceneId);
+  }
+</script>
+
+<div class="page">
+  <div class="head">
+    <h1>Trouble states</h1>
+    <span class="mut sub">How each thing looks when it does not go well. Rule: it always says what happened, what Tandem did on its own and what you can do.</span>
+  </div>
+  <div class="grid">
+    {#each cards as c, i (c.id)}
+      <StateCard spec={c} index={i} onaction={() => c.action && run(c.action.does, c.action.sceneId)} />
+    {/each}
+  </div>
+</div>
+
+<style>
+  .page {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    flex: 1;
+  }
+  .head {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  h1 {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 650;
+  }
+  .sub {
+    font-size: 12.5px;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    gap: 14px;
+  }
+</style>

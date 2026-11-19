@@ -1,6 +1,6 @@
-// Fuentes de la app, en este orden (ver `fonts-fallback.css`): primero las caras de
-// respaldo de DejaVu Sans, después Inter y JetBrains Mono. Los mismos pesos que piden los
-// mockups (Inter 400–700, JetBrains Mono 400–500), solo latín y latín extendido.
+// The app fonts, in this order (see `fonts-fallback.css`): first the DejaVu Sans
+// fallback faces, then Inter and JetBrains Mono. The same weights the
+// mockups ask for (Inter 400–700, JetBrains Mono 400–500), Latin and extended Latin only.
 import "./fonts-fallback.css";
 import "@fontsource/inter/latin-ext-400.css";
 import "@fontsource/inter/latin-400.css";

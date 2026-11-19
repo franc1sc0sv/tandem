@@ -5,13 +5,13 @@
     value: string;
     label: string;
     icon?: IconName;
-    /** Color del ícono (por ejemplo, el de la máquina). */
+    /** Icon color (for example, the machine's). */
     iconColor?: string;
-    /** Texto chico al lado (`HDMI`). */
+    /** Small text beside it (`HDMI`). */
     note?: string;
-    /** Borde del indicador cuando esta opción está elegida. */
+    /** Border of the indicator when this option is chosen. */
     accent?: string;
-    /** Grosor del trazo del ícono (1.8 por omisión; 2 en las alineaciones del acomodo). */
+    /** Stroke thickness of the icon (1.8 by default; 2 in the arrangement alignments). */
     iconStroke?: number;
   }
 </script>
@@ -22,9 +22,9 @@
   interface Props {
     options: SegOption[];
     value: string;
-    /** Nombre accesible del grupo. */
+    /** Accessible name of the group. */
     label: string;
-    /** `md`: 36 px por opción (Acomodo); `lg`: 42 px (Monitores). */
+    /** `md`: 36 px per option (Arrangement); `lg`: 42 px (Monitors). */
     size?: "md" | "lg";
     onchange?: (value: string) => void;
   }
@@ -45,7 +45,7 @@
     if (focus) buttons[i]?.focus();
   }
 
-  // Grupo de radio (WAI-ARIA): las flechas mueven y eligen, Inicio/Fin van a los extremos.
+  // Radio group (WAI-ARIA): the arrows move and choose, Home/End go to the ends.
   function onkeydown(e: KeyboardEvent) {
     const n = options.length;
     const keys: Record<string, number> = { ArrowRight: index + 1, ArrowDown: index + 1, ArrowLeft: index - 1, ArrowUp: index - 1, Home: 0, End: n - 1 };
@@ -74,7 +74,7 @@
 </div>
 
 <style>
-  /* Segmentado con indicador deslizante (V3-Arrangement, V3-Monitors). */
+  /* Segmented control with sliding indicator (V3-Arrangement, V3-Monitors). */
   .seg {
     --pad: 3px;
     position: relative;
@@ -93,8 +93,8 @@
     top: var(--pad);
     bottom: var(--pad);
     left: var(--pad);
-    /* Caja de contenido, como en los mockups: con el borde, el indicador mide 2 px más que
-       una opción. */
+    /* Content box, as in the mockups: with the border, the indicator measures 2 px more than
+       an option. */
     width: calc((100% - 2 * var(--pad)) / var(--n));
     border-radius: 8px;
     background: linear-gradient(180deg, #25262c, #1e1f24);
@@ -104,7 +104,7 @@
   .lg .ind {
     border-radius: 9px;
     box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
-    /* El borde toma el color de la máquina elegida (V3-Monitors). */
+    /* The border takes the color of the chosen machine (V3-Monitors). */
     transition:
       transform 0.38s cubic-bezier(0.3, 1.3, 0.5, 1),
       border-color 0.3s;

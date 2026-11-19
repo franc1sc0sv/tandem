@@ -1,6 +1,6 @@
 <script lang="ts">
-  // Tarjeta de un estado difícil (`V3-States`): qué pasó, qué hizo Tandem solo y qué puede
-  // hacer el usuario. La usa el catálogo de Ajustes → Avanzado y el aviso del Puesto.
+  // Card of a trouble state (`V3-States`): what happened, what Tandem did on its own and what the
+  // user can do. Used by the Settings → Advanced catalog and the Desk notice.
   import { TONE_STYLE, type StateCardSpec } from "../lib/states";
   import Button from "./Button.svelte";
   import Icon from "./Icon.svelte";
@@ -8,7 +8,7 @@
   interface Props {
     spec: StateCardSpec;
     onaction?: () => void;
-    /** Posición en el catálogo: escalona la entrada (`.04 s` por tarjeta). */
+    /** Position in the catalog: staggers the entrance (`.04 s` per card). */
     index?: number;
   }
 

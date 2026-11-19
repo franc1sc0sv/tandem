@@ -1,4 +1,4 @@
-// Cómo habla la ventana con el núcleo de la app (y él con tandemd).
+// How the window talks to the app core (and the core to tandemd).
 
 import type { Action, ActionResult, AdminView, Bindings, Machine, Notice, Permission, ResourceSample, SetupView, ShortcutsView, Snapshot } from "./model";
 import type { NetworkWire } from "./network";
@@ -11,53 +11,53 @@ export interface Bridge {
   retry(): Promise<void>;
   onSnapshot(cb: (s: Snapshot) => void): Promise<void>;
   onNotice(cb: (n: Notice) => void): Promise<void>;
-  /** Muestras de recursos en vivo (solo tras `watch_resources`). */
+  /** Live resource samples (only after `watch_resources`). */
   onResources(cb: (machine: Machine, r: ResourceSample) => void): Promise<void>;
-  /** El estado de la red, una vez por segundo (solo tras `watch_network`). */
+  /** The network state, once per second (only after `watch_network`). */
   onNetwork(cb: (n: NetworkWire) => void): Promise<void>;
-  /** Los túneles por proyecto: al conectar y con cada cambio (T-114). */
+  /** Tunnels per project: on connect and on every change (T-114). */
   onTunnels(cb: (t: ProjectWire[]) => void): Promise<void>;
-  /** El avance de las copias de archivos de los túneles (T-106). */
+  /** Progress of the tunnels' file copies (T-106). */
   onTransfer(cb: (t: TransferWire) => void): Promise<void>;
-  /** Lo que pasó con un pedido hecho desde fuera de la ventana (atajo global, menú del ícono). */
+  /** What happened with a request made from outside the window (global shortcut, tray menu). */
   onMessage(cb: (text: string) => void): Promise<void>;
   shortcuts(): Promise<ShortcutsView>;
-  /** Los atajos nuevos cada vez que se cambian (desde cualquier ventana). */
+  /** The new shortcuts every time they change (from any window). */
   onShortcuts(cb: (view: ShortcutsView) => void): Promise<void>;
-  /** Rechaza con la razón si no se pueden usar (repetidos, inválidos, sin poder guardar). */
+  /** Rejects with the reason if they cannot be used (duplicates, invalid, unable to save). */
   setShortcuts(bindings: Bindings): Promise<ShortcutsView>;
-  /** Desde la mini escena del ícono. */
+  /** From the tray's mini scene. */
   showMain(): Promise<void>;
-  /** El atajo de mostrar u ocultar, atendido por la ventana principal al frente. */
+  /** The show/hide shortcut, handled by the main window in front. */
   hideMain(): Promise<void>;
   hideTray(): Promise<void>;
-  /** «Salir» desde la bandeja: cierra la app (el agente sigue). */
+  /** "Quit" from the tray: closes the app (the agent keeps running). */
   quit(): Promise<void>;
-  /** La guía de permisos del primer arranque (macOS). */
+  /** The first-run permissions guide (macOS). */
   setup(): Promise<SetupView>;
-  /** Abre el panel de Ajustes del Sistema que concede el permiso. */
+  /** Opens the System Settings panel that grants the permission. */
   openSettings(permission: Permission): Promise<void>;
-  /** Reinicia `tandemd` (launchd lo vuelve a levantar) so the permissions you just gave take effect. */
+  /** Restarts `tandemd` (launchd brings it back up) so the permissions you just gave take effect. */
   restartAgent(): Promise<void>;
-  /** El estado real del servicio de administrador (T-131). */
+  /** The real state of the administrator service (T-131). */
   adminStatus(): Promise<AdminView>;
-  /** «Instalar»: diálogo de administrador (macOS) o UAC (Windows). Rechaza con la razón. */
+  /** "Install": administrator dialog (macOS) or UAC (Windows). Rejects with the reason. */
   installAdmin(): Promise<AdminView>;
-  /** Marca la guía como vista: no vuelve a abrirse sola. */
+  /** Marks the guide as seen: it does not open by itself again. */
   finishSetup(): Promise<SetupView>;
-  /** Ajustes → Actualizaciones (T-122): versiones, búsqueda y «Update only». */
+  /** Settings → Updates (T-122): versions, search and "Update only". */
   updates(): Promise<UpdateView>;
   onUpdates(cb: (view: UpdateView) => void): Promise<void>;
   checkUpdates(): Promise<UpdateView>;
-  /** «Update all»: rechaza con la razón si no se puede empezar. */
+  /** "Update all": rejects with the reason if it cannot start. */
   updateAll(): Promise<UpdateView>;
   setAutoUpdate(on: boolean): Promise<UpdateView>;
-  /** Ajustes → Avanzado: dónde están la configuración y los logs, y mostrarlos. */
+  /** Settings → Advanced: where the configuration and the logs are, and showing them. */
   files(): Promise<{ config: string; logs: string }>;
   openFiles(target: "config" | "logs"): Promise<void>;
 }
 
-// Nombres de `tandem_ui::app`.
+// Names from `tandem_ui::app`.
 const SNAPSHOT_EVENT = "agent-snapshot";
 const NOTICE_EVENT = "agent-notice";
 const RESOURCES_EVENT = "agent-resources";
@@ -123,7 +123,7 @@ export async function tauriBridge(): Promise<Bridge> {
   };
 }
 
-/** Lo que se ve si ni siquiera se pudo hablar con el núcleo (por ejemplo, fuera de Tauri). */
+/** What is shown if the core could not even be reached (for example, outside Tauri). */
 export function bridgeFailed(err: unknown): Snapshot {
   const detail = err instanceof Error ? err.message : String(err);
   return {

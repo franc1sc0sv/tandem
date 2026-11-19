@@ -4,10 +4,10 @@
   interface Props {
     name: IconName;
     size?: number;
-    /** Grosor del trazo (1.8 en la navegación, 2 en botones y chips). */
+    /** Stroke thickness (1.8 in navigation, 2 in buttons and chips). */
     stroke?: number;
     color?: string;
-    /** Remate del trazo si el mockup lo pide distinto al del ícono (el «+» de «New scene» lo trae redondo). */
+    /** Stroke cap if the mockup asks for one different from the icon's (the "+" of "New scene" has it round). */
     linecap?: "round" | "butt";
     class?: string;
     style?: string;
@@ -17,7 +17,7 @@
   const def: IconDef = $derived(ICONS[name]);
 </script>
 
-<!-- El cuerpo sale del set propio (`icons.ts`), nunca de datos de afuera. -->
+<!-- The body comes from the own set (`icons.ts`), never from outside data. -->
 {#if def.fill}
   <svg class={cls} {style} width={size} height={size} viewBox="0 0 24 24" fill={color} aria-hidden="true">{@html def.body}</svg>
 {:else}

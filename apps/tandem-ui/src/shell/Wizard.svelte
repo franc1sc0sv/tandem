@@ -1,7 +1,7 @@
 <script lang="ts">
-  // Asistente de configuración (`F-Setup1`…`F-Setup6`): la lista de pasos to the left of y el paso
-  // actual to the right of. Cada paso vive en `wizard/` y habla con el agente por el store. Se
-  // abre solo la primera vez y se puede reabrir desde Ajustes.
+  // Setup (`F-Setup1`…`F-Setup6`): the step list on the left and the current step
+  // on the right. Each step lives in `wizard/` and talks to the agent through the store. It
+  // opens by itself the first time and can be reopened from Settings.
   import { tick } from "svelte";
   import { useStore } from "../lib/context";
   import { enter, leave } from "../lib/motion";
@@ -21,7 +21,7 @@
   const store = useStore();
   let main: HTMLElement | undefined = $state();
   let askUnpair = $state(false);
-  /** El usuario ya abrió un panel de Ajustes del Sistema: ofrece reiniciar el agente. */
+  /** The user already opened a System Settings panel: offers to restart the agent. */
   let opened = $state(false);
 
   const desk = $derived(store.desk);
@@ -34,7 +34,7 @@
     if (store.wizardOpen) void tick().then(() => main?.focus());
   });
 
-  /** Al salir del paso de emparejar, un resultado ya mostrado deja al agente en reposo. */
+  /** On leaving the pairing step, an already shown result leaves the agent at rest. */
   function leavePair() {
     askUnpair = false;
     if (step === STEP_PAIR && (needsDismiss(desk.pair.pairing) || isActive(desk.pair.pairing))) void store.pairAction("cancel_pairing");
@@ -54,7 +54,7 @@
 
   function finish() {
     close();
-    store.go({ screen: "puesto" });
+    store.go({ screen: "desk" });
   }
 
   function onkeydown(e: KeyboardEvent) {
@@ -226,7 +226,7 @@
     outline: 2px solid #7aa7e6;
     outline-offset: 2px;
   }
-  /* Como el mockup: el ancho máximo es de `main`, y la lista de pasos crece hasta 300 px. */
+  /* Like the mockup: the maximum width is that of `main`, and the step list grows up to 300 px. */
   main {
     flex: 999 1 560px;
     min-width: 0;
@@ -246,14 +246,14 @@
     width: 100%;
     min-height: 100%;
   }
-  /* `F-Setup3` y `F-Setup5` separan sus bloques 20 px; los demás, 22. */
+  /* `F-Setup3` and `F-Setup5` separate their blocks by 20 px; the others, 22. */
   .body.tight {
     gap: 20px;
   }
   .fill {
     flex: 1;
   }
-  /* El mockup no lo dibuja; es la salida con el mouse a mitad del asistente (mockups/README.md). */
+  /* The mockup does not draw it; it is the exit with the mouse in the middle of the setup (mockups/README.md). */
   .wz-close {
     align-self: flex-start;
     width: 32px;

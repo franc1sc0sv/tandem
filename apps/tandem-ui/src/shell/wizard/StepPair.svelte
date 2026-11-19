@@ -1,9 +1,9 @@
 <script lang="ts">
-  // Paso 2 (`V3-Setup`): unirse a un puesto o crear uno. Quien crea muestra el código de 6
-  // dígitos; quien se une lo escribe, y así prueba que ve la pantalla de the other machine antes
-  // de confirmar. Las dos máquinas se emparejan una vez (D1: exactamente dos).
+  // Step 2 (`V3-Setup`): join a desk or create one. Whoever creates shows the 6-digit
+  // code; whoever joins types it, and so proves they see the other machine's screen before
+  // confirming. The two machines pair once (D1: exactly two).
   import { onMount } from "svelte";
-  import { fillOf } from "../../lib/acomodo";
+  import { fillOf } from "../../lib/arrangement";
   import { useStore } from "../../lib/context";
   import { LINK_NAME } from "../../lib/machines";
   import { codeMatches, isComplete, setDigit } from "../../lib/pairing";
@@ -13,7 +13,7 @@
   import { machineIcon } from "../../ui/icons";
 
   interface Props {
-    /** Pedir confirmar antes de desemparejar (lo lleva el asistente, que cancela al salir del paso). */
+    /** Ask for confirmation before unpairing (carried by the setup, which cancels when leaving the step). */
     askUnpair: boolean;
     onAsk: (on: boolean) => void;
   }
@@ -39,17 +39,17 @@
     return `${os} · desk “${desk.deskName}” · 1 machine${via}`;
   });
 
-  // Se busca sola al entrar: las dos máquinas tienen que estar en este paso para encontrarse.
+  // It searches by itself on entering: both machines have to be on this step to find each other.
   onMount(() => {
     if (desk.pair.peer.kind === "unpaired" && desk.pair.pairing.kind === "idle") void store.pairAction("start_pairing");
   });
 
-  // Quien crea el puesto no confirma a mano: the other machine lo hace al escribir el código.
+  // Whoever creates the desk does not confirm by hand: the other machine does it when typing the code.
   $effect(() => {
     if (mode === "new" && pair.kind === "compare" && !pair.confirmed) void store.pairAction("confirm_pairing");
   });
 
-  // Un código nuevo empieza con las casillas vacías.
+  // A new code starts with empty boxes.
   $effect(() => {
     if (pair.kind !== "compare") {
       digits = ["", "", "", "", "", ""];
@@ -59,7 +59,7 @@
 
   function type(i: number, value: string) {
     const clean = value.replace(/\D/g, "");
-    // Pegar el código entero llena las seis casillas.
+    // Pasting the whole code fills the six boxes.
     const next = clean.length > 1 ? clean.slice(0, 6).split("").concat(Array(6).fill("")).slice(0, 6) : setDigit(digits, i, clean);
     digits = next;
     wrong = false;

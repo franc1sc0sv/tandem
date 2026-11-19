@@ -1,12 +1,12 @@
-// Qué fuente usa la ventana: el modo demo (`?demo`, solo si está en el build) o el agente
-// real por Tauri.
+// Which source the window uses: demo mode (`?demo`, only if it is in the build) or the agent
+// real one through Tauri.
 
 import { bridgeFailed, tauriBridge, type Bridge } from "./bridge";
 import { DemoSource, demoOptions, isDemo } from "./store/demo";
 import { LiveSource } from "./store/live";
 import type { Source } from "./store/types";
 
-/** Un puente que solo informa que no hay agente (abierta en un navegador sin Tauri). */
+/** A bridge that only reports there is no agent (opened in a browser without Tauri). */
 function deadBridge(reason: string): Bridge {
   const snap = bridgeFailed(new Error(reason));
   const never = new Promise<never>(() => {});

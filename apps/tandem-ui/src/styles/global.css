@@ -1,10 +1,10 @@
 /*
- * Sistema visual de v0.3 (DECISIONS A4): tokens, base y animaciones copiados de los
- * mockups (`mockups/v03/*.dc.html`). Los componentes (`src/ui`) traen su propio CSS; aquí
- * solo lo que comparte toda la app.
+ * Visual system of v0.3 (DECISIONS A4): tokens, base and animations copied from the
+ * mockups (`mockups/v03/*.dc.html`). The components (`src/ui`) bring their own CSS; here
+ * only what the whole app shares.
  */
 :root {
-  /* Fondos */
+  /* Backgrounds */
   --bg: #0e0f12;
   --bg-side: #0b0c0e;
   --bg-sunk: #111215;
@@ -19,26 +19,26 @@
   --line-soft: #1f2126;
   --line-strong: #31343b;
   --line-hover: #3a3d45;
-  /* Texto */
+  /* Text */
   --text: #e8e8eb;
   --text-2: #c4c6cc;
   --muted: #9a9da6;
   --nav: #a3a6af;
   --faint: #80838d;
   --dim: #6a6d76;
-  /* Acentos */
+  /* Accents */
   --blue: #7aa7e6;
   --violet: #a99be8;
   --green: #6cc59a;
   --amber: #d9a75a;
   --red: #e07a6f;
   --teal: #5fbfb0;
-  /* Radios */
+  /* Radii */
   --r-card: 14px;
   --r-ctl: 10px;
   --r-nav: 9px;
   --r-pill: 999px;
-  /* Curvas */
+  /* Curves */
   --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
   --ease-spring: cubic-bezier(0.3, 1.3, 0.5, 1);
   --font: "Inter", system-ui, sans-serif;
@@ -86,7 +86,7 @@ body {
   white-space: nowrap;
 }
 
-/* Animaciones compartidas (mismos nombres y curvas que los mockups). */
+/* Shared animations (same names and curves as the mockups). */
 @keyframes up {
   from {
     opacity: 0;
@@ -137,7 +137,7 @@ body {
   }
 }
 
-/* Con «reducir movimiento» no hay animaciones ni transiciones (G8). */
+/* With "reduce motion" there are no animations or transitions (G8). */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

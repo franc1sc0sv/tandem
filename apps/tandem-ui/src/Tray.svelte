@@ -1,5 +1,5 @@
 <script lang="ts" module>
-  /** Lo que la bandeja le pide a la app (Tauri, o un doble en demo y pruebas). */
+  /** What the tray asks of the app (Tauri, or a double in demo and tests). */
   export interface TrayActions {
     showMain(): void | Promise<void>;
     quit(): void | Promise<void>;
@@ -7,8 +7,8 @@
 </script>
 
 <script lang="ts">
-  // Barra de menú / bandeja (`V3-Tray`, 380×600): las dos máquinas, escenas, túneles y
-  // avisos, con «Abrir» y «Salir». «Lock here» no está hasta que la IPC tenga la acción.
+  // Menu bar / tray (`V3-Tray`, 380×600): the two machines, scenes, tunnels and
+  // notices, with "Open" and "Quit". "Lock here" is not there until the IPC has the action.
   import { onDestroy, onMount } from "svelte";
   import { shortName } from "./lib/commands";
   import { machineLine, shortLabels } from "./lib/tunnels";
@@ -33,7 +33,7 @@
 
   const desk = $derived(store.desk);
   const machines = $derived((["a", "b"] as Machine[]).map((id) => desk.machines[id]).filter((m) => m !== null));
-  /** Un renglón por proyecto (como la bandeja del mockup): activo si algún túnel trabaja; los activos primero. */
+  /** One row per project (like the mockup's tray): active if any tunnel works; the active ones first. */
   const open = $derived.by(() => {
     const byProject = new Map<string, TunnelView>();
     for (const t of desk.tunnels) {
@@ -44,7 +44,7 @@
     return [...byProject.values()].sort((x, y) => Number(y.state === "busy") - Number(x.state === "busy") || x.project.localeCompare(y.project));
   });
   const name = (id: Machine) => shortName(desk.machines[id]?.name ?? id.toUpperCase());
-  // Los mismos rótulos que la lista de Túneles: «Mac → PC» si son de sistemas distintos.
+  // The same labels as the Tunnels list: "Mac → PC" if they are different systems.
   const path = (from: Machine, to: Machine): string => {
     const a = desk.machines[from];
     const b = desk.machines[to];
@@ -54,7 +54,7 @@
   const link = $derived(desk.link.kind ? `${LINK_NAME[desk.link.kind]}${desk.link.ms !== null ? ` · ${desk.link.ms} ms` : ""}` : "no link");
   const hot = $derived(machines.find((m) => (m.resources?.gpu?.percent ?? 0) >= 85));
   const AMBER = "#d9a75a";
-  /** Estado difícil (`V3-States`) en una línea: el mockup de la bandeja solo dibuja el aviso de la VRAM. */
+  /** Trouble state (`V3-States`) in one line: the tray mockup only draws the VRAM notice. */
   const peer = $derived<Machine>(desk.here === "a" ? "b" : "a");
   const canWake = $derived(desk.trouble === "peer-off" && store.can("power"));
 </script>

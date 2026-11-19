@@ -1,12 +1,12 @@
-// La pantalla Túneles (`V3-Compute`) sin DOM: de lo que manda el agente (`tandem_ui::tunnels`)
-// a lo que se dibuja, y la lógica de la lista (proyectos plegables, selección, salida en vivo).
-// Solo lectura (D9): nada aquí detiene ni abre túneles.
+// The Tunnels screen (`V3-Compute`) without a DOM: from what the agent sends (`tandem_ui::tunnels`)
+// to what is drawn, and the list logic (collapsible projects, selection, live output).
+// Read-only (D9): nothing here stops or opens tunnels.
 
 import type { Machine } from "./model";
 import type { OutputChunk, OutputCursor, ProcessRow, TunnelView } from "./store/types";
 
 // ---------------------------------------------------------------------------------------
-// Lo que llega del núcleo de la app (`ProjectItem[]`, `OutputItem`, `TransferItem`).
+// What arrives from the app core (`ProjectItem[]`, `OutputItem`, `TransferItem`).
 
 export interface ProcessWire {
   id: number;
@@ -51,7 +51,7 @@ export interface TransferWire {
   finished: boolean;
 }
 
-/** Los túneles sin proyecto se agrupan bajo este nombre. */
+/** Tunnels without a project are grouped under this name. */
 export const NO_PROJECT = "No project";
 
 export function processRow(p: ProcessWire): ProcessRow {
@@ -70,27 +70,27 @@ export function outputChunk(o: OutputWire): OutputChunk {
 }
 
 // ---------------------------------------------------------------------------------------
-// Qué se acuerda la ventana entre una lista y la siguiente.
+// What the window remembers between one list and the next.
 
-/** Lo que la ventana sabe de un túnel que ya no está en la lista del agente (se cerró). */
+/** What the window knows about a tunnel that is no longer in the agent's list (it closed). */
 export interface Memory {
-  /** Los últimos que se vieron, por id. */
+  /** The last ones seen, by id. */
   seen: Map<string, TunnelView>;
-  /** Cuándo cada túnel pasó a inactivo (ms), mientras lo siga estando. */
+  /** When each tunnel became idle (ms), while it still is. */
   idle: Map<string, number>;
-  /** Bytes copiados por túnel; cada transferencia cuenta una vez (la clave es la copia). */
+  /** Bytes copied per tunnel; each transfer counts once (the key is the copy). */
   traffic: Map<string, { up: number; down: number }>;
-  /** El último avance de cada copia in progress o terminada, para no sumar dos veces. */
+  /** The last progress of each copy in progress or finished, to avoid adding twice. */
   copies: Map<string, number>;
 }
 
 export const newMemory = (): Memory => ({ seen: new Map(), idle: new Map(), traffic: new Map(), copies: new Map() });
 
 /**
- * El nombre corto de una máquina en el camino de la lista: «Mac», «PC» si son de sistemas distintos.
- * Con el mismo sistema, su primera palabra; si las primeras palabras no las distinguen («PC-Escritorio»
- * y «PC-Taller», «MacBook Pro» y «Mac mini»), lo que sigue; y el nombre completo si tampoco alcanza.
- * Dos nombres distintos nunca dan el mismo rótulo.
+ * The short name of a machine on the list path: "Mac", "PC" if they are different systems.
+ * With the same system, its first word; if the first words do not tell them apart ("PC-Desktop"
+ * and "PC-Workshop", "MacBook Pro" and "Mac mini"), what follows; and the full name if that is not enough either.
+ * Two different names never give the same label.
  */
 export function shortLabels(a: { name: string; os: "macos" | "windows" }, b: { name: string; os: "macos" | "windows" }): [string, string] {
   if (a.os !== b.os) return [a.os === "macos" ? "Mac" : "PC", b.os === "macos" ? "Mac" : "PC"];
@@ -104,16 +104,16 @@ export function shortLabels(a: { name: string; os: "macos" | "windows" }, b: { n
   return [a.name, b.name];
 }
 
-/** Cuántos túneles cerrados se muestran como mucho: la lista no crece sin fin. */
+/** How many closed tunnels are shown at most: the list does not grow without end. */
 export const CLOSED_KEPT = 10;
 
-/** Suma el avance de una copia al tráfico de su túnel (por la diferencia con el último aviso). */
+/** Adds the progress of a copy to its tunnel's traffic (by the difference from the last notice). */
 export function addTransfer(m: Memory, t: TransferWire): void {
   const key = `${t.tunnel}|${t.upload ? "up" : "down"}|${t.path}`;
   const before = m.copies.get(key) ?? 0;
   const now = t.done;
   const delta = Math.max(0, now - before);
-  // Una copia terminada se olvida: la siguiente con la misma ruta vuelve a contar desde cero.
+  // A finished copy is forgotten: the next one with the same path counts from zero again.
   if (t.finished) m.copies.delete(key);
   else m.copies.set(key, now);
   const cur = m.traffic.get(t.tunnel) ?? { up: 0, down: 0 };
@@ -121,8 +121,8 @@ export function addTransfer(m: Memory, t: TransferWire): void {
 }
 
 /**
- * La lista del agente como la pantalla la dibuja. Lo que ya no está en ella se cerró: se queda
- * como «cerrado» con lo último que se vio de él.
+ * The agent's list as the screen draws it. What is no longer in it has closed: it stays
+ * as "closed" with the last thing seen of it.
  */
 export function tunnelsFromWire(groups: ProjectWire[], now: number, m: Memory): TunnelView[] {
   const out: TunnelView[] = [];
@@ -170,13 +170,13 @@ export function tunnelsFromWire(groups: ProjectWire[], now: number, m: Memory): 
 }
 
 // ---------------------------------------------------------------------------------------
-// Proyectos y estado.
+// Projects and state.
 
 export interface ProjectGroup {
   name: string;
   path: string | null;
   tunnels: TunnelView[];
-  /** Cuántos no están cerrados. */
+  /** How many are not closed. */
   live: number;
 }
 
@@ -191,10 +191,10 @@ export function groupByProject(tunnels: TunnelView[]): ProjectGroup[] {
   return groups;
 }
 
-/** «1/2»: túneles abiertos sobre el total del proyecto. */
+/** "1/2": open tunnels over the project's total. */
 export const ratio = (g: ProjectGroup): string => `${g.live}/${g.tunnels.length}`;
 
-/** «4 abiertos · 2 proyectos», o «No open tunnels». */
+/** "4 open · 2 projects", or "No open tunnels". */
 export function summary(groups: ProjectGroup[]): string {
   const live = groups.reduce((n, g) => n + g.live, 0);
   const projects = groups.filter((g) => g.live > 0).length;
@@ -202,7 +202,7 @@ export function summary(groups: ProjectGroup[]): string {
   return `${live} open · ${projects} ${projects === 1 ? "project" : "projects"}`;
 }
 
-/** 5400 s → «1 h 30 m»; 34 min → «34 m»; menos de un minuto → «45 s». */
+/** 5400 s → "1 h 30 m"; 34 min → "34 m"; under a minute → "45 s". */
 export function elapsed(ms: number): string {
   const s = Math.max(0, Math.floor(ms / 1000));
   if (s < 60) return `${s} s`;
@@ -225,7 +225,7 @@ export function bytesLabel(n: number): string {
   return `${r} ${units[i]}`;
 }
 
-/** «activo», «inactivo 9 m», «cerrado». */
+/** "active", "idle 9 m", "closed". */
 export function statusText(t: TunnelView, now: number): string {
   if (t.state === "busy") return "active";
   if (t.state === "closed") return "closed";
@@ -234,36 +234,36 @@ export function statusText(t: TunnelView, now: number): string {
 
 export const processesLabel = (n: number): string => `${n} ${n === 1 ? "process running" : "processes running"}`;
 
-/** El texto del panel de procesos cuando no hay ninguno. */
+/** The text of the process panel when there are none. */
 export const emptyLabel = (t: TunnelView): string => (t.state === "closed" ? "Tunnel closed" : "Nothing running right now");
 
-/** «0.3 ms», o «—» si no hay camino medido. */
+/** "0.3 ms", or "—" if there is no measured path. */
 export const latencyLabel = (ms: number | null): string => (ms === null ? "—" : `${ms} ms`);
 
-/** Cuánto tarda cada rayita del tubo en cruzarlo (s): más rápido mientras más activo. */
+/** How long each dash of the tube takes to cross it (s): faster the more active. */
 export function tubeSpeed(state: TunnelView["state"]): { a: number; b: number } | null {
   if (state === "busy") return { a: 0.7, b: 1.2 };
   if (state === "idle") return { a: 3, b: 4 };
   return null;
 }
 
-/** El túnel elegido: el que se pidió si sigue, y si no, el primero que no esté cerrado (o el primero). */
+/** The chosen tunnel: the requested one if it is still there, otherwise the first that is not closed (or the first). */
 export function pickTunnel(tunnels: TunnelView[], wanted: string | null): TunnelView | null {
   return tunnels.find((t) => t.id === wanted) ?? tunnels.find((t) => t.state !== "closed") ?? tunnels[0] ?? null;
 }
 
-/** El proceso elegido, acotado a la lista (la que cambia con cada consulta). */
+/** The chosen process, clamped to the list (which changes with each query). */
 export function pickProcess(rows: ProcessRow[], wanted: number | null): ProcessRow | null {
   return rows.find((p) => p.id === wanted) ?? rows[0] ?? null;
 }
 
-/** Los que corren, en el orden en que se lanzaron (el de sus ids: estable entre consultas). */
+/** Those that are running, in the order they were launched (that of their ids: stable between queries). */
 export const runningOf = (rows: ProcessRow[]): ProcessRow[] => rows.filter((p) => p.state === "running").sort((a, b) => a.id - b.id);
 
 // ---------------------------------------------------------------------------------------
-// La salida en vivo.
+// Live output.
 
-/** Lo que se guarda de la salida de un proceso: el final, para que la lista aguante mucho texto. */
+/** What is kept of a process's output: the tail, so the list withstands a lot of text. */
 export const OUTPUT_KEEP = 200_000;
 
 export interface Output {
@@ -278,10 +278,10 @@ export function appendOutput(o: Output, chunk: OutputChunk): Output {
   return { text: text.length > OUTPUT_KEEP ? text.slice(text.length - OUTPUT_KEEP) : text, cursor: chunk.next };
 }
 
-/** «1 túnel», «2 túneles»: el plural no se fija. */
+/** "1 tunnel", "2 tunnels": the plural is not fixed. */
 export const countTunnels = (n: number): string => `${n} ${n === 1 ? "tunnel" : "tunnels"}`;
 
-/** Renglón de una máquina en la bandeja: sale de sus datos, sin mirar qué sistema es. */
+/** A machine row in the tray: comes from its data, without looking at which system it is. */
 export function machineLine(m: { id: Machine; power: string; detail: string }, tunnels: readonly { to: Machine; state: string }[]): string {
   if (m.power !== "on") return "off";
   const busy = tunnels.filter((t) => t.to === m.id && t.state === "busy").length;

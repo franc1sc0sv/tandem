@@ -17,7 +17,7 @@ import {
   type Styles,
 } from "./style-parity-spec.ts";
 
-// Estilos calculados como los da Chromium para el botón de 38 px de V3-Arrangement.
+// Computed styles as Chromium gives them for the 38 px button of V3-Arrangement.
 const BTN: Styles = {
   height: "38px",
   "padding-top": "0px",
@@ -49,50 +49,50 @@ const BTN: Styles = {
 
 const with_ = (over: Styles): Styles => ({ ...BTN, ...over });
 
-describe("normalización", () => {
-  it("separa listas solo por las comas de primer nivel", () => {
+describe("normalization", () => {
+  it("splits lists only on top-level commas", () => {
     expect(splitList("transform, border-color")).toEqual(["transform", "border-color"]);
     expect(splitList("cubic-bezier(0.2, 0.8, 0.2, 1), ease")).toEqual(["cubic-bezier(0.2, 0.8, 0.2, 1)", "ease"]);
     expect(splitList("rgba(0, 0, 0, 0.3) 0px 1px 2px 0px")).toEqual(["rgba(0, 0, 0, 0.3) 0px 1px 2px 0px"]);
     expect(splitList("")).toEqual([]);
   });
 
-  it("pasa los tiempos a milisegundos", () => {
+  it("converts times to milliseconds", () => {
     expect(toMs("0.18s")).toBe(180);
     expect(toMs("180ms")).toBe(180);
     expect(toMs("0s")).toBe(0);
   });
 
-  it("las curvas con nombre equivalen a su cubic-bezier", () => {
+  it("named curves are equivalent to their cubic-bezier", () => {
     expect(normalizeCurve("ease")).toBe(normalizeCurve("cubic-bezier(0.25, 0.1, 0.25, 1)"));
     expect(normalizeCurve("linear")).toBe(normalizeCurve("cubic-bezier(0,0,1,1)".replace(/,/g, ", ")));
     expect(normalizeCurve("ease-out")).not.toBe(normalizeCurve("ease"));
   });
 
-  it("redondea los restos de cálculo y no confunde valores distintos", () => {
+  it("rounds calculation leftovers and does not confuse different values", () => {
     expect(normalizeNumbers("37.9999px")).toBe("38px");
     expect(normalizeNumbers("-0.001px")).toBe("0px");
     expect(normalizeNumbers("rgba(0,  0, 0, 0.3)")).toBe("rgba(0, 0, 0, 0.3)");
     expect(normalizeNumbers("12.5px")).not.toBe(normalizeNumbers("13px"));
   });
 
-  it("de la familia de fuente cuenta la primera", () => {
+  it("takes the first of the font family", () => {
     expect(firstFamily('"Inter", system-ui, sans-serif')).toBe("inter");
     expect(firstFamily("Inter, -apple-system, sans-serif")).toBe("inter");
     expect(firstFamily('"JetBrains Mono", monospace')).not.toBe("inter");
   });
 
-  it("arma las transiciones por propiedad, repitiendo las listas cortas y sin las nulas", () => {
+  it("builds transitions per property, repeating short lists and dropping the null ones", () => {
     const t = transitions({ "transition-property": "transform, border-color", "transition-duration": "0.18s", "transition-timing-function": "ease", "transition-delay": "0s" });
     expect([...t.keys()]).toEqual(["transform", "border-color"]);
     expect(t.get("border-color")).toBe(t.get("transform"));
-    // El valor inicial (`all 0s ease 0s`) no es una transición.
+    // The initial value (`all 0s ease 0s`) is not a transition.
     expect(transitions({ "transition-property": "all", "transition-duration": "0s", "transition-timing-function": "ease", "transition-delay": "0s" }).size).toBe(0);
-    // El retraso cuenta.
+    // The delay counts.
     expect(transitions({ "transition-property": "left", "transition-duration": "0s", "transition-timing-function": "ease", "transition-delay": "0.1s" }).get("left")).toContain("+100ms");
   });
 
-  it("de las animaciones mira duración, curva, repeticiones y relleno, no el nombre ni el retraso", () => {
+  it("looks at animation duration, curve, repetitions and fill, not the name or the delay", () => {
     const a = animations({ "animation-name": "svelte-1x2y3z-card-up", "animation-duration": "0.45s", "animation-timing-function": "cubic-bezier(0.2, 0.8, 0.2, 1)", "animation-iteration-count": "1", "animation-fill-mode": "both" });
     const m = animations({ "animation-name": "up", "animation-duration": "450ms", "animation-timing-function": "cubic-bezier(.2,.8,.2,1)".replace(/,/g, ", "), "animation-iteration-count": "1", "animation-fill-mode": "both" });
     expect(a).toEqual(m);
@@ -101,22 +101,22 @@ describe("normalización", () => {
 });
 
 describe("compareStyles", () => {
-  it("dos elementos iguales no dan diferencias", () => {
-    expect(compareStyles("botón", BTN, { ...BTN }, ALL)).toEqual([]);
+  it("two equal elements give no differences", () => {
+    expect(compareStyles("button", BTN, { ...BTN }, ALL)).toEqual([]);
   });
 
-  it("detecta un alto, un relleno o un radio distinto y dice cuál", () => {
-    const d = compareStyles("botón", with_({ height: "36px", "padding-left": "14px", "border-top-left-radius": "9px" }), BTN, ALL);
+  it("detects a different height, padding or radius and says which", () => {
+    const d = compareStyles("button", with_({ height: "36px", "padding-left": "14px", "border-top-left-radius": "9px" }), BTN, ALL);
     expect(d.map((x) => [x.group, x.property, x.app, x.mockup])).toEqual([
-      ["alto", "height", "36px", "38px"],
-      ["relleno", "padding-left", "14px", "15px"],
-      ["radio", "border-top-left-radius", "9px", "10px"],
+      ["height", "height", "36px", "38px"],
+      ["padding", "padding-left", "14px", "15px"],
+      ["radius", "border-top-left-radius", "9px", "10px"],
     ]);
   });
 
-  it("detecta fuente, fondo, borde y sombra distintos", () => {
+  it("detects a different font, background, border and shadow", () => {
     const d = compareStyles(
-      "botón",
+      "button",
       with_({ "font-weight": "600", "background-image": "none", "border-top-color": "rgb(49, 52, 59)", "box-shadow": "none" }),
       BTN,
       ALL,
@@ -124,64 +124,64 @@ describe("compareStyles", () => {
     expect(d.map((x) => x.property)).toEqual(["font-weight", "border-top-color", "background-image", "box-shadow"]);
   });
 
-  it("una transición de más, de menos o con otra curva o duración es una diferencia", () => {
-    const extra = compareStyles("botón", with_({ "transition-property": "transform, border-color, box-shadow, opacity", "transition-duration": "0.18s, 0.18s, 0.18s, 0.3s", "transition-timing-function": "cubic-bezier(0.2, 0.8, 0.2, 1), ease, ease, ease" }), BTN, ["transition"]);
-    expect(extra).toEqual([{ pair: "botón", group: "transition", property: "transition: opacity", app: "300ms cubic-bezier(0.25, 0.1, 0.25, 1)", mockup: "sin transición" }]);
+  it("an extra or missing transition, or one with another curve or duration, is a difference", () => {
+    const extra = compareStyles("button", with_({ "transition-property": "transform, border-color, box-shadow, opacity", "transition-duration": "0.18s, 0.18s, 0.18s, 0.3s", "transition-timing-function": "cubic-bezier(0.2, 0.8, 0.2, 1), ease, ease, ease" }), BTN, ["transition"]);
+    expect(extra).toEqual([{ pair: "button", group: "transition", property: "transition: opacity", app: "300ms cubic-bezier(0.25, 0.1, 0.25, 1)", mockup: "no transition" }]);
 
-    const curve = compareStyles("botón", with_({ "transition-timing-function": "ease, ease, ease" }), BTN, ["transition"]);
+    const curve = compareStyles("button", with_({ "transition-timing-function": "ease, ease, ease" }), BTN, ["transition"]);
     expect(curve.map((x) => x.property)).toEqual(["transition: transform"]);
 
-    const dur = compareStyles("botón", with_({ "transition-duration": "0.2s, 0.18s, 0.18s" }), BTN, ["transition"]);
+    const dur = compareStyles("button", with_({ "transition-duration": "0.2s, 0.18s, 0.18s" }), BTN, ["transition"]);
     expect(dur[0]?.app).toMatch(/^200ms/);
     expect(dur[0]?.mockup).toMatch(/^180ms/);
 
-    const none = compareStyles("botón", with_({ "transition-property": "all", "transition-duration": "0s" }), BTN, ["transition"]);
-    expect(none.map((x) => x.app)).toEqual(["sin transición", "sin transición", "sin transición"]);
+    const none = compareStyles("button", with_({ "transition-property": "all", "transition-duration": "0s" }), BTN, ["transition"]);
+    expect(none.map((x) => x.app)).toEqual(["no transition", "no transition", "no transition"]);
   });
 
-  it("una animación que falta o con otra duración es una diferencia", () => {
+  it("a missing animation or one with another duration is a difference", () => {
     const card: Styles = { "animation-name": "up", "animation-duration": "0.45s", "animation-timing-function": "cubic-bezier(0.2, 0.8, 0.2, 1)", "animation-iteration-count": "1", "animation-fill-mode": "both" };
-    expect(compareStyles("tarjeta", { ...card, "animation-name": "none" }, card, ["animation"])[0]?.app).toBe("ninguna");
-    expect(compareStyles("tarjeta", { ...card, "animation-duration": "0.3s" }, card, ["animation"])).toHaveLength(1);
-    expect(compareStyles("tarjeta", { ...card, "animation-iteration-count": "infinite" }, card, ["animation"])).toHaveLength(1);
+    expect(compareStyles("card", { ...card, "animation-name": "none" }, card, ["animation"])[0]?.app).toBe("none");
+    expect(compareStyles("card", { ...card, "animation-duration": "0.3s" }, card, ["animation"])).toHaveLength(1);
+    expect(compareStyles("card", { ...card, "animation-iteration-count": "infinite" }, card, ["animation"])).toHaveLength(1);
   });
 
-  it("no compara el color de un borde que no se dibuja", () => {
+  it("does not compare the color of a border that is not drawn", () => {
     const noBorder: Styles = { "border-top-width": "0px", "border-top-style": "none", "border-top-color": "rgb(0, 0, 0)" };
-    const d = compareStyles("interruptor", noBorder, { ...noBorder, "border-top-color": "rgb(255, 255, 255)" }, ["borde"]);
+    const d = compareStyles("switch", noBorder, { ...noBorder, "border-top-color": "rgb(255, 255, 255)" }, ["border"]);
     expect(d.filter((x) => x.property === "border-top-color")).toEqual([]);
-    // Si en un lado sí se dibuja, el color cuenta (y el ancho también).
-    const one = compareStyles("x", { ...noBorder, "border-top-width": "1px", "border-top-style": "solid", "border-top-color": "rgb(46, 49, 56)" }, noBorder, ["borde"]);
+    // If it is drawn on one side, the color counts (and so does the width).
+    const one = compareStyles("x", { ...noBorder, "border-top-width": "1px", "border-top-style": "solid", "border-top-color": "rgb(46, 49, 56)" }, noBorder, ["border"]);
     expect(one.map((x) => x.property)).toEqual(["border-top-width", "border-top-style", "border-top-color"]);
   });
 
-  it("solo mira los grupos pedidos", () => {
-    expect(compareStyles("tarjeta", with_({ height: "120px" }), BTN, ["relleno", "radio"])).toEqual([]);
+  it("only looks at the requested groups", () => {
+    expect(compareStyles("card", with_({ height: "120px" }), BTN, ["padding", "radius"])).toEqual([]);
   });
 });
 
-describe("informe", () => {
-  it("dice qué par, qué propiedad y dónde está cada lado", () => {
-    const pairs = PAIRS.filter((p) => p.name === "botón peligro" || p.name === "tarjeta");
-    const out = formatReport(pairs, [{ pair: "botón peligro", group: "radio", property: "border-top-left-radius", app: "10px", mockup: "9px" }], ["tarjeta: no está en V3-Desk (div.card)"]);
+describe("report", () => {
+  it("says which pair, which property and where each side is", () => {
+    const pairs = PAIRS.filter((p) => p.name === "danger button" || p.name === "card");
+    const out = formatReport(pairs, [{ pair: "danger button", group: "radius", property: "border-top-left-radius", app: "10px", mockup: "9px" }], ["card: is not in V3-Desk (div.card)"]);
     const lines = out.split("\n");
-    expect(lines[0]).toContain("✗ botón peligro");
+    expect(lines[0]).toContain("✗ danger button");
     expect(lines[0]).toContain('gallery.html [data-part="btn-danger"] .btn');
     expect(lines[0]).toContain("F-Settings button.btn.danger");
-    expect(lines[1]).toBe("    radio · border-top-left-radius: app «10px» ≠ mockup «9px»");
-    expect(out).toContain("✗ tarjeta");
-    expect(out).toContain("! no está en V3-Desk (div.card)");
+    expect(lines[1]).toBe("    radius · border-top-left-radius: app «10px» ≠ mockup «9px»");
+    expect(out).toContain("✗ card");
+    expect(out).toContain("! is not in V3-Desk (div.card)");
   });
 
-  it("marca con ✓ los pares iguales", () => {
+  it("marks equal pairs with ✓", () => {
     expect(formatReport(PAIRS.slice(0, 1), [])).toBe(`✓ ${PAIRS[0]?.name}`);
   });
 });
 
-describe("pares", () => {
-  it("cubren los componentes y mockups que pide T-127", () => {
+describe("pairs", () => {
+  it("cover the components and mockups that T-127 asks for", () => {
     const has = (mockup: string, sel: RegExp) => PAIRS.some((p) => p.mockup === mockup && sel.test(p.ref.selector));
-    expect(has("V3-Arrangement", /^a\.btn\[/)).toBe(true); // botón 38 px
+    expect(has("V3-Arrangement", /^a\.btn\[/)).toBe(true); // button 38 px
     expect(has("V3-Monitors", /\.btn\.sm/)).toBe(true);
     expect(has("V3-Monitors", /\.btn\.pri\.sm/)).toBe(true);
     expect(has("V3-Monitors", /\.btn\.ghost\.ic\.sm/)).toBe(true);
@@ -193,7 +193,7 @@ describe("pares", () => {
     expect(has("V3-Desk", /\.card/)).toBe(true);
   });
 
-  it("tienen nombre único y piden propiedades conocidas", () => {
+  it("have a unique name and ask for known properties", () => {
     const names = PAIRS.map((p) => p.name);
     expect(new Set(names).size).toBe(names.length);
     for (const p of PAIRS) {
@@ -203,7 +203,7 @@ describe("pares", () => {
     }
   });
 
-  it("todos los botones comparan alto, relleno, fuente, radio, borde, fondo, sombra y movimiento", () => {
-    for (const p of PAIRS.filter((x) => x.name.startsWith("botón"))) expect(p.groups).toEqual(expect.arrayContaining(ALL));
+  it("all the buttons compare height, padding, font, radius, border, background, shadow and motion", () => {
+    for (const p of PAIRS.filter((x) => x.name.startsWith("button"))) expect(p.groups).toEqual(expect.arrayContaining(ALL));
   });
 });

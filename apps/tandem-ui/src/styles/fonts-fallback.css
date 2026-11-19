@@ -1,12 +1,12 @@
 /*
- * Fuentes empaquetadas (nada de Google Fonts en la app): Inter y JetBrains Mono de
- * `@fontsource/*`, las mismas que usa `tools/mockup-render` para las capturas de referencia.
+ * Bundled fonts (no Google Fonts in the app): Inter and JetBrains Mono from
+ * `@fontsource/*`, the same ones `tools/mockup-render` uses for the reference screenshots.
  *
- * Lo que esos subconjuntos no traen (⌃ ⌥ ⌘ → ↵ ≈ ✓ ➜) sale de DejaVu Sans, declarada como
- * cara extra de las mismas familias solo para esos bloques; si no, cada sistema lo dibuja
- * con su propia fuente. Estas caras van ANTES que las de Inter (`main.ts` las importa
- * primero): con rangos superpuestos gana la última, así donde Inter tiene el carácter
- * (↑ ↓) se usa el suyo. Una cara por peso, igual que en el renderizador (T-125).
+ * What those subsets do not carry (⌃ ⌥ ⌘ → ↵ ≈ ✓ ➜) comes from DejaVu Sans, declared as an
+ * extra face of the same families only for those blocks; otherwise each system draws it
+ * with its own font. These faces go BEFORE Inter's (`main.ts` imports them
+ * first): with overlapping ranges the last one wins, so where Inter has the character
+ * (↑ ↓) its own is used. One face per weight, same as in the renderer (T-125).
  */
 @font-face {
   font-family: "Inter";

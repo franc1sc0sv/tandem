@@ -1,18 +1,18 @@
-// Atajos globales vistos desde la ventana: leer una combinación del teclado, mostrarla y
-// decidir cuáles atiende la ventana misma. La forma canónica es la de
-// `tandem_ui::shortcuts` (`Ctrl+Alt+Shift+Super+<KeyboardEvent.code>`); las pruebas de los
-// dos lados la fijan.
+// Global shortcuts as seen from the window: reading a combination from the keyboard, showing it and
+// deciding which ones the window itself handles. The canonical form is that of
+// `tandem_ui::shortcuts` (`Ctrl+Alt+Shift+Super+<KeyboardEvent.code>`); the tests on
+// both sides pin it.
 
 import type { Bindings, ShortcutAction, ShortcutsView } from "./model";
 
-// Los atajos de los modos se fueron con ellos (DESIGN §8): queda el de la ventana.
+// The mode shortcuts left along with the modes (DESIGN §8): the window one remains.
 export const ACTIONS: ShortcutAction[] = ["toggle_window"];
 
 export const ACTION_LABEL: Record<ShortcutAction, string> = {
   toggle_window: "Show or hide Tandem",
 };
 
-/** Los de siempre (`Shortcuts::default`). */
+/** The usual ones (`Shortcuts::default`). */
 export const DEFAULT_BINDINGS: Bindings = {
   toggle_window: "Ctrl+Alt+Digit0",
 };
@@ -23,7 +23,7 @@ const NAMED_KEYS = [
   "PageUp", "PageDown", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight",
 ];
 
-/** Las mismas teclas que acepta el núcleo. */
+/** The same keys the core accepts. */
 export function isKey(code: string): boolean {
   return NAMED_KEYS.includes(code) || /^(Key[A-Z]|Digit[0-9]|Numpad[0-9]|F([1-9]|1[0-9]|2[0-4]))$/.test(code);
 }
@@ -33,12 +33,12 @@ const MODIFIER_CODES = /^(Control|Alt|Shift|Meta|OS)(Left|Right)?$/;
 type KeyLike = Pick<KeyboardEvent, "ctrlKey" | "altKey" | "shiftKey" | "metaKey" | "code">;
 
 export type Combo =
-  /** Solo modificadores por ahora: todavía se está escribiendo. */
+  /** Only modifiers so far: it is still being typed. */
   | { kind: "partial" }
   | { kind: "invalid"; reason: string }
   | { kind: "ok"; accel: string };
 
-/** Lee una combinación de un `keydown`, por código físico (en macOS ⌥ cambia la tecla). */
+/** Reads a combination from a `keydown`, by physical code (on macOS ⌥ changes the key). */
 export function readCombo(e: KeyLike): Combo {
   if (MODIFIER_CODES.test(e.code)) return { kind: "partial" };
   if (!isKey(e.code)) return { kind: "invalid", reason: "that key cannot be used in a global shortcut" };
@@ -66,7 +66,7 @@ function keyText(code: string): string {
   return code;
 }
 
-/** Cómo se ve un atajo: `⌃⌥1` en macOS, `Ctrl+Alt+1` en Windows. */
+/** How a shortcut looks: `⌃⌥1` on macOS, `Ctrl+Alt+1` on Windows. */
 export function formatAccel(accel: string | null | undefined, mac: boolean): string {
   if (!accel) return "";
   const parts = accel.split("+");
@@ -79,7 +79,7 @@ export function formatAccel(accel: string | null | undefined, mac: boolean): str
   return [...names, key].join("+");
 }
 
-/** Para `aria-keyshortcuts`. */
+/** For `aria-keyshortcuts`. */
 export function ariaKeys(accel: string | null | undefined): string {
   if (!accel) return "";
   const names: Record<string, string> = { Ctrl: "Control", Alt: "Alt", Shift: "Shift", Super: "Meta" };
@@ -94,8 +94,8 @@ export function isMacPlatform(ua: string = navigator.userAgent): boolean {
 }
 
 /**
- * La acción que la ventana debe atender ella misma con esta tecla: solo las que el sistema
- * no dejó registrar como globales (si no, el atajo global ya la atiende y correría dos veces).
+ * The action the window must handle itself with this key: only those the system
+ * did not let register as global (otherwise the global shortcut already handles it and it would run twice).
  */
 export function localAction(e: KeyLike, view: ShortcutsView): ShortcutAction | null {
   const c = readCombo(e);
@@ -107,8 +107,8 @@ export function localAction(e: KeyLike, view: ShortcutsView): ShortcutAction | n
 export type WindowCommand = { kind: "hide_main" };
 
 /**
- * Qué hace la ventana principal con una acción que atiende ella misma. Si recibe la tecla
- * es porque está al frente: mostrar u ocultar, entonces, la esconde.
+ * What the main window does with an action it handles itself. If it receives the key
+ * it is because it is in front: show or hide, then, hides it.
  */
 export function windowCommand(action: ShortcutAction): WindowCommand {
   switch (action) {
@@ -117,7 +117,7 @@ export function windowCommand(action: ShortcutAction): WindowCommand {
   }
 }
 
-/** Atajos repetidos en lo que se está editando (el núcleo también lo rechaza). */
+/** Duplicate shortcuts in what is being edited (the core also rejects it). */
 export function duplicateOf(bindings: Bindings, action: ShortcutAction, accel: string): ShortcutAction | null {
   return ACTIONS.find((a) => a !== action && bindings[a] === accel) ?? null;
 }

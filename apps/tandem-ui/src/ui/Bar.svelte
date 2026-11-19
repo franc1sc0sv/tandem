@@ -24,7 +24,7 @@
 </div>
 
 <style>
-  /* Barra de uso: crece al entrar y se mueve suave con cada muestra (V3-Desk). */
+  /* Usage bar: grows on entering and moves smoothly with each sample (V3-Desk). */
   .bar {
     border-radius: 3px;
     background: #24262c;

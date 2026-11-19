@@ -5,18 +5,18 @@
   import { onMount } from "svelte";
   import type { ShortcutsView } from "../lib/model";
   import { isMacPlatform, localAction, windowCommand } from "../lib/shortcuts";
-  import Acomodo from "../screens/Acomodo.svelte";
+  import Arrangement from "../screens/Arrangement.svelte";
   import CrossTest from "../screens/CrossTest.svelte";
-  import Ajustes from "../screens/Ajustes.svelte";
-  import Escena from "../screens/Escena.svelte";
-  import Maquina from "../screens/Maquina.svelte";
-  import Monitores from "../screens/Monitores.svelte";
-  import Progreso from "../screens/Progreso.svelte";
-  import Puesto from "../screens/Puesto.svelte";
-  import Red from "../screens/Red.svelte";
-  import Estados from "../screens/Estados.svelte";
+  import Settings from "../screens/Settings.svelte";
+  import Scene from "../screens/Scene.svelte";
+  import Machine from "../screens/Machine.svelte";
+  import Monitors from "../screens/Monitors.svelte";
+  import Progress from "../screens/Progress.svelte";
+  import Desk from "../screens/Desk.svelte";
+  import Network from "../screens/Network.svelte";
+  import States from "../screens/States.svelte";
   import Trouble from "../screens/Trouble.svelte";
-  import Tuneles from "../screens/Tuneles.svelte";
+  import Tunnels from "../screens/Tunnels.svelte";
   import Palette from "./Palette.svelte";
   import Sidebar from "./Sidebar.svelte";
   import Toasts from "./Toasts.svelte";
@@ -24,7 +24,7 @@
 
   const store = useStore();
   const mac = isMacPlatform();
-  /** Atajos que el sistema no dejó registrar: los atiende la ventana cuando está al frente. */
+  /** Shortcuts the system would not let register: the window handles them when it is in front. */
   let keys: ShortcutsView | null = null;
   onMount(() => {
     store.shortcuts().then(
@@ -34,7 +34,7 @@
   });
   const key = $derived(formatHash(store.route));
 
-  // ⌘K / Ctrl+K abre y cierra la paleta desde cualquier pantalla; ⌘, / Ctrl+, va a Ajustes.
+  // ⌘K / Ctrl+K opens and closes the palette from any screen; ⌘, / Ctrl+, goes to Settings.
   function onkeydown(e: KeyboardEvent) {
     if (keys && !e.defaultPrevented) {
       const action = localAction(e, keys);
@@ -52,7 +52,7 @@
       store.togglePalette();
     } else if (k === ",") {
       e.preventDefault();
-      store.go({ screen: "ajustes" });
+      store.go({ screen: "settings" });
     }
   }
 </script>
@@ -60,36 +60,36 @@
 <svelte:window {onkeydown} onhashchange={() => store.syncFromLocation()} />
 
 <div class="shell" class:dim={store.paletteOpen} inert={store.paletteOpen || store.wizardOpen}>
-  {#if store.route.screen === "cruce"}
-    <!-- La prueba de cruce ocupa toda la ventana, con su ruta de vuelta (F-CrossingTest). -->
+  {#if store.route.screen === "crossing"}
+    <!-- The crossing test takes the whole window, with its way back (F-CrossingTest). -->
     {#key key}<CrossTest />{/key}
-  {:else if store.route.screen === "escena"}
-    <!-- El editor de escenas y el progreso también ocupan toda la ventana (F-NewScene, F-Transactions). -->
-    {#key key}<Escena id={store.route.id} />{/key}
-  {:else if store.route.screen === "progreso"}
-    {#key key}<Progreso />{/key}
+  {:else if store.route.screen === "scene"}
+    <!-- The scene editor and the progress also take the whole window (F-NewScene, F-Transactions). -->
+    {#key key}<Scene id={store.route.id} />{/key}
+  {:else if store.route.screen === "progress"}
+    {#key key}<Progress />{/key}
   {:else}
   <Sidebar />
   {#key key}
     <main class="main" in:enter={{ y: 8, duration: 280 }}>
-      {#if store.desk.trouble !== "none" && store.route.screen === "puesto"}
+      {#if store.desk.trouble !== "none" && store.route.screen === "desk"}
         <Trouble />
-      {:else if store.route.screen === "puesto"}
-        <Puesto />
-      {:else if store.route.screen === "tuneles"}
-        <Tuneles />
-      {:else if store.route.screen === "monitores"}
-        <Monitores />
-      {:else if store.route.screen === "acomodo"}
-        <Acomodo />
-      {:else if store.route.screen === "red"}
-        <Red />
-      {:else if store.route.screen === "maquina"}
-        <Maquina machine={store.route.machine} />
-      {:else if store.route.screen === "estados"}
-        <Estados />
+      {:else if store.route.screen === "desk"}
+        <Desk />
+      {:else if store.route.screen === "tunnels"}
+        <Tunnels />
+      {:else if store.route.screen === "monitors"}
+        <Monitors />
+      {:else if store.route.screen === "arrangement"}
+        <Arrangement />
+      {:else if store.route.screen === "network"}
+        <Network />
+      {:else if store.route.screen === "machine"}
+        <Machine machine={store.route.machine} />
+      {:else if store.route.screen === "states"}
+        <States />
       {:else}
-        <Ajustes />
+        <Settings />
       {/if}
     </main>
   {/key}
@@ -100,7 +100,7 @@
 <Toasts />
 
 <style>
-  /* La caja de los mockups: barra lateral y contenido en un flex que se envuelve. */
+  /* The mockups' box: sidebar and content in a flex that wraps. */
   .shell {
     width: 100%;
     min-height: 100vh;
@@ -112,7 +112,7 @@
     background: #0e0f12;
     transition: opacity 0.25s;
   }
-  /* Con la paleta abierta, la app queda atrás tenue (F-Palette). */
+  /* With the palette open, the app stays dimmed behind it (F-Palette). */
   .shell.dim {
     opacity: 0.22;
   }

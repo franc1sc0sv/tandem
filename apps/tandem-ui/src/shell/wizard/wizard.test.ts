@@ -9,7 +9,7 @@ import { Store } from "../../lib/store/store.svelte";
 import { MCP_COMMAND } from "../../lib/wizard";
 import Shell from "../Shell.svelte";
 
-async function mount(query = "demo&still", step = 0, hash = "#/puesto") {
+async function mount(query = "demo&still", step = 0, hash = "#/desk") {
   const source = new DemoSource(demoOptions(query));
   const store = new Store(source, { hash });
   await store.start();
@@ -21,8 +21,8 @@ async function mount(query = "demo&still", step = 0, hash = "#/puesto") {
 
 afterEach(() => vi.useRealTimers());
 
-describe("lista de pasos", () => {
-  it("tiene los seis pasos, clicables, con hechos, actual y por hacer", async () => {
+describe("step list", () => {
+  it("has the six steps, clickable, with done, current and to do", async () => {
     const { dlg, store } = await mount("demo&still", 2);
     const steps = within(within(dlg).getByRole("complementary", { name: "Steps" })).getAllByRole("button").filter((b) => /^[\d✓]/.test(b.textContent ?? ""));
     expect(steps.map((b) => b.textContent)).toEqual(["✓This machine", "✓Your desk", "3Permissions", "4Keyboard and mouse", "5Arrangement and crossing test", "6Done"]);
@@ -34,7 +34,7 @@ describe("lista de pasos", () => {
     expect(within(dlg).getByRole("heading", { name: "Where is each screen?" })).toBeInTheDocument();
   });
 
-  it("Continuar y Atrás recorren los pasos; Escape lo cierra", async () => {
+  it("Continue and Back go through the steps; Escape closes it", async () => {
     const { dlg, store } = await mount();
     await userEvent.click(within(dlg).getByRole("button", { name: "Continue" }));
     expect(store.wizardStep).toBe(1);
@@ -45,8 +45,8 @@ describe("lista de pasos", () => {
   });
 });
 
-describe("paso 1: this machine", () => {
-  it("lista lo que encontró, con los textos del escaneo", async () => {
+describe("step 1: this machine", () => {
+  it("lists what it found, with the scan texts", async () => {
     const { dlg } = await mount();
     const found = within(dlg).getByRole("region", { name: "What it found" });
     for (const t of ["macOS 26 · Apple M5 · 24 GB", "capture and injection", "text, HTML, image", "zsh · Docker · uv · node", "no DDC channel right now; another machine controls them", "Administrator service"]) {
@@ -55,7 +55,7 @@ describe("paso 1: this machine", () => {
     expect(within(found).queryByRole("button", { name: "Install" })).toBeNull();
   });
 
-  it("con el servicio pendiente muestra «Instalar»; al instalar la fila queda lista y el botón desaparece", async () => {
+  it("with the service pending it shows \"Install\"; on installing the row is ready and the button disappears", async () => {
     const { dlg } = await mount("demo&still&admin=pending");
     const found = within(dlg).getByRole("region", { name: "What it found" });
     const btn = await within(found).findByRole("button", { name: "Install" });
@@ -65,7 +65,7 @@ describe("paso 1: this machine", () => {
     expect(found.querySelectorAll(".wz-spin")).toHaveLength(0);
   });
 
-  it("sin instalador (instalación por usuario) la fila lo explica y no ofrece el botón", async () => {
+  it("without an installer (per-user install) the row explains it and offers no button", async () => {
     const { dlg } = await mount("demo&still&admin=off");
     const found = within(dlg).getByRole("region", { name: "What it found" });
     expect(await within(found).findByText(/per-user install/)).toBeInTheDocument();
@@ -73,35 +73,35 @@ describe("paso 1: this machine", () => {
     expect(found.querySelectorAll(".wz-spin")).toHaveLength(0);
   });
 
-  it("el nombre y el color se guardan en el puesto", async () => {
+  it("the name and color are saved in the desk", async () => {
     const { dlg, store } = await mount();
     const input = within(dlg).getByRole("textbox", { name: "Name" });
     await userEvent.clear(input);
-    await userEvent.type(input, "Portátil{Enter}");
-    expect(store.desk.machines.a?.name).toBe("Portátil");
+    await userEvent.type(input, "Laptop{Enter}");
+    expect(store.desk.machines.a?.name).toBe("Laptop");
     await userEvent.click(within(dlg).getByRole("radio", { name: "Amber" }));
     expect(store.desk.machines.a?.color).toBe("#d9a75a");
     expect(within(dlg).getByRole("radio", { name: "Amber" })).toHaveAttribute("aria-checked", "true");
-    // Un nombre vacío no se guarda.
+    // An empty name is not saved.
     await userEvent.clear(input);
     await userEvent.tab();
-    expect(store.desk.machines.a?.name).toBe("Portátil");
+    expect(store.desk.machines.a?.name).toBe("Laptop");
   });
 });
 
-describe("paso 2: tu puesto", () => {
-  it("unirse: busca sola, el usuario escribe el código y las dos quedan emparejadas", async () => {
+describe("step 2: your desk", () => {
+  it("join: it searches by itself, the user types the code and both end up paired", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const { dlg, store } = await mount("demo&still&peer=none", 1);
     expect(await within(dlg).findByText("Looking for PC-Desktop on your network…")).toBeInTheDocument();
     await vi.advanceTimersByTimeAsync(1500);
     expect(within(dlg).getByText("Found on your network")).toBeInTheDocument();
     expect(within(dlg).getByText("Enter the code PC-Desktop shows")).toBeInTheDocument();
-    // Un código equivocado no confirma.
+    // A wrong code does not confirm.
     for (const [i, d] of [..."418028"].entries()) await userEvent.type(within(dlg).getByRole("textbox", { name: `Digit ${i + 1}` }), d);
     expect(within(dlg).getByRole("alert")).toHaveTextContent("That is not the code PC-Desktop shows");
     expect(store.desk.pair.pairing).toMatchObject({ kind: "comparing", confirmed: false });
-    // El correcto sí.
+    // The right one does.
     await userEvent.clear(within(dlg).getByRole("textbox", { name: "Digit 6" }));
     await userEvent.type(within(dlg).getByRole("textbox", { name: "Digit 6" }), "7");
     expect(store.desk.pair.pairing).toMatchObject({ kind: "comparing", confirmed: true });
@@ -110,7 +110,7 @@ describe("paso 2: tu puesto", () => {
     expect(await within(dlg).findByText(/Paired/)).toBeInTheDocument();
   });
 
-  it("crear: muestra el código y confirma sin pedir nada más", async () => {
+  it("create: it shows the code and confirms without asking for anything else", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const { dlg, store } = await mount("demo&still&peer=none", 1);
     await userEvent.click(within(dlg).getByRole("radio", { name: /Create a new desk/ }));
@@ -120,7 +120,7 @@ describe("paso 2: tu puesto", () => {
     expect(within(dlg).getByText(/Then, on the other machine/)).toBeInTheDocument();
   });
 
-  it("emparejadas: «Change the other machine» pide confirmar antes de desemparejar", async () => {
+  it("paired: \"Change the other machine\" asks for confirmation before unpairing", async () => {
     const { dlg, store } = await mount("demo&still", 1);
     await userEvent.click(within(dlg).getByRole("button", { name: "Change the other machine" }));
     expect(within(dlg).getByText("Unpair PC-Desktop?")).toBeInTheDocument();
@@ -131,7 +131,7 @@ describe("paso 2: tu puesto", () => {
     expect(store.desk.pair.peer.kind).toBe("unpaired");
   });
 
-  it("un rechazo en the other machine se cuenta y se puede reintentar", async () => {
+  it("a rejection on the other machine is reported and can be retried", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const { dlg } = await mount("demo&still&peer=none&pair=reject", 1);
     await vi.advanceTimersByTimeAsync(1500);
@@ -142,8 +142,8 @@ describe("paso 2: tu puesto", () => {
   });
 });
 
-describe("paso 3: permisos", () => {
-  it("los pide, muestra los que faltan y pasan a concedidos al abrirlos", async () => {
+describe("step 3: permissions", () => {
+  it("it requests them, shows the missing ones and they turn granted when opened", async () => {
     const { dlg, store } = await mount("demo&still&perms=missing", 2);
     expect(within(dlg).getByRole("heading", { name: "macOS permissions" })).toBeInTheDocument();
     expect(within(dlg).getByText("Missing 2")).toBeInTheDocument();
@@ -154,7 +154,7 @@ describe("paso 3: permisos", () => {
     expect(open).toHaveLength(2);
     await userEvent.click(open[0]!);
     expect(within(dlg).getByText("Missing 1")).toBeInTheDocument();
-    // Tras abrir un panel se ofrece reiniciar el agente.
+    // After opening a panel, restarting the agent is offered.
     expect(within(dlg).getByRole("button", { name: "Restart agent" })).toBeInTheDocument();
     await userEvent.click(within(dlg).getByRole("button", { name: "Open settings" }));
     expect(store.desk.permissions.rows.filter((r) => r.state === "missing")).toEqual([]);
@@ -163,15 +163,15 @@ describe("paso 3: permisos", () => {
     expect(within(dlg).queryByRole("button", { name: "Restart agent" })).toBeNull();
   });
 
-  it("en Windows no hace falta ningún permiso", async () => {
+  it("on Windows no permission is needed", async () => {
     const { dlg } = await mount("demo&still&here=b", 2);
     expect(within(dlg).getByText("This machine needs no permissions")).toBeInTheDocument();
     expect(within(dlg).getByRole("button", { name: "Continue" })).not.toHaveClass("wait");
   });
 });
 
-describe("paso 4: teclado y mouse", () => {
-  it("cada máquina lista lo que tiene; la que no tiene nada lo dice", async () => {
+describe("step 4: keyboard and mouse", () => {
+  it("each machine lists what it has; the one with nothing says so", async () => {
     const { dlg } = await mount("demo&still", 3);
     const mac = within(dlg).getByRole("group", { name: "MacBook Pro" });
     expect(within(mac).getByText("Built-in keyboard")).toBeInTheDocument();
@@ -182,7 +182,7 @@ describe("paso 4: teclado y mouse", () => {
     expect(within(pc).getByText("If you plug the hub in here, it detects it on its own.")).toBeInTheDocument();
   });
 
-  it("marca la actividad de cada máquina cuando la oye (agente y ventana)", async () => {
+  it("marks each machine's activity when it hears it (agent and window)", async () => {
     const { dlg, source } = await mount("demo&still", 3);
     const pc = within(dlg).getByRole("group", { name: "PC-Desktop" });
     expect(within(pc).queryByText("Activity detected")).toBeNull();
@@ -195,8 +195,8 @@ describe("paso 4: teclado y mouse", () => {
   });
 });
 
-describe("paso 4: el puntero quieto no es actividad", () => {
-  it("un `pointermove` sin desplazamiento (el navegador lo emite al cambiar el diseño) no marca nada", async () => {
+describe("step 4: a still pointer is not activity", () => {
+  it("a `pointermove` without displacement (the browser emits it when the layout changes) does not mark anything", async () => {
     const { dlg } = await mount("demo&still", 3);
     const mac = within(dlg).getByRole("group", { name: "MacBook Pro" });
     const still = new Event("pointermove");
@@ -211,8 +211,8 @@ describe("paso 4: el puntero quieto no es actividad", () => {
   });
 });
 
-describe("paso 5: acomodo y prueba de cruce", () => {
-  it("espera el cruce y, si pasa, lo dice y habilita Continuar", async () => {
+describe("step 5: arrangement and crossing test", () => {
+  it("waits for the crossing and, if it happens, says so and enables Continue", async () => {
     const { dlg, store } = await mount("demo&still&cross=ok", 4);
     const next = within(dlg).getByRole("button", { name: "Continue" });
     expect(next).toHaveClass("wait");
@@ -222,7 +222,7 @@ describe("paso 5: acomodo y prueba de cruce", () => {
     expect(next).not.toHaveClass("wait");
   });
 
-  it("por otro borde falla y se puede probar de nuevo", async () => {
+  it("through another edge it fails and can be tried again", async () => {
     const { dlg, store } = await mount("demo&still&cross=wrong", 4);
     await userEvent.click(within(dlg).getByRole("button", { name: "Test crossing" }));
     expect(await within(dlg).findByText(/Crossed at the top, not the right/)).toBeInTheDocument();
@@ -230,26 +230,26 @@ describe("paso 5: acomodo y prueba de cruce", () => {
     expect(within(dlg).getByRole("button", { name: "Test again" })).toBeInTheDocument();
   });
 
-  it("sin cruzar a tiempo, falla con el borde que había que usar", async () => {
+  it("without crossing in time, it fails with the edge that had to be used", async () => {
     const { dlg } = await mount("demo&still&cross=timeout", 4);
     await userEvent.click(within(dlg).getByRole("button", { name: "Test crossing" }));
     expect(await within(dlg).findByText(/Did not cross in 20 s/)).toBeInTheDocument();
   });
 
-  it("mover the other machine con las flechas guarda el acomodo y reinicia la prueba", async () => {
+  it("moving the other machine with the arrows saves the arrangement and restarts the test", async () => {
     const { dlg, store } = await mount("demo&still&cross=ok", 4);
     await userEvent.click(within(dlg).getByRole("button", { name: "Test crossing" }));
     await within(dlg).findByText(/Crossed to/);
     const other = within(dlg).getByRole("button", { name: /Move PC-Desktop/ });
     other.focus();
     await userEvent.keyboard("{ArrowDown}");
-    // A (aquí) sale the bottom: B queda debajo.
+    // A (here) exits at the bottom: B ends up below.
     expect(store.desk.layout.arrangement.aSide).toBe("up");
     expect(store.wizardCrossed).toBe(false);
     expect(within(dlg).getByRole("button", { name: "Test crossing" })).toBeInTheDocument();
   });
 
-  it("Saltar pasa al resumen sin la prueba", async () => {
+  it("Skip goes to the summary without the test", async () => {
     const { dlg, store } = await mount("demo&still", 4);
     await userEvent.click(within(dlg).getByRole("button", { name: "Skip" }));
     expect(store.wizardStep).toBe(5);
@@ -257,8 +257,8 @@ describe("paso 5: acomodo y prueba de cruce", () => {
   });
 });
 
-describe("paso 6: listo", () => {
-  it("resume lo comprobado y copia el comando de MCP", async () => {
+describe("step 6: done", () => {
+  it("summarizes what was checked and copies the MCP command", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
     const { dlg, store } = await mount("demo&still", 5);
@@ -274,10 +274,10 @@ describe("paso 6: listo", () => {
     expect(writeText).toHaveBeenCalledWith("claude mcp add tandem -- tandem mcp");
   });
 
-  it("«Go to desk» cierra el asistente", async () => {
+  it("\"Go to desk\" closes the wizard", async () => {
     const { dlg, store } = await mount("demo&still", 5);
     await userEvent.click(within(dlg).getByRole("button", { name: "Go to desk" }));
     expect(store.wizardOpen).toBe(false);
-    expect(store.route).toEqual({ screen: "puesto" });
+    expect(store.route).toEqual({ screen: "desk" });
   });
 });

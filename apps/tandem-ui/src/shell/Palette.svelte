@@ -54,7 +54,7 @@
       e.preventDefault();
       close();
     } else if (e.key === "Tab") {
-      // La paleta es modal: el foco se queda en la búsqueda.
+      // The palette is modal: focus stays on the search.
       e.preventDefault();
     }
   }
@@ -117,7 +117,7 @@
 {/if}
 
 <style>
-  /* F-Palette: velo, diálogo de 640 px y lista agrupada. */
+  /* F-Palette: veil, 640 px dialog and grouped list. */
   .veil {
     position: fixed;
     inset: 0;

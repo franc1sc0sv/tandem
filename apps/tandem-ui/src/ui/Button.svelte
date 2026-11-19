@@ -1,8 +1,8 @@
 <script lang="ts" module>
   export type ButtonVariant = "default" | "pri" | "ghost" | "danger";
-  /** Alto fijo por tamaño: sm 32, md 36, lg 40, xl 44 (los de los mockups). */
+  /** Fixed height per size: sm 32, md 36, lg 40, xl 44 (those of the mockups). */
   export type ButtonSize = "sm" | "md" | "lg" | "xl";
-  /** Cómo se mueve el ícono al pasar: crece, avanza, retrocede o gira. */
+  /** How the icon moves on hover: grows, advances, goes back or spins. */
   export type IconMotion = "scale" | "go" | "back" | "spin" | "lift" | "tilt";
 </script>
 
@@ -12,17 +12,17 @@
   import type { IconName } from "./icons";
 
   interface Props {
-    /** Ícono siempre (G4). */
+    /** Icon always (G4). */
     icon: IconName;
     variant?: ButtonVariant;
     size?: ButtonSize;
-    /** Solo ícono (cuadrado): `label` es el nombre accesible y el título. */
+    /** Icon only (square): `label` is the accessible name and the title. */
     iconOnly?: boolean;
     label?: string;
-    /** El ícono va después del texto (por ejemplo «Siguiente →»). */
+    /** The icon goes after the text (for example "Next →"). */
     iconAfter?: boolean;
     motion?: IconMotion;
-    /** Tamaño y grosor del ícono si el mockup de la pantalla no usa los del tamaño del botón. */
+    /** Size and stroke of the icon if the screen's mockup does not use those of the button size. */
     iconSize?: number;
     iconStroke?: number;
     iconLinecap?: "round" | "butt";
@@ -84,9 +84,9 @@
 {/if}
 
 <style>
-  /* Sistema único de botones (mockups v0.3): alto fijo, ícono siempre, elevación al pasar,
-     brillo en el primario y foco visible. Los tamaños usan variables para que cada pantalla
-     calce con su mockup sin otro sistema. */
+  /* Single button system (v0.3 mockups): fixed height, icon always, lift on hover,
+     shine on the primary and visible focus. The sizes use variables so each screen
+     fits its mockup without another system. */
   .btn {
     --h: 36px;
     --px: 14px;
@@ -107,7 +107,7 @@
     font: inherit;
     font-size: var(--btn-fs, var(--fs));
     font-weight: 500;
-    /* Los mockups de Monitores y escenas no fijan el interlineado del botón: `normal`. */
+    /* The Monitors and scenes mockups do not set the button's line height: `normal`. */
     line-height: var(--btn-lh, 1);
     border-radius: var(--btn-r, var(--r));
     border: 1px solid #2e3138;
@@ -173,7 +173,7 @@
   .btn.m-lift:hover:not(:disabled) :global(svg) {
     transform: translate(2px, -2px);
   }
-  /* El medidor se inclina como una aguja (`Medir ancho de banda`, V3-Network). */
+  /* The gauge tilts like a needle (`Measure bandwidth`, V3-Network). */
   .btn.m-tilt:hover:not(:disabled) :global(svg) {
     transform: rotate(-25deg) scale(1.1);
   }

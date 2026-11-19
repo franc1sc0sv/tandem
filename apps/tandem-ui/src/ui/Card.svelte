@@ -2,11 +2,11 @@
   import type { Snippet } from "svelte";
 
   interface Props {
-    /** Retraso de la animación de entrada, en segundos (las tarjetas entran escalonadas). */
+    /** Delay of the entrance animation, in seconds (the cards enter staggered). */
     delay?: number;
-    /** Con `href` la tarjeta entera es un enlace y se eleva al pasar. */
+    /** With `href` the whole card is a link and lifts on hover. */
     href?: string;
-    /** Se eleva al pasar aunque no sea enlace. */
+    /** Lifts on hover even if it is not a link. */
     hover?: boolean;
     label?: string;
     tag?: "div" | "section" | "article";
@@ -19,7 +19,7 @@
   const st = $derived(`${delay ? `animation-delay:${delay}s;` : ""}${style}`);
 </script>
 
-<!-- Sin línea de color arriba (DESIGN §12): el acento va en el contenido. -->
+<!-- No color line on top (DESIGN §12): the accent goes in the content. -->
 {#if href}
   <a class="card lift {cls}" {href} style={st} aria-label={label}>{@render children()}</a>
 {:else}

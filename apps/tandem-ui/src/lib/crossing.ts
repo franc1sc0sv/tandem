@@ -1,24 +1,24 @@
-// Crossing test (`F-CrossingTest`): se pide llevar el cursor a the other machine por el borde
-// del acomodo y se juzga con lo que informa el motor de entrada. Puro: el tiempo entra como
-// número para probarlo sin relojes.
+// Crossing test (`F-CrossingTest`): the user is asked to take the cursor to the other machine through the
+// arrangement edge and it is judged with what the input engine reports. Pure: time enters as a
+// number to test without clocks.
 
 import type { Machine, Side } from "./model";
 
-/** Lo que el motor de entrada informa cuando el cursor pasa de una máquina a la otra. */
+/** What the input engine reports when the cursor goes from one machine to the other. */
 export interface CrossSample {
   from: Machine;
   to: Machine;
-  /** El borde de `from` por el que salió. */
+  /** The edge of `from` it left through. */
   edge: Side;
-  /** Dónde entró, a lo largo del borde, en coordenadas de la pantalla de llegada. */
+  /** Where it entered, along the edge, in the coordinates of the arrival screen. */
   at: number;
-  /** Largo de ese borde (alto si el borde es vertical, ancho si es horizontal); 0 si el motor no dijo dónde entró. */
+  /** Length of that edge (height if the edge is vertical, width if horizontal); 0 if the engine did not say where it entered. */
   of: number;
-  /** Lo que tardó el cruce, en ms; `null` si el motor no lo midió (no llegó muestra). */
+  /** How long the crossing took, in ms; `null` if the engine did not measure it (no sample arrived). */
   ms: number | null;
 }
 
-/** El cursor tiene 20 s para cruzar. */
+/** The cursor has 20 s to cross. */
 export const CROSS_TIMEOUT_MS = 20_000;
 
 export type CrossPhase =
@@ -26,7 +26,7 @@ export type CrossPhase =
   | { kind: "passed"; sample: CrossSample }
   | { kind: "wrong-edge"; sample: CrossSample }
   | { kind: "timeout" }
-  /** La fuente no informa cruces (el agente todavía no manda `CursorSample`). */
+  /** The source does not report crossings (the agent does not send `CursorSample` yet). */
   | { kind: "unavailable"; reason: string };
 
 export function start(now: number): CrossPhase {
@@ -34,21 +34,21 @@ export function start(now: number): CrossPhase {
 }
 
 /**
- * Lo que pasa con un cruce informado. Solo cuenta mientras se espera y si sale de `from`:
- * un cruce de vuelta (de the other machine hacia aquí) no dice nada del borde.
+ * What happens with a reported crossing. It only counts while waiting and if it leaves `from`:
+ * a crossing back (from the other machine to here) says nothing about the edge.
  */
 export function onSample(phase: CrossPhase, from: Machine, expected: Side, s: CrossSample): CrossPhase {
   if (phase.kind !== "waiting" || s.from !== from) return phase;
   return s.edge === expected ? { kind: "passed", sample: s } : { kind: "wrong-edge", sample: s };
 }
 
-/** Pasado el tiempo sin cruzar, la prueba falla. */
+/** Once the time has passed without crossing, the test fails. */
 export function onTick(phase: CrossPhase, now: number, limit = CROSS_TIMEOUT_MS): CrossPhase {
   if (phase.kind === "waiting" && now - phase.since >= limit) return { kind: "timeout" };
   return phase;
 }
 
-/** Segundos que quedan (para el anillo de cuenta atrás). */
+/** Seconds left (for the countdown ring). */
 export function remaining(phase: CrossPhase, now: number, limit = CROSS_TIMEOUT_MS): number {
   if (phase.kind !== "waiting") return 0;
   return Math.max(0, Math.ceil((limit - (now - phase.since)) / 1000));

@@ -1,5 +1,5 @@
-// Paridad de estilos (T-127), la parte con navegador: lee los estilos calculados de la galería
-// y de los mockups y los compara con `style-parity-spec.ts`. La usa `pnpm shots`.
+// Style parity (T-127), the browser part: reads the computed styles of the gallery
+// and of the mockups and compares them with `style-parity-spec.ts`. `pnpm shots` uses it.
 
 import { ORIGIN, installRoutes, statesOf, waitForMockup } from "@tandem/mockup-render";
 import { settle } from "@tandem/mockup-render/harness";
@@ -12,7 +12,7 @@ interface Wanted {
   props: string[];
 }
 
-/** Estilos calculados de cada objetivo (o `null` si el selector no encuentra nada). */
+/** Computed styles of each target (or `null` if the selector finds nothing). */
 async function read(page: Page, wanted: Wanted[]): Promise<Record<string, Styles | null>> {
   return page.evaluate((list) => {
     const out: Record<string, Record<string, string> | null> = {};
@@ -34,21 +34,21 @@ const VIEWPORT = { width: 1280, height: 860 };
 export interface ParityResult {
   pairs: StylePair[];
   diffs: StyleDiff[];
-  /** Selectores que no encontraron su elemento, como `«par»: dónde`. */
+  /** Selectors that did not find their element, as `"pair": where`. */
   missing: string[];
-  /** Captura de la galería. */
+  /** Gallery capture. */
   galleryPng: Buffer;
 }
 
 /**
- * Abre la galería con `openGallery` (que sirve la app y navega) y cada mockup de `pairs`, lee
- * los estilos calculados de los dos lados y los compara.
+ * Opens the gallery with `openGallery` (which serves the app and navigates) and each mockup of `pairs`, reads
+ * the computed styles of both sides and compares them.
  */
 export async function runStyleParity(browser: Browser, openGallery: (page: Page) => Promise<void>, pairs: StylePair[] = PAIRS): Promise<ParityResult> {
   const missing: string[] = [];
   const wanted = (side: "app" | "ref", list: StylePair[]): Wanted[] => list.map((p) => ({ key: p.name, target: p[side], props: propertiesOf(p.groups) }));
 
-  // La app: un solo contexto para toda la galería.
+  // The app: a single context for the whole gallery.
   const appCtx = await browser.newContext({ viewport: VIEWPORT, deviceScaleFactor: 1, locale: "en-US", colorScheme: "dark" });
   let app: Record<string, Styles | null>;
   let galleryPng: Buffer;
@@ -63,7 +63,7 @@ export async function runStyleParity(browser: Browser, openGallery: (page: Page)
     await appCtx.close();
   }
 
-  // Los mockups: uno por contexto (y por estado), igual que `mockupRects` de `shots.ts`.
+  // The mockups: one per context (and per state), like `mockupRects` in `shots.ts`.
   const ref: Record<string, Styles | null> = {};
   const views = [...new Map(pairs.map((p) => [`${p.mockup}--${p.state ?? ""}`, { mockup: p.mockup, state: p.state }])).values()];
   for (const { mockup, state } of views) {
@@ -76,13 +76,13 @@ export async function runStyleParity(browser: Browser, openGallery: (page: Page)
       await settle(page);
       if (state) {
         const st = statesOf(mockup).find((s) => s.name === state);
-        if (!st) throw new Error(`${mockup} no tiene el estado «${state}» (tools/mockup-render/src/states.ts)`);
+        if (!st) throw new Error(`${mockup} has no state "${state}" (tools/mockup-render/src/states.ts)`);
         for (const step of st.steps) {
           if ("click" in step) await page.locator(step.click).click({ timeout: 5_000 });
           else await page.locator(step.fill).fill(step.text, { timeout: 5_000 });
           await settle(page);
         }
-        // Sin el puntero encima del último botón (su :hover cambiaría los estilos).
+        // Without the pointer over the last button (its :hover would change the styles).
         await page.mouse.move(0, 0);
         await settle(page);
       }
@@ -96,8 +96,8 @@ export async function runStyleParity(browser: Browser, openGallery: (page: Page)
   for (const p of pairs) {
     const a = app[p.name];
     const m = ref[p.name];
-    if (!a) missing.push(`${p.name}: no está en la galería (${p.app.selector})`);
-    if (!m) missing.push(`${p.name}: no está en ${p.mockup} (${p.ref.selector})`);
+    if (!a) missing.push(`${p.name}: is not in the gallery (${p.app.selector})`);
+    if (!m) missing.push(`${p.name}: is not in ${p.mockup} (${p.ref.selector})`);
     if (a && m) diffs.push(...compareStyles(p.name, a, m, p.groups));
   }
   return { pairs, diffs, missing, galleryPng };

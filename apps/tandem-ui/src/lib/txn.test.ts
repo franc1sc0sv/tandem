@@ -19,13 +19,13 @@ function play(events: TxnView[], at = 1000): Run {
   events.forEach((e, i) => {
     run = feedRun(run, e, at + i * 600, origin);
   });
-  if (!run) throw new Error("sin corrida");
+  if (!run) throw new Error("no run");
   return run;
 }
 const started: TxnView = { type: "started", txn: 7, steps };
 
-describe("progreso de una transacción (F-Transactions)", () => {
-  it("empieza con «Save how everything is» listo y los pasos pendientes", () => {
+describe("transaction progress (F-Transactions)", () => {
+  it("starts with \"Save how everything is\" ready and the steps pending", () => {
     const run = play([started]);
     expect(running(run)).toBe(true);
     const v = viewOf(run, names, 1000);
@@ -38,14 +38,14 @@ describe("progreso de una transacción (F-Transactions)", () => {
     expect(v.message).toEqual({ text: "The monitor confirms each change; nothing is guessed.", tone: "mut" });
   });
 
-  it("el paso dthe monitor espera al monitor y al terminar dice cuánto tardó", () => {
+  it("the monitor step waits for the monitor and when it ends says how long it took", () => {
     const run = play([started, { type: "step_started", txn: 7, index: 0 }]);
     expect(viewOf(run, names, 2000).rows[1]).toMatchObject({ icon: "run", detail: "waiting for the monitor" });
     const done = play([started, { type: "step_started", txn: 7, index: 0 }, { type: "step_done", txn: 7, index: 0 }]);
     expect(viewOf(done, names, 3000).rows[1]).toMatchObject({ icon: "done", detail: "confirmed · 0.6 s" });
   });
 
-  it("al confirmarse todo dice lo que pidió quien lo inició y deja de correr", () => {
+  it("on confirmation it says what the requester asked for and stops running", () => {
     const run = play([started, { type: "step_started", txn: 7, index: 0 }, { type: "step_done", txn: 7, index: 0 }, { type: "step_started", txn: 7, index: 1 }, { type: "step_done", txn: 7, index: 1 }, { type: "committed", txn: 7, state: { on: { a: true, b: true } } }]);
     expect(running(run)).toBe(false);
     const v = viewOf(run, names, 9000);
@@ -54,29 +54,29 @@ describe("progreso de una transacción (F-Transactions)", () => {
     expect(v.elapsed).toBe("3.0 s");
   });
 
-  it("si the monitor no da imagen, la vuelta atrás se ve y el mensaje dice qué pasó", () => {
+  it("if the monitor gives no image, the rollback is visible and the message says what happened", () => {
     const run = play([
       started,
       { type: "step_started", txn: 7, index: 0 },
-      { type: "step_failed", txn: 7, index: 0, error: "the monitor no mostró imagen en DisplayPort" },
+      { type: "step_failed", txn: 7, index: 0, error: "the monitor showed no image on DisplayPort" },
     ]);
     const v = viewOf(run, names, 5000);
     expect(v.rows.map((r) => r.icon)).toEqual(["done", "bad", "back"]);
     expect(v.rows[1]).toMatchObject({ tone: "bad", detail: "the monitor said: change failed" });
     expect(v.rows[2]).toMatchObject({ text: "Rolling back to how it was", detail: '34" → MacBook Pro' });
     expect(v.message).toEqual({ text: "There was no DisplayPort signal. Everything goes back to how it was; nothing was left half done.", tone: "warn" });
-    const over = play([started, { type: "step_started", txn: 7, index: 0 }, { type: "step_failed", txn: 7, index: 0, error: "the monitor no mostró imagen en DisplayPort" }, { type: "failed", txn: 7, state: { on: { a: true, b: true } } }]);
+    const over = play([started, { type: "step_started", txn: 7, index: 0 }, { type: "step_failed", txn: 7, index: 0, error: "the monitor showed no image on DisplayPort" }, { type: "failed", txn: 7, state: { on: { a: true, b: true } } }]);
     expect(viewOf(over, names, 5000)).toMatchObject({ outcome: "failed" });
     expect(viewOf(over, names, 5000).rows[2]?.icon).toBe("done");
   });
 
-  it("los avisos de otra transacción no mueven la corrida", () => {
+  it("notices of another transaction do not move the run", () => {
     const run = play([started]);
     expect(feedRun(run, { type: "step_started", txn: 99, index: 0 }, 5000)).toBe(run);
     expect(feedRun(null, { type: "committed", txn: 7, state: { on: { a: true, b: true } } }, 5000)).toBeNull();
   });
 
-  it("sin título propio se dice por los pasos", () => {
+  it("without its own title it is described by the steps", () => {
     expect(titleOf([{ step: "power_on", machine: "b" }], names)).toBe("Powering on PC-Desktop");
     expect(titleOf([{ step: "power_off", machine: "b" }], names)).toBe("Powering off PC-Desktop");
     expect(titleOf([{ step: "switch_monitor", monitor: "g5-34", input: "hdmi" }], names)).toBe("Changing the input of 34\"");

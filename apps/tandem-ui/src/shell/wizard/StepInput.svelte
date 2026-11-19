@@ -1,7 +1,7 @@
 <script lang="ts">
-  // Paso 4 (`F-Setup4`): teclado y mouse sin dueño. Cada máquina lista lo que tiene y marca
-  // «Activity detected» cuando recibe una tecla o un movimiento: lo oye el agente (cada
-  // máquina por su lado) y, en esta, también la ventana.
+  // Step 4 (`F-Setup4`): keyboard and mouse with no owner. Each machine lists what it has and marks
+  // "Activity detected" when it receives a key or a movement: the agent hears it (each
+  // machine on its own) and, on this one, the window too.
   import { onDestroy, onMount } from "svelte";
   import { useStore } from "../../lib/context";
   import { NO_ACTIVITY, deviceRows, heard, type Activity } from "../../lib/wizard";
@@ -13,7 +13,7 @@
   let activity: Activity = $state({ ...NO_ACTIVITY });
   let stop: (() => void) | null = null;
   let gone = false;
-  // Una tecla que llega antes de armar la sonda se avisa al armarla: el agente la ignoraría antes.
+  // A key that arrives before the probe is armed is reported when it is armed: the agent would ignore it before.
   let armed = false;
   let pending = false;
 
@@ -26,7 +26,7 @@
         if (pending) void store.reportHeardKey();
       },
       () => {
-        // Sin sonda del agente: queda la actividad que ve esta ventana.
+        // Without an agent probe: the activity this window sees remains.
       },
     );
   });
@@ -35,7 +35,7 @@
     stop?.();
   });
 
-  // La primera actividad de la ventana se le avisa al agente: así the other machine la ve.
+  // The window's first activity is reported to the agent: that is how the other machine sees it.
   const here = () => {
     if (!activity[desk.here]) {
       if (armed) void store.reportHeardKey();
@@ -43,8 +43,8 @@
     }
     activity = heard(activity, desk.here);
   };
-  // El navegador también emite un `pointermove` sin desplazamiento cuando el diseño cambia bajo un
-  // puntero quieto: eso no es actividad.
+  // The browser also emits a `pointermove` without displacement when the layout changes under a
+  // still pointer: that is not activity.
   const moved = (e: PointerEvent) => {
     if (e.movementX !== 0 || e.movementY !== 0) here();
   };
