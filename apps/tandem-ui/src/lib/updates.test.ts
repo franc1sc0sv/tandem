@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { availableRow, checkLabel, upToDate, versionRow, type UpdateView } from "./updates";
 
-const base: UpdateView = { here: "0.3.0", peer: "0.3.0", paired: true, available: null, checking: false, step: null, error: null, auto: true };
+const base: UpdateView = { seq: 1, here: "0.3.0", peer: "0.3.0", paired: true, available: null, checking: false, step: null, error: null, auto: true };
 
 describe("Updates", () => {
   it("says whether both machines are on the same version", () => {

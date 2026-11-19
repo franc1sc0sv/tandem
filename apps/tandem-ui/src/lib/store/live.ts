@@ -258,7 +258,7 @@ export function deskFromError(e: unknown): DeskView {
 
 function result(r: ActionResult): ActResult {
   if (r.kind === "rejected" || r.kind === "unavailable") return { ok: false, reason: r.reason };
-  return { ok: true };
+  return r.kind === "accepted" ? { ok: true, txn: r.txn } : { ok: true };
 }
 
 export class LiveSource implements Source {

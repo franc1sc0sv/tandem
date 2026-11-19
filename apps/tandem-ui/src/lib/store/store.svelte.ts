@@ -42,6 +42,10 @@ export interface Toast extends ToastSpec {
 export const TOAST_MS = 6000;
 /** How many notices stack at once. */
 export const TOAST_MAX = 5;
+/** How long the window waits for the first notice of a transaction it asked for (T-250). */
+export const EXPECT_TXN_MS = 4000;
+
+type Origin = { title: string; doneText: string };
 
 export class Store implements CommandContext {
   desk: DeskView = $state(EMPTY_DESK);
@@ -59,12 +63,21 @@ export class Store implements CommandContext {
   clock = $state(Date.now());
   /** It is already known whether there are transaction notices: before that, "no progress" does not mean anything yet. */
   txnReady = $state(false);
+  /**
+   * The transaction this window asked for whose `started` has not arrived yet (T-250). The
+   * agent's reply and the transaction's notices travel on different channels, so the reply can
+   * win: until `started` arrives the progress screen waits instead of leaving.
+   */
+  expectedTxn: number | null = $state(null);
   /** Number of active tunnels, for the sidebar. */
   activeTunnels = $derived(this.desk.tunnels.filter((t) => t.state === "busy").length);
 
   private nextToast = 1;
   /** What was requested from this window: gives the title and final text of the transaction that starts. */
-  private origin: { title: string; doneText: string } | null = null;
+  private origin: Origin | null = null;
+  /** The origin of `expectedTxn`: it is given to that transaction even if another one starts first. */
+  private expectedOrigin: Origin | null = null;
+  private expectTimer: ReturnType<typeof setTimeout> | undefined;
   private stopTxn: (() => void) | null = null;
   private stopDrag: (() => void) | null = null;
   /** The notice of the drag in progress: it is updated instead of stacking one per file. */
@@ -140,7 +153,9 @@ export class Store implements CommandContext {
     try {
       this.stopTxn = await this.source.watchTxn((e, at, given) => {
         const before = this.run;
-        const origin = e.type === "started" ? (given ?? this.origin) : null;
+        const mine = e.type === "started" && e.txn === this.expectedTxn;
+        const origin = e.type === "started" ? (given ?? (mine ? this.expectedOrigin : this.origin)) : null;
+        if (mine) this.stopExpecting();
         // Each kind of transaction has its card: powering on is separate from the scene.
         if (e.type === "started" && e.steps[0]?.step === "power_on") this.powerRun = feedRun(this.powerRun, e, at ?? this.nowMs(), origin);
         else {
@@ -203,6 +218,7 @@ export class Store implements CommandContext {
 
   stop(): void {
     this.stopClock();
+    this.stopExpecting();
     this.stopTxn?.();
     this.stopDrag?.();
     this.source.stop();
@@ -257,22 +273,56 @@ export class Store implements CommandContext {
   failedScene: { id: string; name: string } | null = $state(null);
 
   /** Applies a scene; if it could not start, it announces so. Its progress arrives as a transaction. */
-  async applyScene(id: string): Promise<ActResult> {
+  applyScene(id: string): Promise<ActResult> {
     const scene = this.desk.scenes.find((s) => s.id === id);
     this.sceneAsked = { id, name: scene?.name ?? id };
-    this.origin = { title: `Applying the scene “${scene?.name ?? id}”`, doneText: `Scene “${scene?.name ?? id}” active.` };
-    const r = await this.report(this.source.applyScene(id));
-    if (!r.ok) this.origin = null;
-    return r;
+    const name = scene?.name ?? id;
+    return this.change({ title: `Applying the scene “${name}”`, doneText: `Scene “${name}” active.` }, () => this.source.applyScene(id));
   }
 
   /** Requests the input of a compatible monitor. The verdict comes from the monitor: the screen does not guess. */
-  async switchMonitor(monitor: string, input: MonitorInput): Promise<ActResult> {
+  switchMonitor(monitor: string, input: MonitorInput): Promise<ActResult> {
     const m = this.desk.monitors.find((x) => x.id === monitor);
-    this.origin = { title: `Changing the input of ${m?.name ?? monitor}`, doneText: "Input changed." };
-    const r = await this.report(this.source.switchMonitor(monitor, input));
+    return this.change({ title: `Changing the input of ${m?.name ?? monitor}`, doneText: "Input changed." }, () => this.source.switchMonitor(monitor, input));
+  }
+
+  /**
+   * A change that runs as a transaction. If the reply names the transaction and its `started`
+   * has not arrived yet, the window expects it (T-250): the reply is not proof that the progress
+   * is already known.
+   */
+  private async change(origin: Origin, ask: () => Promise<ActResult>): Promise<ActResult> {
+    this.origin = origin;
+    const askedAt = this.nowMs();
+    const r = await this.report(ask());
     if (!r.ok) this.origin = null;
+    else if (r.txn !== undefined && this.stopTxn !== null && !this.startedSince(r.txn, askedAt)) this.expect(r.txn, origin);
     return r;
+  }
+
+  /** The `started` of `txn` already arrived (after the request: an agent restart reuses ids). */
+  private startedSince(txn: number, at: number): boolean {
+    return [this.run, this.powerRun].some((r) => r !== null && r.progress.txn === txn && r.startedAt >= at);
+  }
+
+  private expect(txn: number, origin: Origin): void {
+    this.stopExpecting();
+    this.expectedTxn = txn;
+    this.expectedOrigin = origin;
+    this.expectTimer = setTimeout(() => {
+      if (this.expectedTxn !== txn) return;
+      this.stopExpecting();
+      this.origin = null;
+      this.toast("The change was accepted, but its progress did not arrive", "bad");
+      if (this.route.screen === "progress") this.go({ screen: "monitors" });
+    }, EXPECT_TXN_MS);
+  }
+
+  private stopExpecting(): void {
+    clearTimeout(this.expectTimer);
+    this.expectTimer = undefined;
+    this.expectedTxn = null;
+    this.expectedOrigin = null;
   }
 
   saveScene(scene: SceneJson, isNew: boolean): Promise<ActResult> {
@@ -432,20 +482,33 @@ export class Store implements CommandContext {
     return this.source.hideMain();
   }
 
-  updates(onChange: (v: UpdateView) => void): Promise<UpdateView> {
-    return this.source.updates(onChange);
+  /** The newest Updates view seen, from an event or from a command reply (T-251). */
+  private updateView: UpdateView | null = null;
+
+  /** Keeps the newest view by its sequence: a late reply does not undo the steps that came by event. */
+  private newestUpdate(v: UpdateView): UpdateView {
+    if (this.updateView !== null && v.seq < this.updateView.seq) return this.updateView;
+    this.updateView = v;
+    return v;
   }
 
-  checkUpdates(): Promise<UpdateView> {
-    return this.source.checkUpdates();
+  async updates(onChange: (v: UpdateView) => void): Promise<UpdateView> {
+    const v = await this.source.updates((e) => {
+      if (this.newestUpdate(e) === e) onChange(e);
+    });
+    return this.newestUpdate(v);
   }
 
-  updateAll(): Promise<UpdateView> {
-    return this.source.updateAll();
+  async checkUpdates(): Promise<UpdateView> {
+    return this.newestUpdate(await this.source.checkUpdates());
   }
 
-  setAutoUpdate(on: boolean): Promise<UpdateView> {
-    return this.source.setAutoUpdate(on);
+  async updateAll(): Promise<UpdateView> {
+    return this.newestUpdate(await this.source.updateAll());
+  }
+
+  async setAutoUpdate(on: boolean): Promise<UpdateView> {
+    return this.newestUpdate(await this.source.setAutoUpdate(on));
   }
 
   /** Step of the setup it opens with (0 = the first). */

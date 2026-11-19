@@ -404,6 +404,9 @@ pub fn save_settings(path: &Path, s: Settings) -> io::Result<()> {
 /// The Updates tab of Settings (`F-Settings`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct UpdateView {
+    /// Grows with every change. The command replies and the events reach the window on
+    /// different channels: it keeps the view with the highest one, not the last to arrive.
+    pub seq: u64,
     /// This machine's version.
     pub here: String,
     /// The other machine's; `None` with no peer or if it is not known yet.
@@ -420,6 +423,24 @@ pub struct UpdateView {
     pub error: Option<String>,
     /// "Update automatically".
     pub auto: bool,
+}
+
+/// Numbers a view that just changed: above every earlier one.
+pub fn renumber(view: &mut UpdateView) {
+    view.seq = view.seq.wrapping_add(1);
+}
+
+/// Takes the install for "Update all" if nothing else holds it (`busy`), and already shows
+/// its first step: the command reply then says what is happening, instead of an idle view
+/// that the window could take as newer than the step events. `false` if it was taken.
+pub fn take_install(view: &mut UpdateView, busy: &mut bool, first: Option<Step>) -> bool {
+    if *busy {
+        return false;
+    }
+    *busy = true;
+    view.step = first;
+    view.error = None;
+    true
 }
 
 /// The updater's comparator when **checking**: the release is useful if either machine
@@ -842,9 +863,50 @@ mod tests {
         assert_eq!(load_settings(&path), Settings::default());
     }
 
+    fn idle_view() -> UpdateView {
+        UpdateView {
+            seq: 0,
+            here: "0.3.0".into(),
+            peer: Some("0.3.0".into()),
+            paired: true,
+            available: Some("0.3.1".into()),
+            checking: false,
+            step: None,
+            error: Some("the other machine did not come back".into()),
+            auto: true,
+        }
+    }
+
+    // T-251: the window orders the reply and the events by `seq`.
+    #[test]
+    fn renumber_grows() {
+        let mut v = idle_view();
+        renumber(&mut v);
+        let first = v.seq;
+        renumber(&mut v);
+        assert!(v.seq > first);
+    }
+
+    // T-251: the reply of "Update all" already says its first step, not the idle view.
+    #[test]
+    fn taking_the_install_shows_the_first_step() {
+        let (mut v, mut busy) = (idle_view(), false);
+        assert!(take_install(&mut v, &mut busy, Some(Step::AskPeer)));
+        assert!(busy);
+        assert_eq!(v.step, Some(Step::AskPeer));
+        assert_eq!(v.error, None);
+        let before = v.clone();
+        assert!(
+            !take_install(&mut v, &mut busy, Some(Step::InstallHere)),
+            "already in progress"
+        );
+        assert_eq!(v, before);
+    }
+
     #[test]
     fn view_json_shape() {
         let view = UpdateView {
+            seq: 4,
             here: "0.3.0".into(),
             peer: Some("0.3.0".into()),
             paired: true,
@@ -857,6 +919,7 @@ mod tests {
         assert_eq!(
             serde_json::to_value(&view).unwrap(),
             serde_json::json!({
+                "seq": 4,
                 "here": "0.3.0",
                 "peer": "0.3.0",
                 "paired": true,

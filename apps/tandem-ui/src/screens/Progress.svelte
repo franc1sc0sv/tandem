@@ -10,7 +10,9 @@
   import type { RowIcon } from "../lib/txn";
 
   const store = useStore();
-  const view = $derived(store.runView());
+  // While the transaction the window asked for has not said `started`, an older one is not shown (T-250).
+  const waiting = $derived(store.expectedTxn !== null);
+  const view = $derived(waiting ? null : store.runView());
   const energy = $derived(
     energyView(
       store.powerRun,
@@ -23,9 +25,9 @@
   const meter = $derived(kind ? measureView(store.desk.network, kind) : null);
   const back = formatHash({ screen: "monitors" });
 
-  // Without any transaction to show (the address was opened bare): back to Monitors.
+  // Without any transaction to show or expected (the address was opened bare): back to Monitors.
   $effect(() => {
-    if (store.txnReady && store.run === null && store.powerRun === null && !meter) store.go({ screen: "monitors" });
+    if (store.txnReady && !waiting && store.run === null && store.powerRun === null && !meter) store.go({ screen: "monitors" });
   });
 
   const WORD: Record<RowIcon, string> = { done: "done", run: "in progress", bad: "failed", todo: "pending", back: "rolling back" };
@@ -36,6 +38,9 @@
     <h1>Changes in progress</h1>
     <span class="mut sub">Everything that touches another machine is a transaction: visible steps, a time limit and rollback if something fails.</span>
   </div>
+  {#if waiting}
+    <p class="mut wait" aria-live="polite">Starting the change…</p>
+  {/if}
   {#if view || energy || meter}
     <div class="grid">
       {#if view}
@@ -107,8 +112,12 @@
     font-size: 20px;
     font-weight: 650;
   }
-  .sub {
+  .sub,
+  .wait {
     font-size: 12.5px;
+  }
+  .wait {
+    margin: 0;
   }
   .grid {
     display: grid;
