@@ -1,7 +1,7 @@
-//! Muestreo de recursos a 1 Hz, solo mientras alguien mira (T-105).
+//! Resource sampling at 1 Hz, only while someone is watching (T-105).
 //!
-//! Cada interesado toma un [`Watch`]; con el primero arranca la tarea de muestreo y con el
-//! último que se suelta se detiene. Las muestras van por un `broadcast` a quien se suscriba.
+//! Each interested party takes a [`Watch`]; the first one starts the sampling task and the
+//! last one to drop stops it. Samples go through a `broadcast` to whoever subscribes.
 
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
@@ -9,7 +9,7 @@ use std::time::Duration;
 use tandem_proto::Resources;
 use tokio::sync::broadcast;
 
-/// Cada cuánto se muestrea.
+/// How often to sample.
 pub const PERIOD: Duration = Duration::from_secs(1);
 
 type SampleFn = dyn Fn() -> Resources + Send + Sync;
@@ -27,7 +27,7 @@ struct State {
     running: bool,
 }
 
-/// El muestreador. Clonarlo comparte el mismo.
+/// The sampler. Cloning it shares the same one.
 #[derive(Clone)]
 pub struct ResourceMonitor {
     inner: Arc<Inner>,
@@ -41,8 +41,8 @@ impl std::fmt::Debug for ResourceMonitor {
     }
 }
 
-/// Mientras exista, se muestrea.
-#[must_use = "se deja de muestrear al soltarlo"]
+/// While it exists, sampling goes on.
+#[must_use = "sampling stops when it is dropped"]
 pub struct Watch {
     inner: Arc<Inner>,
 }
@@ -65,7 +65,7 @@ impl Drop for Watch {
 }
 
 impl ResourceMonitor {
-    /// `sample` lee los recursos; puede bloquear (corre en un hilo aparte).
+    /// `sample` reads the resources; it may block (it runs on a separate thread).
     pub fn new(sample: impl Fn() -> Resources + Send + Sync + 'static) -> Self {
         Self::with_period(sample, PERIOD)
     }
@@ -84,12 +84,12 @@ impl ResourceMonitor {
         }
     }
 
-    /// Las muestras que salgan desde ahora.
+    /// The samples that come out from now on.
     pub fn subscribe(&self) -> broadcast::Receiver<Resources> {
         self.inner.tx.subscribe()
     }
 
-    /// Cuántos están mirando.
+    /// How many are watching.
     pub fn watchers(&self) -> usize {
         self.inner
             .state
@@ -98,7 +98,7 @@ impl ResourceMonitor {
             .watchers
     }
 
-    /// Empezar a mirar. Fuera de un runtime de tokio no se muestrea (y se avisa).
+    /// Start watching. Outside a tokio runtime nothing is sampled (and a warning is logged).
     pub fn watch(&self) -> Watch {
         let mut s = self
             .inner
@@ -112,7 +112,7 @@ impl ResourceMonitor {
                     s.running = true;
                     rt.spawn(run(self.inner.clone()));
                 }
-                Err(_) => tracing::warn!("sin runtime: no se muestrean los recursos"),
+                Err(_) => tracing::warn!("no runtime: resources are not sampled"),
             }
         }
         drop(s);
@@ -122,8 +122,8 @@ impl ResourceMonitor {
     }
 }
 
-/// Sigue mientras haya alguien mirando; la decisión de parar y la de arrancar otra tarea se
-/// toman con el mismo candado, así nunca quedan dos tareas ni ninguna con alguien mirando.
+/// Goes on while someone is watching; the decision to stop and the one to start another task are
+/// made under the same lock, so there are never two tasks nor none with someone watching.
 async fn run(inner: Arc<Inner>) {
     let mut tick = tokio::time::interval(inner.period);
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -134,13 +134,13 @@ async fn run(inner: Arc<Inner>) {
         }
         let sample = inner.sample.clone();
         let Ok(resources) = tokio::task::spawn_blocking(move || sample()).await else {
-            tracing::warn!("la lectura de recursos falló");
+            tracing::warn!("the resource reading failed");
             continue;
         };
         if stop_if_unwatched(&inner) {
             return;
         }
-        // Sin suscriptores no es un error: quien mira puede no estar escuchando todavía.
+        // No subscribers is not an error: whoever is watching may not be listening yet.
         let _ = inner.tx.send(resources);
     }
 }
@@ -200,9 +200,9 @@ mod tests {
         assert_eq!(m.watchers(), 0);
         let before = n.load(Ordering::SeqCst);
         tokio::time::sleep(Duration::from_secs(10)).await;
-        assert!(n.load(Ordering::SeqCst) <= before + 1, "siguió muestreando");
+        assert!(n.load(Ordering::SeqCst) <= before + 1, "kept sampling");
         assert!(rx.try_recv().is_err());
-        // Volver a mirar arranca otra vez, con una sola tarea.
+        // Watching again starts it once more, with a single task.
         let _w = m.watch();
         let next = rx.recv().await.unwrap().cpu.load;
         let after = rx.recv().await.unwrap().cpu.load;

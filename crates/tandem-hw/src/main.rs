@@ -1,11 +1,11 @@
-//! `tandem-hw`: lo que el orquestador (`scripts/hw/run.sh`) corre en cada máquina.
+//! `tandem-hw`: what the orchestrator (`scripts/hw/run.sh`) runs on each machine.
 //!
 //! ```text
-//! tandem-hw provision --role pc|mac --root DIR --port N --peer IP:PUERTO
+//! tandem-hw provision --role pc|mac --root DIR --port N --peer IP:PORT
 //! tandem-hw run --label pc|mac --data-dir DIR --checks a,b,c [--peer-exe P --remote-dir D
 //!               --remote-sep S --keep-secs N --window-secs N --pair-wait-secs N]
-//! tandem-hw report --date AAAA-MM-DD --out ARCHIVO [--log nombre=ruta]... resultados.jsonl...
-//! tandem-hw emit TEXTO | sleep SEGUNDOS | echo-server PUERTO | monitor-hold | monitor-input | monitor-restore dp|hdmi
+//! tandem-hw report --date YYYY-MM-DD --out FILE [--log name=path]... results.jsonl...
+//! tandem-hw emit TEXT | sleep SECONDS | echo-server PORT | monitor-hold | monitor-input | monitor-restore dp|hdmi
 //! ```
 
 use std::collections::BTreeMap;
@@ -32,7 +32,7 @@ impl Opts {
             if let Some(k) = a.strip_prefix("--") {
                 let v = it
                     .next()
-                    .with_context(|| format!("falta el valor de --{k}"))?;
+                    .with_context(|| format!("missing value for --{k}"))?;
                 map.entry(k.into()).or_default().push(v.clone());
             } else {
                 rest.push(a.clone());
@@ -46,14 +46,14 @@ impl Opts {
     }
 
     fn need(&self, k: &str) -> anyhow::Result<&str> {
-        self.get(k).with_context(|| format!("falta --{k}"))
+        self.get(k).with_context(|| format!("missing --{k}"))
     }
 
     fn secs(&self, k: &str, default: u64) -> anyhow::Result<Duration> {
         match self.get(k) {
             Some(v) => Ok(Duration::from_secs(
                 v.parse()
-                    .with_context(|| format!("--{k} no es un número"))?,
+                    .with_context(|| format!("--{k} is not a number"))?,
             )),
             None => Ok(Duration::from_secs(default)),
         }
@@ -73,12 +73,12 @@ fn main() -> ExitCode {
 
 fn dispatch(args: &[String]) -> anyhow::Result<ExitCode> {
     let Some((cmd, rest)) = args.split_first() else {
-        bail!("falta el subcomando (ver la cabecera de tandem-hw)");
+        bail!("missing subcommand (see the tandem-hw header)");
     };
     let (opts, pos) = Opts::parse(rest)?;
     match cmd.as_str() {
         "provision" => {
-            let role = Role::parse(opts.need("role")?).context("--role es pc o mac")?;
+            let role = Role::parse(opts.need("role")?).context("--role is pc or mac")?;
             let p = provision::provision(
                 &PathBuf::from(opts.need("root")?),
                 role,
@@ -99,23 +99,23 @@ fn dispatch(args: &[String]) -> anyhow::Result<ExitCode> {
         "report" => return write_report(&opts, &pos),
         "emit" => println!("{}", pos.join(" ")),
         "sleep" => std::thread::sleep(Duration::from_secs(
-            pos.first().context("falta SEGUNDOS")?.parse()?,
+            pos.first().context("missing SECONDS")?.parse()?,
         )),
-        "echo-server" => echo_server(pos.first().context("falta PUERTO")?.parse()?)?,
+        "echo-server" => echo_server(pos.first().context("missing PORT")?.parse()?)?,
         "monitor-hold" => monitor::hold()?,
         "monitor-input" => println!(
             "{}",
             monitor::current_input_name().map_err(anyhow::Error::msg)?
         ),
-        "monitor-restore" => monitor::restore_with_guard(pos.first().context("falta dp|hdmi")?)
+        "monitor-restore" => monitor::restore_with_guard(pos.first().context("missing dp|hdmi")?)
             .map_err(anyhow::Error::msg)?,
-        other => bail!("subcomando desconocido: {other}"),
+        other => bail!("unknown subcommand: {other}"),
     }
     Ok(ExitCode::SUCCESS)
 }
 
-/// Un solo cliente y a dormir: el túnel de prueba lo mata de todos modos. Se rinde a los
-/// 60 s para no dejar el puerto abierto si algo falla antes.
+/// A single client and off to sleep: the test tunnel kills it anyway. It gives up after
+/// 60 s so the port is not left open if something fails earlier.
 fn echo_server(port: u16) -> anyhow::Result<()> {
     let listener = TcpListener::bind(("127.0.0.1", port))?;
     listener.set_nonblocking(true)?;
@@ -166,7 +166,7 @@ fn run(opts: &Opts) -> anyhow::Result<ExitCode> {
             monitor::KILL_MIDWAY => monitor::kill_midway(&label),
             other => match rt.block_on(checks::run_tunnel(&ctx, other)) {
                 Some(r) => r,
-                None => CheckResult::new(other, &label, &[]).fail("comprobación desconocida"),
+                None => CheckResult::new(other, &label, &[]).fail("unknown check"),
             },
         };
         failed |= result.outcome == report::Outcome::Fail;
@@ -205,10 +205,10 @@ fn write_report(opts: &Opts, files: &[String]) -> anyhow::Result<ExitCode> {
         opts.get("require-monitors") == Some("1") && report::monitors_all_skipped(&results);
     if monitors_skipped {
         md.push_str(
-            "\n## AVISO\n\nSe pidieron monitores (`--with-monitors`) pero todas las comprobaciones \
-             de monitor salieron omitidas: H3 no quedó probado.\n",
+            "\n## WARNING\n\nMonitors were requested (`--with-monitors`) but all checks \
+             came out skipped: H3 was not tested.\n",
         );
-        eprintln!("AVISO: se pidieron monitores y todas las comprobaciones salieron omitidas");
+        eprintln!("WARNING: monitors were requested and all checks came out skipped");
     }
     let out = PathBuf::from(opts.need("out")?);
     if let Some(dir) = out.parent() {

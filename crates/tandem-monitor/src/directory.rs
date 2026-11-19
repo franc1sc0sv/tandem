@@ -1,8 +1,8 @@
-//! Lo que una máquina sabe de los monitores del puesto: los canales que ve ella, los que
-//! anunció la otra, quién es el dueño de cada uno y lo último que leyó ese dueño.
+//! What a machine knows about the desk's monitors: the channels it sees itself, the ones
+//! the other announced, who owns each one and the last thing that owner read.
 //!
-//! Es lógica pura: el agente le pasa los anuncios y los informes y le pide las vistas para la
-//! UI y qué monitores le toca leer.
+//! It is pure logic: the agent hands it the announcements and the reports and asks it for the
+//! views for the UI and which monitors it has to read.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -15,9 +15,9 @@ use crate::election::elect;
 pub struct Directory {
     me: Machine,
     local: Vec<MonitorChannel>,
-    /// Lo que anunció la otra, mientras está prendida y conectada; `None` si no.
+    /// What the other announced, while it is on and connected; `None` otherwise.
     peer: Option<Vec<MonitorChannel>>,
-    /// El último informe de cada monitor y quién lo mandó.
+    /// The last report of each monitor and who sent it.
     reports: BTreeMap<String, (Machine, MonitorReport)>,
 }
 
@@ -35,7 +35,7 @@ impl Directory {
         self.me
     }
 
-    /// Esta máquina resultó ser el otro lado: los informes guardados cambian de lado con ella.
+    /// This machine turned out to be the other side: the stored reports switch sides with it.
     pub fn set_me(&mut self, me: Machine) {
         if me != self.me {
             for (from, _) in self.reports.values_mut() {
@@ -49,22 +49,22 @@ impl Directory {
         &self.local
     }
 
-    /// `true` si cambió.
+    /// `true` if it changed.
     pub fn set_local(&mut self, channels: Vec<MonitorChannel>) -> bool {
         let changed = self.local != channels;
         self.local = channels;
         changed
     }
 
-    /// `true` si cambió.
+    /// `true` if it changed.
     pub fn set_peer(&mut self, channels: Option<Vec<MonitorChannel>>) -> bool {
         let changed = self.peer != channels;
         self.peer = channels;
         changed
     }
 
-    /// Un informe de `from` (esta máquina o la otra). Solo se muestra mientras `from` sea el
-    /// dueño: uno de un dueño anterior ya no dice la verdad.
+    /// A report from `from` (this machine or the other). It is only shown while `from` is the
+    /// owner: one from a previous owner no longer tells the truth.
     pub fn set_report(&mut self, from: Machine, report: MonitorReport) {
         self.reports.insert(report.id.clone(), (from, report));
     }
@@ -93,7 +93,7 @@ impl Directory {
         )
     }
 
-    /// El dueño de cada monitor que tiene uno.
+    /// The owner of each monitor that has one.
     pub fn owners(&self) -> BTreeMap<String, Machine> {
         self.ids()
             .into_iter()
@@ -101,7 +101,7 @@ impl Directory {
             .collect()
     }
 
-    /// Los monitores que le toca leer a esta máquina.
+    /// The monitors this machine has to read.
     pub fn owned_here(&self) -> BTreeSet<String> {
         self.owners()
             .into_iter()
@@ -110,7 +110,7 @@ impl Directory {
             .collect()
     }
 
-    /// Lo último que leyó el dueño actual de `id`.
+    /// The last thing the current owner of `id` read.
     pub fn report(&self, id: &str) -> Option<&MonitorReport> {
         let owner = self.owner(id)?;
         self.reports
@@ -119,18 +119,18 @@ impl Directory {
             .map(|(_, r)| r)
     }
 
-    /// La entrada en pantalla según el dueño.
+    /// The input on screen according to the owner.
     pub fn input(&self, id: &str) -> Option<MonitorInput> {
         self.report(id)?.input
     }
 
-    /// Un monitor que alguna de las dos ve, compatible o no.
+    /// A monitor that either machine sees, compatible or not.
     pub fn channel(&self, id: &str) -> Option<&MonitorChannel> {
         self.channel_of(self.me, id)
             .or_else(|| self.channel_of(self.me.other(), id))
     }
 
-    /// Todos los monitores, ordenados por id.
+    /// All the monitors, sorted by id.
     pub fn views(&self) -> Vec<MonitorView> {
         self.ids()
             .into_iter()
@@ -139,8 +139,8 @@ impl Directory {
                     .into_iter()
                     .filter_map(|m| self.channel_of(m, id).map(|c| (m, c)))
                     .collect();
-                // Si una lo ve compatible y la otra no, vale lo que permite controlarlo (el
-                // dueño lo ve compatible); si no, lo de cualquiera.
+                // If one sees it as compatible and the other does not, what lets it be controlled wins (the
+                // owner sees it as compatible); otherwise, whichever one's.
                 let (_, shown) = seen
                     .iter()
                     .find(|(_, c)| c.compat.is_compatible())
@@ -176,7 +176,7 @@ mod tests {
                 MonitorCompat::Compatible { protocol: 2 }
             } else {
                 MonitorCompat::NotCompatible {
-                    reason: "fábrica".into(),
+                    reason: "factory".into(),
                 }
             },
             latency_ms,
@@ -194,7 +194,7 @@ mod tests {
         }
     }
 
-    /// Las dos máquinas, cada una con su vista de los mismos anuncios.
+    /// The two machines, each with its view of the same announcements.
     fn pair(a: Vec<MonitorChannel>, b: Vec<MonitorChannel>) -> (Directory, Directory) {
         let mut da = Directory::new(Machine::A);
         da.set_local(a.clone());
@@ -224,18 +224,22 @@ mod tests {
         assert_eq!(a.owner("std"), Some(Machine::B));
         assert!(a.set_peer(None));
         assert_eq!(a.owner("std"), Some(Machine::A));
-        assert!(!a.set_peer(None), "sin cambio");
+        assert!(!a.set_peer(None), "no change");
     }
 
     #[test]
     fn only_the_current_owners_report_is_shown() {
         let (mut a, _) = pair(vec![ch("std", true, 40)], vec![ch("std", true, 5)]);
         a.set_report(Machine::A, report("std", MonitorInput::Hdmi));
-        assert_eq!(a.input("std"), None, "A no es el dueño");
+        assert_eq!(a.input("std"), None, "A is not the owner");
         a.set_report(Machine::B, report("std", MonitorInput::DisplayPort));
         assert_eq!(a.input("std"), Some(MonitorInput::DisplayPort));
         a.set_peer(None);
-        assert_eq!(a.input("std"), None, "el informe era del dueño anterior");
+        assert_eq!(
+            a.input("std"),
+            None,
+            "the report was from the previous owner"
+        );
     }
 
     #[test]

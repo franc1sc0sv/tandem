@@ -1,9 +1,9 @@
-//! Escenarios de punta a punta de la energía del puesto (docs/TESTING.md, «Simulación del
-//! puesto»): encender y apagar desde cualquiera de las dos, fallos y tiempos máximos en
-//! cada paso, cortes de corriente y caídas de enlace.
+//! End-to-end scenarios of the desk's power (docs/TESTING.md, "Desk
+//! simulation"): power on and off from either machine, faults and maximum times in
+//! each step, power cuts and link drops.
 //!
-//! Todos con el reloj de tokio pausado: el arranque de la PC (45 s), los pings de los
-//! enlaces y los tiempos máximos de los pasos corren en tiempo virtual.
+//! All with the tokio clock paused: the PC's startup (45 s), the links' pings and
+//! the steps' maximum times run in virtual time.
 
 use std::time::Duration;
 
@@ -25,7 +25,7 @@ async fn committed(d: &Desk, run: &TxnRun) {
     d.check().await.unwrap();
 }
 
-/// La Mac con la PC prendida y los dos agentes viéndose.
+/// The Mac with the PC on and both agents seeing each other.
 async fn both_on() -> Desk {
     let d = Desk::new().await.unwrap();
     committed(&d, &d.power_on(Machine::B).await.unwrap()).await;
@@ -34,23 +34,23 @@ async fn both_on() -> Desk {
 }
 
 #[tokio::test(start_paused = true)]
-async fn encender_y_apagar_la_pc() {
+async fn power_the_pc_on_and_off() {
     let d = Desk::new().await.unwrap();
     d.check().await.unwrap();
     assert_eq!(d.world.power_of(Machine::B), Power::Off);
 
-    // Wake-on-LAN y esperar al agente de la PC.
+    // Wake-on-LAN and wait for the PC's agent.
     let start = tokio::time::Instant::now();
     let run = d.power_on(Machine::B).await.unwrap();
     committed(&d, &run).await;
     assert!(
         start.elapsed() >= Duration::from_secs(45),
-        "esperó el arranque"
+        "waited for the startup"
     );
     assert_eq!(d.active_link(Machine::A), Some(LinkKind::Usb4));
     d.pc_agrees().await.unwrap();
 
-    // Apagado: el paso corre en la PC, que contesta y se apaga.
+    // Shutdown: the step runs on the PC, which answers and shuts down.
     let run = d.shutdown_pc().await.unwrap();
     committed(&d, &run).await;
     assert_eq!(d.world.power_of(Machine::B), Power::Off);
@@ -60,15 +60,15 @@ async fn encender_y_apagar_la_pc() {
         "{:?}",
         d.world.calls()
     );
-    // Sin la PC no queda ningún enlace con su agente.
+    // Without the PC no link with its agent remains.
     assert_eq!(d.active_link(Machine::A), None);
     assert!(d.world.violations().is_empty());
 }
 
-/// El espejo (DESIGN §3.7): con la PC de principal, ella despierta a la Mac.
+/// The mirror (DESIGN §3.7): with the PC as main, it wakes the Mac.
 #[tokio::test(start_paused = true)]
-async fn la_pc_tambien_orquesta() {
-    let d = Desk::builder().principal(Machine::B).build().await.unwrap();
+async fn the_pc_also_orchestrates() {
+    let d = Desk::builder().primary(Machine::B).build().await.unwrap();
     let run = d.power_on(Machine::A).await.unwrap();
     committed(&d, &run).await;
     assert_eq!(d.world.power_of(Machine::A), Power::On);
@@ -76,9 +76,9 @@ async fn la_pc_tambien_orquesta() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn un_encendido_que_falla_deja_todo_como_estaba() {
+async fn a_failing_power_on_leaves_everything_as_it_was() {
     let d = Desk::new().await.unwrap();
-    d.arm(FaultPlan::new().on(Machine::A, PC_ON, FaultAction::Fail("sin red".into())));
+    d.arm(FaultPlan::new().on(Machine::A, PC_ON, FaultAction::Fail("no network".into())));
     let run = d.power_on(Machine::B).await.unwrap();
     assert_eq!(run.outcome(), Some(Outcome::Failed), "{:#?}", run.events);
     assert_eq!(run.failure().map(|f| f.0), Some(0));
@@ -87,7 +87,7 @@ async fn un_encendido_que_falla_deja_todo_como_estaba() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn un_encendido_colgado_vence_y_no_cambia_el_estado() {
+async fn a_hung_power_on_times_out_and_does_not_change_the_state() {
     let d = Desk::new().await.unwrap();
     d.arm(FaultPlan::new().on(Machine::A, PC_ON, FaultAction::Hang));
     let start = tokio::time::Instant::now();
@@ -98,9 +98,9 @@ async fn un_encendido_colgado_vence_y_no_cambia_el_estado() {
     d.check().await.unwrap();
 }
 
-/// El paquete mágico solo sale por Ethernet (DESIGN §6): sin ese cable la PC no despierta.
+/// The magic packet only goes out over Ethernet (DESIGN §6): without that cable the PC does not wake.
 #[tokio::test(start_paused = true)]
-async fn sin_ethernet_la_pc_no_despierta() {
+async fn without_ethernet_the_pc_does_not_wake() {
     let d = Desk::builder()
         .links(&[LinkKind::Usb4, LinkKind::Wifi])
         .build()
@@ -113,12 +113,12 @@ async fn sin_ethernet_la_pc_no_despierta() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn un_apagado_que_falla_deja_la_pc_prendida() {
+async fn a_failing_shutdown_leaves_the_pc_on() {
     let d = both_on().await;
     d.arm(FaultPlan::new().on(
         Machine::B,
         PC_OFF,
-        FaultAction::Fail("acceso denegado".into()),
+        FaultAction::Fail("access denied".into()),
     ));
     let run = d.shutdown_pc().await.unwrap();
     assert_eq!(run.outcome(), Some(Outcome::Failed), "{:#?}", run.events);
@@ -126,10 +126,10 @@ async fn un_apagado_que_falla_deja_la_pc_prendida() {
     d.check().await.unwrap();
 }
 
-/// La PC se apaga pero la respuesta se pierde con el enlace: la Mac lo da por hecho y el
-/// puesto coincide.
+/// The PC shuts down but the answer is lost with the link: the Mac takes it as done and the
+/// desk matches.
 #[tokio::test(start_paused = true)]
-async fn un_apagado_con_la_respuesta_perdida_se_da_por_hecho() {
+async fn a_shutdown_with_a_lost_reply_is_taken_as_done() {
     let d = both_on().await;
     d.arm(FaultPlan::new().on(
         Machine::B,
@@ -141,11 +141,11 @@ async fn un_apagado_con_la_respuesta_perdida_se_da_por_hecho() {
     assert_eq!(d.world.power_of(Machine::B), Power::Off);
 }
 
-/// Un apagado que no contesta se da por hecho (lo más probable es que la PC se esté
-/// apagando). Si en realidad siguió prendida, el siguiente encendido lo repara: el
-/// Wake-on-LAN no le hace nada y su agente ya contesta.
+/// A shutdown that does not answer is taken as done (most likely the PC is
+/// shutting down). If it actually stayed on, the next power-on repairs it: the
+/// Wake-on-LAN does nothing to it and its agent already answers.
 #[tokio::test(start_paused = true)]
-async fn un_apagado_colgado_se_da_por_hecho_y_el_siguiente_encendido_lo_repara() {
+async fn a_hung_shutdown_is_taken_as_done_and_the_next_power_on_repairs_it() {
     let d = both_on().await;
     d.arm(FaultPlan::new().on(Machine::B, PC_OFF, FaultAction::Hang));
     let run = d.shutdown_pc().await.unwrap();
@@ -156,16 +156,16 @@ async fn un_apagado_colgado_se_da_por_hecho_y_el_siguiente_encendido_lo_repara()
     committed(&d, &run).await;
 }
 
-/// Corte de corriente: tras el umbral la Mac da la PC por apagada y avisa a la UI; una vez
-/// encendida a mano, vuelve a contar.
+/// Power cut: after the threshold the Mac considers the PC off and notifies the UI; once
+/// powered on by hand, it counts again.
 #[tokio::test(start_paused = true)]
-async fn corte_de_corriente_y_vuelta_a_mano() {
+async fn power_cut_and_manual_return() {
     let d = both_on().await;
     let mut power = d.mac.subscribe_power();
     let lost_after = d.mac.config().power.peer_lost_after();
     d.pull_pc_plug();
     tokio::time::sleep(lost_after - Duration::from_secs(1)).await;
-    assert!(d.mac.state().on.b, "dentro del umbral no cambia nada");
+    assert!(d.mac.state().on.b, "inside the threshold nothing changes");
     let PowerEvent::PeerLost { machine, reason } =
         tokio::time::timeout(Duration::from_secs(10), power.recv())
             .await
@@ -185,10 +185,10 @@ async fn corte_de_corriente_y_vuelta_a_mano() {
     d.check().await.unwrap();
 }
 
-/// Sin USB4 ni Ethernet el plano de control sigue por Wi-Fi, y al volver el USB4 el gestor
-/// regresa a él.
+/// Without USB4 or Ethernet the control plane continues over Wi-Fi, and when USB4 returns the manager
+/// goes back to it.
 #[tokio::test(start_paused = true)]
-async fn solo_con_wifi_el_control_sigue() {
+async fn with_only_wifi_control_goes_on() {
     let d = both_on().await;
     d.arm(
         FaultPlan::new()
@@ -202,7 +202,7 @@ async fn solo_con_wifi_el_control_sigue() {
     committed(&d, &run).await;
 }
 
-/// Lo que se le pide al puesto en cada vuelta de la propiedad.
+/// What the desk is asked on each round of the property.
 #[derive(Debug, Clone)]
 struct Op {
     from: Machine,
@@ -224,8 +224,8 @@ async fn run_ops(ops: Vec<Op>) -> Result<(), TestCaseError> {
         .await
         .map_err(|e| TestCaseError::fail(e.to_string()))?;
     for (i, op) in ops.iter().enumerate() {
-        let case = format!("paso {i}: {op:?}");
-        // Solo puede pedir algo una máquina prendida.
+        let case = format!("step {i}: {op:?}");
+        // Only a machine that is on can ask for something.
         if d.world.power_of(op.from) != Power::On {
             continue;
         }
@@ -236,7 +236,7 @@ async fn run_ops(ops: Vec<Op>) -> Result<(), TestCaseError> {
             } else {
                 (other, Step::PowerOff { machine: other })
             };
-            d.arm(FaultPlan::new().on(machine, step, FaultAction::Fail("falla".into())));
+            d.arm(FaultPlan::new().on(machine, step, FaultAction::Fail("fails".into())));
         } else {
             d.arm(FaultPlan::new());
         }
@@ -258,10 +258,10 @@ async fn run_ops(ops: Vec<Op>) -> Result<(), TestCaseError> {
 proptest! {
     #![proptest_config(ProptestConfig { cases: 24, ..ProptestConfig::default() })]
 
-    /// Cualquier secuencia de encendidos y apagados, pedidos desde cualquiera de las dos y
-    /// con fallos inyectados, deja la energía como la cree quien la pidió.
+    /// Any sequence of power-ons and power-offs, requested from either machine and
+    /// with injected faults, leaves power as the one who requested it believes.
     #[test]
-    fn cualquier_secuencia_deja_la_energia_coherente(ops in proptest::collection::vec(op(), 1..6)) {
+    fn any_sequence_leaves_power_coherent(ops in proptest::collection::vec(op(), 1..6)) {
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .start_paused(true)
@@ -271,11 +271,11 @@ proptest! {
     }
 }
 
-/// DECISIONS D2: el puesto funciona igual con cualquier sistema en cada lado. Con macOS +
-/// Windows, Windows + Windows y macOS + macOS: encender B desde A y apagarla, cada una
-/// anuncia su sistema y queda anotada en el puesto de las dos.
+/// DECISIONS D2: the desk works the same with any system on each side. With macOS +
+/// Windows, Windows + Windows and macOS + macOS: power B on from A and off again, each
+/// announces its system and it is recorded in both desks.
 #[tokio::test(start_paused = true)]
-async fn cualquier_sistema_en_cada_lado() {
+async fn any_system_on_each_side() {
     for (a, b) in [
         (Os::MacOs, Os::Windows),
         (Os::Windows, Os::Windows),
@@ -285,7 +285,7 @@ async fn cualquier_sistema_en_cada_lado() {
         let run = d.power_on(Machine::B).await.unwrap();
         committed(&d, &run).await;
         d.pc_agrees().await.unwrap();
-        // Cada una ve el sistema de la otra, y el puesto de las dos lo guarda.
+        // Each sees the other's system, and both desks store it.
         let caps = d.agent(Machine::A).capabilities();
         assert_eq!(caps.here.info.os, a, "{a:?}+{b:?}");
         assert_eq!(caps.peer.map(|p| p.info.os), Some(b), "{a:?}+{b:?}");
@@ -294,7 +294,7 @@ async fn cualquier_sistema_en_cada_lado() {
             assert_eq!(desk.machines.get(Machine::A).map(|i| i.os), Some(a));
             assert_eq!(desk.machines.get(Machine::B).map(|i| i.os), Some(b));
         }
-        // Solo Windows sabe apagarse sola: lo anuncia según su sistema, no su lado.
+        // Only Windows knows how to shut itself down: it announces it according to its system, not its side.
         let b_caps = d.agent(Machine::B).capabilities().here;
         assert_eq!(b_caps.power.power_off, b == Os::Windows, "{a:?}+{b:?}");
         let run = d.shutdown_pc().await.unwrap();

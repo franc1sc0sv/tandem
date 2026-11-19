@@ -6,18 +6,18 @@ use tokio::sync::watch;
 
 use super::NetInterface;
 
-/// Dónde está el otro agente por una interfaz concreta. Con una IPv6 link-local en el
-/// cable no hay forma de saber la del otro sin preguntar por esa interfaz: la respuesta
-/// sale de mDNS, atado a su `scope_id`.
+/// Where the other agent is through a specific interface. With a link-local IPv6 on the
+/// cable there is no way to know the other's without asking through that interface: the answer
+/// comes from mDNS, tied to its `scope_id`.
 pub trait InterfaceDiscovery: Send + Sync + 'static {
-    /// La dirección del otro agente aprendida por `iface`, si ya contestó, con el puerto
-    /// que anuncia (no el configurado: el otro puede escuchar en otro).
+    /// The address of the other agent learned through `iface`, if it already answered, with the port
+    /// it announces (not the configured one: the other may listen on another).
     fn peer_addr(&self, iface: &NetInterface) -> Option<SocketAddr>;
 }
 
-/// Descubrimiento real: lo que anuncia el mDNS del agente (que ya escucha en todas las
-/// interfaces, también en las de cable) filtrado por el `scope_id` de la interfaz. Una
-/// dirección link-local de otra interfaz no sirve para esta.
+/// Real discovery: what the agent's mDNS announces (which already listens on all the
+/// interfaces, cable ones too) filtered by the interface's `scope_id`. A link-local
+/// address from another interface is of no use for this one.
 pub struct ScopedDiscovery {
     announced: watch::Receiver<Vec<SocketAddr>>,
 }
@@ -34,7 +34,7 @@ impl InterfaceDiscovery for ScopedDiscovery {
     }
 }
 
-/// La link-local anunciada con el `scope_id` dado.
+/// The link-local announced with the given `scope_id`.
 pub fn scoped_peer(announced: &[SocketAddr], scope_id: u32) -> Option<SocketAddr> {
     announced.iter().find_map(|a| match a {
         SocketAddr::V6(v6) if v6.scope_id() == scope_id && v6.scope_id() != 0 => {
@@ -44,7 +44,7 @@ pub fn scoped_peer(announced: &[SocketAddr], scope_id: u32) -> Option<SocketAddr
     })
 }
 
-/// Descubrimiento de mentira: el otro «aparece» y «desaparece» a mano por interfaz.
+/// Fake discovery: the other "appears" and "disappears" by hand per interface.
 #[derive(Default)]
 pub struct FakeDiscovery {
     peers: Mutex<BTreeMap<u32, SocketAddr>>,

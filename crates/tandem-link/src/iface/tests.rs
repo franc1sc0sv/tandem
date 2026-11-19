@@ -23,7 +23,7 @@ fn iface(index: u32, name: &str, addrs: &[&str]) -> NetInterface {
 const PORT: u16 = 47770;
 
 #[test]
-fn el_tipo_sale_del_nombre_y_lo_dudoso_no_es_cable() {
+fn the_type_comes_from_the_name_and_the_doubtful_is_not_a_cable() {
     for (name, kind) in [
         ("USB4 P2P Network Adapter", InterfaceKind::Usb4),
         ("Thunderbolt Networking", InterfaceKind::Usb4),
@@ -32,24 +32,24 @@ fn el_tipo_sale_del_nombre_y_lo_dudoso_no_es_cable() {
         ("wlp3s0", InterfaceKind::Wifi),
         ("Ethernet 2", InterfaceKind::Ethernet),
         ("enp5s0", InterfaceKind::Ethernet),
-        // macOS: puede ser Wi-Fi o Ethernet, no se adivina.
+        // macOS: it can be Wi-Fi or Ethernet, it is not guessed.
         ("en0", InterfaceKind::Other),
         ("utun3", InterfaceKind::Other),
     ] {
         assert_eq!(classify(name), kind, "{name}");
     }
-    // Lo desconocido cuenta como Wi-Fi para el enlace.
+    // What is unknown counts as Wi-Fi for the link.
     assert_eq!(InterfaceKind::Other.link_kind(), LinkKind::Wifi);
 }
 
 #[test]
-fn la_etiqueta_sale_de_la_interfaz_aunque_la_config_diga_otra_cosa() {
+fn the_label_comes_from_the_interface_even_if_the_config_says_otherwise() {
     let ifs = [
         iface(5, "bridge0", &["10.77.1.1"]),
         iface(6, "en0", &["192.168.1.20"]),
     ];
     let cands = [
-        // La config dice Ethernet, pero esa red es la del cable USB4.
+        // The config says Ethernet, but that network is the USB4 cable's.
         LinkCandidate {
             kind: LinkKind::Ethernet,
             addr: "10.77.1.2:47770".parse().unwrap(),
@@ -58,7 +58,7 @@ fn la_etiqueta_sale_de_la_interfaz_aunque_la_config_diga_otra_cosa() {
             kind: LinkKind::Usb4,
             addr: "192.168.1.30:47770".parse().unwrap(),
         },
-        // Sin interfaz conocida se respeta la config.
+        // Without a known interface the config is respected.
         LinkCandidate {
             kind: LinkKind::Ethernet,
             addr: "172.16.0.2:47770".parse().unwrap(),
@@ -69,7 +69,7 @@ fn la_etiqueta_sale_de_la_interfaz_aunque_la_config_diga_otra_cosa() {
 }
 
 #[test]
-fn una_direccion_link_local_se_etiqueta_por_su_scope_id() {
+fn a_link_local_address_is_labeled_by_its_scope_id() {
     let ifs = [iface(7, "USB4 P2P Network Adapter", &["fe80::1"])];
     let on = |scope| -> SocketAddr { format!("[fe80::2%{scope}]:47770").parse().unwrap() };
     assert_eq!(kind_for_addr(&ifs, on(7)), Some(LinkKind::Usb4));
@@ -77,9 +77,9 @@ fn una_direccion_link_local_se_etiqueta_por_su_scope_id() {
 }
 
 #[test]
-fn la_peor_etiqueta_gana() {
+fn the_worst_label_wins() {
     use LinkKind::*;
-    // PC Ethernet, Mac Wi-Fi: Wi-Fi, sin cable.
+    // PC Ethernet, Mac Wi-Fi: Wi-Fi, no cable.
     assert_eq!(worst(Ethernet, Wifi), Wifi);
     assert_eq!(worst(Usb4, Ethernet), Ethernet);
     assert_eq!(worst(Usb4, Usb4), Usb4);
@@ -88,7 +88,7 @@ fn la_peor_etiqueta_gana() {
 
 proptest! {
     #[test]
-    fn worst_es_conmutativa_idempotente_y_nunca_mejora(a in 0usize..3, b in 0usize..3) {
+    fn worst_is_commutative_idempotent_and_never_improves(a in 0usize..3, b in 0usize..3) {
         let (a, b) = (LinkKind::ALL[a], LinkKind::ALL[b]);
         prop_assert_eq!(worst(a, b), worst(b, a));
         prop_assert_eq!(worst(a, a), a);
@@ -97,17 +97,17 @@ proptest! {
 }
 
 #[test]
-fn el_scope_id_va_en_la_direccion_link_local_y_solo_en_ella() {
+fn the_scope_id_goes_in_the_link_local_address_and_only_in_it() {
     let ll: IpAddr = "fe80::1c2:3ff:fe04:506".parse().unwrap();
     let SocketAddr::V6(v6) = scoped_addr(ll, 12, PORT) else {
-        panic!("se esperaba IPv6");
+        panic!("IPv6 was expected");
     };
     assert_eq!((v6.scope_id(), v6.port()), (12, PORT));
     assert_eq!(
         *v6.ip(),
         "fe80::1c2:3ff:fe04:506".parse::<Ipv6Addr>().unwrap()
     );
-    // Los límites del rango fe80::/10.
+    // The limits of the fe80::/10 range.
     for (ip, scoped) in [
         ("febf::1", true),
         ("fec0::1", false),
@@ -118,7 +118,7 @@ fn el_scope_id_va_en_la_direccion_link_local_y_solo_en_ella() {
         };
         assert_eq!(v6.scope_id() == 3, scoped, "{ip}");
     }
-    // IPv4 no lleva scope.
+    // IPv4 carries no scope.
     assert_eq!(
         scoped_addr("10.77.1.2".parse().unwrap(), 3, PORT).to_string(),
         "10.77.1.2:47770"
@@ -126,20 +126,20 @@ fn el_scope_id_va_en_la_direccion_link_local_y_solo_en_ella() {
 }
 
 #[test]
-fn el_plan_usa_la_link_local_con_su_scope() {
+fn the_plan_uses_the_link_local_with_its_scope() {
     let i = iface(9, "bridge0", &["fe80::aa", "169.254.7.7"]);
     let peer = Some("[fe80::bb]:47999".parse().unwrap());
     let p = plan(&i, Machine::A, Os::MacOs, peer, PORT);
     assert_eq!(p.local, "fe80::aa".parse::<IpAddr>().unwrap());
-    // El puerto es el que anuncia mDNS, no el configurado.
+    // The port is the one mDNS announces, not the configured one.
     assert_eq!(p.peer, Some("[fe80::bb%9]:47999".parse().unwrap()));
     assert_eq!(p.assign, None);
-    // Sin saber dónde está el otro todavía (su link-local sale de mDNS), no hay dirección.
+    // Without knowing where the other is yet (its link-local comes from mDNS), there is no address.
     assert_eq!(plan(&i, Machine::A, Os::MacOs, None, PORT).peer, None);
 }
 
 #[test]
-fn sin_link_local_cada_lado_se_asigna_su_ip_de_respaldo() {
+fn without_link_local_each_side_assigns_its_fallback_ip() {
     let i = iface(4, "USB4 P2P Network Adapter", &[]);
     let a = plan(&i, Machine::A, Os::MacOs, None, PORT);
     assert_eq!(a.local, IpAddr::V4(Ipv4Addr::new(10, 77, 1, 1)));
@@ -157,13 +157,13 @@ fn sin_link_local_cada_lado_se_asigna_su_ip_de_respaldo() {
         "netsh interface ip set address name=\"USB4 P2P Network Adapter\" static 10.77.1.2 255.255.255.252"
     );
 
-    // Con la IP ya asignada no hay nada que pedir.
+    // With the IP already assigned there is nothing to ask for.
     let done = iface(4, "bridge0", &["10.77.1.2"]);
     assert_eq!(plan(&done, Machine::B, Os::MacOs, None, PORT).assign, None);
 }
 
 #[test]
-fn diff_da_altas_y_bajas_y_una_interfaz_caida_cuenta_como_baja() {
+fn diff_gives_additions_and_removals_and_a_down_interface_counts_as_a_removal() {
     let wifi = iface(1, "wlan0", &["192.168.1.5"]);
     let usb = iface(2, "bridge0", &["10.77.1.1"]);
     let all = [wifi.clone(), usb.clone()];
@@ -190,13 +190,13 @@ fn resolve(i: &NetInterface) -> Option<SocketAddr> {
 }
 
 #[test]
-fn los_cambios_de_cable_son_la_diferencia_con_lo_aplicado() {
+fn the_cable_changes_are_the_difference_from_what_was_applied() {
     let mut cur = Default::default();
     let wifi = iface(1, "wlan0", &["192.168.1.5"]);
     let usb = iface(2, "bridge0", &["10.77.1.1"]);
     let eth = iface(3, "Ethernet", &["10.77.2.1"]);
 
-    // El Wi-Fi no es un cable.
+    // Wi-Fi is not a cable.
     assert_eq!(
         wired_changes(&mut cur, std::slice::from_ref(&wifi), &resolve),
         []
@@ -210,9 +210,9 @@ fn los_cambios_de_cable_son_la_diferencia_con_lo_aplicado() {
         })
         .collect();
     assert_eq!(kinds, [(true, LinkKind::Usb4), (true, LinkKind::Ethernet)]);
-    // Sin cambios, nada.
+    // No changes, nothing.
     assert_eq!(wired_changes(&mut cur, &all, &resolve), []);
-    // Baja el USB4.
+    // USB4 goes down.
     assert_eq!(
         wired_changes(&mut cur, &[wifi, eth], &resolve),
         [WiredChange::Remove(LinkKind::Usb4)]
@@ -220,19 +220,19 @@ fn los_cambios_de_cable_son_la_diferencia_con_lo_aplicado() {
 }
 
 #[test]
-fn sin_direccion_del_otro_no_hay_enlace() {
+fn without_the_others_address_there_is_no_link() {
     let mut cur = Default::default();
     let usb = iface(2, "bridge0", &["fe80::1"]);
     assert_eq!(wired_changes(&mut cur, &[usb], &|_| None), []);
 }
 
-// --- Con el gestor de enlaces y un doble del transporte ---
+// --- With the link manager and a transport double ---
 
 #[derive(Debug, thiserror::Error)]
-#[error("sin respuesta")]
+#[error("no answer")]
 struct Silent;
 
-/// Todo enlace responde.
+/// Every link answers.
 struct AlwaysUp;
 
 impl Prober for AlwaysUp {
@@ -254,7 +254,7 @@ impl Prober for AlwaysUp {
 }
 
 #[tokio::test(start_paused = true)]
-async fn la_aparicion_de_una_interfaz_usb4_crea_el_enlace_y_su_baja_lo_quita_en_el_acto() {
+async fn a_usb4_interface_appearing_creates_the_link_and_its_removal_drops_it_at_once() {
     let wifi = LinkCandidate {
         kind: LinkKind::Wifi,
         addr: "192.168.1.30:47770".parse().unwrap(),
@@ -281,7 +281,7 @@ async fn la_aparicion_de_una_interfaz_usb4_crea_el_enlace_y_su_baja_lo_quita_en_
 }
 
 #[tokio::test]
-async fn el_doble_publica_cada_cambio() {
+async fn the_double_publishes_every_change() {
     let f = FakeInterfaces::new(vec![]);
     let mut rx = f.watch();
     f.plug(iface(1, "bridge0", &[]));
@@ -296,7 +296,7 @@ async fn el_doble_publica_cada_cambio() {
     let _: Arc<dyn Interfaces> = Arc::new(f);
 }
 
-// --- Descubrimiento por interfaz y asignación de la IP de respaldo ---
+// --- Per-interface discovery and fallback IP assignment ---
 
 fn resolver(
     side: Machine,
@@ -314,16 +314,16 @@ fn resolver(
 }
 
 #[test]
-fn con_link_local_el_cable_entra_cuando_el_otro_contesta_por_esa_interfaz() {
+fn with_link_local_the_cable_comes_in_when_the_other_answers_on_that_interface() {
     let (discovery, assigner) = (Arc::new(FakeDiscovery::default()), Arc::default());
     let r = resolver(Machine::A, &discovery, &assigner);
     let usb = iface(7, "bridge0", &["fe80::1"]);
-    // Sin respuesta del otro, el cable no entra.
+    // Without an answer from the other, the cable does not come in.
     assert_eq!(r.resolve(&usb), None);
-    // Anuncia en otra interfaz: tampoco.
+    // It announces on another interface: neither.
     discovery.announce(9, "[fe80::99]:47770".parse().unwrap());
     assert_eq!(r.resolve(&usb), None);
-    // Contesta por esta: se aprende su link-local con el scope de la interfaz.
+    // It answers on this one: its link-local is learned with the interface's scope.
     discovery.announce(7, "[fe80::2]:47770".parse().unwrap());
     let mut cur = Default::default();
     let changes = wired_changes(&mut cur, std::slice::from_ref(&usb), &|i| r.resolve(i));
@@ -335,11 +335,11 @@ fn con_link_local_el_cable_entra_cuando_el_otro_contesta_por_esa_interfaz() {
             addr: want
         })]
     );
-    assert!(assigner.calls().is_empty(), "con fe80 no se asigna nada");
+    assert!(assigner.calls().is_empty(), "with fe80 nothing is assigned");
 }
 
 #[test]
-fn el_descubrimiento_real_filtra_por_scope_id() {
+fn real_discovery_filters_by_scope_id() {
     let announced: Vec<SocketAddr> = vec![
         "[fe80::5%3]:47770".parse().unwrap(),
         "[fe80::6%7]:47770".parse().unwrap(),
@@ -359,7 +359,7 @@ fn el_descubrimiento_real_filtra_por_scope_id() {
 }
 
 #[test]
-fn sin_link_local_se_asigna_el_respaldo_y_no_hay_aviso() {
+fn without_link_local_the_fallback_is_assigned_and_there_is_no_notice() {
     let (discovery, assigner) = (Arc::new(FakeDiscovery::default()), Arc::default());
     let r = resolver(Machine::B, &discovery, &assigner);
     let usb = iface(4, "USB4 P2P Network Adapter", &[]);
@@ -376,12 +376,12 @@ fn sin_link_local_se_asigna_el_respaldo_y_no_hay_aviso() {
 }
 
 #[test]
-fn sin_permisos_queda_el_aviso_con_la_orden_exacta_y_se_borra_al_asignarse() {
+fn without_permissions_the_notice_with_the_exact_command_remains_and_is_cleared_on_assigning() {
     let discovery = Arc::new(FakeDiscovery::default());
     let assigner = Arc::new(FakeAssigner::failing(AssignError::PermissionDenied));
     let r = resolver(Machine::A, &discovery, &assigner);
     let usb = iface(4, "Ethernet 3", &[]);
-    // El enlace entra igual por el respaldo: la orden la ejecuta el usuario.
+    // The link comes in anyway through the fallback: the user runs the command.
     assert_eq!(r.resolve(&usb), Some("10.77.1.2:47770".parse().unwrap()));
     let notices = r.notices.list();
     assert_eq!(notices.len(), 1);
@@ -389,15 +389,15 @@ fn sin_permisos_queda_el_aviso_con_la_orden_exacta_y_se_borra_al_asignarse() {
         notices[0].command,
         "netsh interface ip set address name=\"Ethernet 3\" static 10.77.1.1 255.255.255.252"
     );
-    assert!(notices[0].message.contains("permisos"));
-    // El usuario la ejecutó: la interfaz ya tiene la IP y el aviso se retira.
+    assert!(notices[0].message.contains("permission"));
+    // The user ran it: the interface already has the IP and the notice is withdrawn.
     let done = iface(4, "Ethernet 3", &["10.77.1.1"]);
     r.resolve(&done);
     assert!(r.notices.list().is_empty());
 }
 
 #[test]
-fn otro_fallo_tambien_avisa() {
+fn another_failure_also_notifies() {
     let discovery = Arc::new(FakeDiscovery::default());
     let assigner = Arc::new(FakeAssigner::failing(AssignError::Failed("boom".into())));
     let r = resolver(Machine::A, &discovery, &assigner);
@@ -406,7 +406,7 @@ fn otro_fallo_tambien_avisa() {
 }
 
 #[test]
-fn las_ordenes_del_sistema_y_los_fallos_de_permisos() {
+fn the_system_commands_and_the_permission_failures() {
     let ip = Ipv4Addr::new(10, 77, 1, 1);
     let (prog, args) = assign_command(Os::MacOs, "bridge0", ip);
     assert_eq!(prog, "ifconfig");

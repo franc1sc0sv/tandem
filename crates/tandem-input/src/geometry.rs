@@ -1,16 +1,16 @@
-//! Geometría de pantallas y cruce de bordes entre las dos máquinas.
+//! Screen geometry and edge crossing between the two machines.
 //!
-//! Cada máquina tiene sus pantallas en sus coordenadas nativas del cursor (puntos en
-//! macOS, píxeles físicos en Windows Per-Monitor-V2). [`Layout`] las toma del acomodo
-//! ([`Arrangement`], DESIGN §7): las declaradas en el puesto compartido o, sin declarar,
-//! las que lee cada máquina; y pone las dos máquinas una al lado de la otra según de qué
-//! lado de B está A. Se recalcula entero con cada cambio: es un valor, no hay
-//! nada que invalidar.
+//! Each machine has its screens in its native cursor coordinates (points on
+//! macOS, physical pixels on Windows Per-Monitor-V2). [`Layout`] takes them from the arrangement
+//! ([`Arrangement`], DESIGN §7): those declared on the shared desk or, if not declared,
+//! those each machine reads; and places the two machines side by side according to which
+//! side of B A is on. It is recomputed whole on every change: it is a value, there is
+//! nothing to invalidate.
 //!
-//! El cruce se prueba contra el borde de la pantalla donde está el cursor, nunca
-//! contra la caja que encierra a todas (docs/research/input-engine.md), y la
-//! posición se lleva como fracción a lo largo del borde compartido, para que
-//! monitores de distinto tamaño se sientan continuos.
+//! The crossing is tested against the edge of the screen where the cursor is, never
+//! against the box that encloses all of them (docs/research/input-engine.md), and the
+//! position is carried as a fraction along the shared edge, so that
+//! monitors of different sizes feel continuous.
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -18,7 +18,7 @@ use thiserror::Error;
 use tandem_core::Machine;
 pub use tandem_core::{Align, Side};
 
-/// Posición del cursor en las coordenadas nativas de una máquina.
+/// Cursor position in a machine's native coordinates.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Point {
     pub x: f64,
@@ -31,7 +31,7 @@ impl Point {
     }
 }
 
-/// Rectángulo semiabierto `[x, x + width) × [y, y + height)`, con `y` hacia abajo.
+/// Half-open rectangle `[x, x + width) × [y, y + height)`, with `y` pointing down.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Rect {
     pub x: i32,
@@ -70,7 +70,7 @@ impl Rect {
         p.x >= self.left() && p.x < self.right() && p.y >= self.top() && p.y < self.bottom()
     }
 
-    /// Lleva el punto al último píxel dentro del rectángulo.
+    /// Takes the point to the last pixel inside the rectangle.
     pub fn clamp(&self, p: Point) -> Point {
         Point::new(
             p.x.clamp(self.left(), self.right() - 1.0),
@@ -78,7 +78,7 @@ impl Rect {
         )
     }
 
-    /// Distancia del punto al rectángulo (0 si está dentro).
+    /// Distance from the point to the rectangle (0 if inside).
     pub fn distance(&self, p: Point) -> f64 {
         let dx = (self.left() - p.x).max(p.x - (self.right() - 1.0)).max(0.0);
         let dy = (self.top() - p.y).max(p.y - (self.bottom() - 1.0)).max(0.0);
@@ -86,7 +86,7 @@ impl Rect {
     }
 }
 
-/// El id de una pantalla en el acomodo (`a-1`, o el de un `[[screens]]`).
+/// The id of a screen in the arrangement (`a-1`, or that of a `[[screens]]`).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct ScreenId(pub String);
@@ -103,14 +103,14 @@ impl std::fmt::Display for ScreenId {
     }
 }
 
-/// Una pantalla tal como la reporta su máquina.
+/// A screen as its machine reports it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Screen {
     pub id: ScreenId,
-    /// En coordenadas nativas del cursor de su máquina.
+    /// In the native cursor coordinates of its machine.
     pub rect: Rect,
-    /// Unidades nativas por punto lógico: `dpi / 96` en Windows Per-Monitor-V2;
-    /// `1.0` en macOS, donde el cursor ya se mueve en puntos.
+    /// Native units per logical point: `dpi / 96` on Windows Per-Monitor-V2;
+    /// `1.0` on macOS, where the cursor already moves in points.
     pub scale: f64,
 }
 
@@ -119,13 +119,13 @@ impl Screen {
         Self { id, rect, scale }
     }
 
-    /// Delta nativo de esta pantalla → puntos lógicos (lo que viaja por el enlace).
+    /// Native delta of this screen → logical points (what travels over the link).
     pub fn to_logical(&self, dx: f64, dy: f64) -> (f64, f64) {
         (dx / self.scale, dy / self.scale)
     }
 
-    /// Puntos lógicos → delta nativo de esta pantalla. Con [`Screen::to_logical`]
-    /// en el origen, la velocidad se siente igual en monitores de distinto DPI.
+    /// Logical points → native delta of this screen. With [`Screen::to_logical`]
+    /// at the origin, speed feels the same on monitors of different DPI.
     pub fn to_native(&self, dx: f64, dy: f64) -> (f64, f64) {
         (dx * self.scale, dy * self.scale)
     }
@@ -133,8 +133,8 @@ impl Screen {
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct LayoutOptions {
-    /// Margen de las esquinas en puntos lógicos: ahí no se cruza, para no
-    /// pelear con las esquinas activas de macOS ni con los botones de las ventanas.
+    /// Margin of the corners in logical points: no crossing there, so as not to
+    /// fight with macOS hot corners or with window buttons.
     pub corner_margin: f64,
 }
 
@@ -148,39 +148,39 @@ impl Default for LayoutOptions {
 
 #[derive(Debug, Clone, PartialEq, Error)]
 pub enum GeometryError {
-    #[error("la pantalla {0:?} no tiene área")]
+    #[error("screen {0:?} has no area")]
     EmptyScreen(ScreenId),
-    #[error("la pantalla {id:?} tiene una escala inválida ({scale})")]
+    #[error("screen {id:?} has an invalid scale ({scale})")]
     InvalidScale { id: ScreenId, scale: f64 },
-    #[error("el margen de las esquinas es inválido ({0})")]
+    #[error("the corner margin is invalid ({0})")]
     InvalidMargin(f64),
 }
 
-/// El acomodo de las dos máquinas: las pantallas de cada una, de qué lado de B está A y,
-/// si se declaró, cómo se alinean (D18). Una máquina sin pantallas (apagada, o que todavía
-/// no las mandó) no tiene a dónde cruzar.
+/// The arrangement of the two machines: each one's screens, which side of B A is on and,
+/// if declared, how they align (D18). A machine without screens (off, or that has not
+/// yet sent them) has nowhere to cross to.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Arrangement {
     pub a: Vec<Screen>,
     pub b: Vec<Screen>,
     pub a_side: Side,
-    /// `Some`: los dos escritorios se tocan solo en el tramo que comparten con esa
-    /// alineación, medido en puntos lógicos, y el cursor sale a la misma altura. `None` (sin
-    /// acomodo declarado): todo el borde de cada uno cruza y la posición va como fracción
-    /// del largo.
+    /// `Some`: the two desktops touch only along the stretch they share with that
+    /// alignment, measured in logical points, and the cursor exits at the same height. `None` (no
+    /// declared arrangement): the whole edge of each one crosses and the position goes as a fraction
+    /// of the length.
     pub align: Option<Align>,
 }
 
-/// El tramo compartido sobre un borde de largo `mine` frente a uno de largo `theirs` (los
-/// dos en puntos lógicos), con `align`: desde dónde hasta dónde, en el borde propio, está
-/// el otro escritorio. Es el borde de cruce. Vacío (`start >= end`) si no se tocan.
+/// The stretch shared over an edge of length `mine` facing one of length `theirs` (both
+/// in logical points), with `align`: from where to where, on the own edge, the other
+/// desktop is. It is the crossing edge. Empty (`start >= end`) if they do not touch.
 pub fn shared_span(mine: f64, theirs: f64, align: Align) -> (f64, f64) {
     let off = (mine - theirs) * align.factor();
     (off.max(0.0), (off + theirs).min(mine))
 }
 
-/// Tramo del borde que mira a la otra máquina y por el que se puede cruzar, sobre el eje
-/// del borde: `y` en un borde izquierdo o derecho, `x` en uno de arriba o abajo.
+/// Stretch of the edge that faces the other machine and through which one can cross, along the edge
+/// axis: `y` on a left or right edge, `x` on a top or bottom one.
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct Segment {
     screen: usize,
@@ -197,20 +197,20 @@ impl Segment {
 #[derive(Debug, Clone, PartialEq)]
 struct Facing {
     facing: Side,
-    /// Ordenados a lo largo del eje; la posición del cruce se mide sobre su concatenación.
+    /// Sorted along the axis; the crossing position is measured over their concatenation.
     edge: Vec<Segment>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 struct MachineLayout {
     screens: Vec<Screen>,
-    /// `None` si alguna de las dos no tiene pantallas: no hay a dónde cruzar.
+    /// `None` if either has no screens: there is nowhere to cross to.
     side: Option<Facing>,
 }
 
 impl MachineLayout {
-    /// El largo de un tramo medido en unidades nativas (`logical = false`) o en puntos
-    /// lógicos, con la escala de su pantalla.
+    /// The length of a stretch measured in native units (`logical = false`) or in logical
+    /// points, with its screen's scale.
     fn measure(&self, seg: &Segment, logical: bool) -> f64 {
         if logical {
             seg.len() / self.screens[seg.screen].scale
@@ -219,23 +219,23 @@ impl MachineLayout {
         }
     }
 
-    /// El largo de todo el borde.
+    /// The length of the whole edge.
     fn edge_len(&self, logical: bool) -> Option<f64> {
         let side = self.side.as_ref()?;
         Some(side.edge.iter().map(|s| self.measure(s, logical)).sum())
     }
 }
 
-/// Resultado de mover el cursor.
+/// Result of moving the cursor.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Motion {
-    /// El cursor sigue en la misma máquina, en esta posición.
+    /// The cursor stays on the same machine, at this position.
     Local(Point),
-    /// El cursor sale por el borde y entra a la otra máquina en esta posición.
+    /// The cursor leaves through the edge and enters the other machine at this position.
     Cross { to: Machine, pos: Point },
 }
 
-/// Pantallas de las dos máquinas y cómo se tocan.
+/// Screens of the two machines and how they touch.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Layout {
     opts: LayoutOptions,
@@ -244,7 +244,7 @@ pub struct Layout {
     b: MachineLayout,
 }
 
-/// Las coordenadas de un rectángulo sobre el eje del borde de `side`.
+/// The coordinates of a rectangle on the edge axis of `side`.
 fn span(r: &Rect, side: Side) -> (f64, f64) {
     if side.is_vertical_edge() {
         (r.top(), r.bottom())
@@ -254,8 +254,8 @@ fn span(r: &Rect, side: Side) -> (f64, f64) {
 }
 
 impl Layout {
-    /// Arma el layout a partir del acomodo. Todas las pantallas cuentan: el acomodo ya es
-    /// lo que se mira.
+    /// Builds the layout from the arrangement. All screens count: the arrangement already is
+    /// what is looked at.
     pub fn compute(arr: &Arrangement, opts: LayoutOptions) -> Result<Self, GeometryError> {
         if !opts.corner_margin.is_finite() || opts.corner_margin < 0.0 {
             return Err(GeometryError::InvalidMargin(opts.corner_margin));
@@ -272,7 +272,7 @@ impl Layout {
             }
         }
 
-        // A, de un lado de B, mira hacia el otro.
+        // A, on one side of B, faces the other.
         let a_facing = (!arr.a.is_empty() && !arr.b.is_empty()).then(|| arr.a_side.opposite());
 
         let build = |screens: Vec<Screen>, facing: Option<Side>| {
@@ -295,19 +295,19 @@ impl Layout {
         self.opts
     }
 
-    /// Pantallas de una máquina.
+    /// Screens of a machine.
     pub fn screens(&self, machine: Machine) -> &[Screen] {
         &self.machine(machine).screens
     }
 
-    /// Lado de la máquina por el que se pasa a la otra; `None` si no se puede cruzar.
+    /// Side of the machine through which one passes to the other; `None` if it cannot be crossed.
     pub fn facing(&self, machine: Machine) -> Option<Side> {
         self.machine(machine).side.as_ref().map(|s| s.facing)
     }
 
-    /// El borde de cruce de `machine`: desde dónde hasta dónde de su borde (en puntos
-    /// lógicos desde el inicio, arriba o a la izquierda) se puede pasar a la otra. Sin
-    /// alineación, todo el borde. `None` si no se puede cruzar.
+    /// The crossing edge of `machine`: from where to where of its edge (in logical points
+    /// from the start, top or left) one can pass to the other. Without
+    /// alignment, the whole edge. `None` if it cannot be crossed.
     pub fn crossing_span(&self, machine: Machine) -> Option<(f64, f64)> {
         let mine = self.machine(machine).edge_len(true)?;
         match self.align {
@@ -320,28 +320,28 @@ impl Layout {
         }
     }
 
-    /// Pantalla que contiene el punto o, si cae fuera de todas, la más cercana.
+    /// Screen that contains the point or, if it falls outside all of them, the nearest one.
     pub fn screen_at(&self, machine: Machine, pos: Point) -> Option<&Screen> {
         self.screen_index(machine, pos)
             .map(|i| &self.machine(machine).screens[i])
     }
 
-    /// Mueve el cursor de `machine` desde `pos` con un delta nativo.
+    /// Moves `machine`'s cursor from `pos` with a native delta.
     ///
-    /// Si el movimiento sale por el borde que mira a la otra máquina, dentro del borde de
-    /// cruce y fuera del margen de las esquinas, devuelve dónde aparece en la otra. Si no,
-    /// el cursor pasa a otra pantalla local o se queda contra el borde de la actual, como
-    /// hace el sistema. Sin pantallas devuelve `pos` tal cual.
+    /// If the movement leaves through the edge that faces the other machine, within the crossing
+    /// edge and outside the corner margin, it returns where it appears on the other. Otherwise,
+    /// the cursor moves to another local screen or stays against the edge of the current one, as
+    /// the system does. Without screens it returns `pos` as is.
     pub fn step(&self, machine: Machine, pos: Point, dx: f64, dy: f64) -> Motion {
         self.step_inner(machine, pos, dx, dy, true)
     }
 
-    /// Como [`Layout::step`], sin cruzar nunca a la otra máquina: el cursor bloqueado
-    /// (el atajo del servidor) se queda contra el borde.
+    /// Like [`Layout::step`], without ever crossing to the other machine: the locked cursor
+    /// (the server's shortcut) stays against the edge.
     pub fn step_within(&self, machine: Machine, pos: Point, dx: f64, dy: f64) -> Point {
         match self.step_inner(machine, pos, dx, dy, false) {
             Motion::Local(p) => p,
-            // `step_inner` sin cruce no devuelve otra cosa.
+            // `step_inner` without a crossing returns nothing else.
             Motion::Cross { .. } => pos,
         }
     }
@@ -352,8 +352,8 @@ impl Layout {
             return Motion::Local(pos);
         };
         let screen = &ml.screens[cur];
-        // Desde fuera de toda pantalla (geometría recién cambiada) se parte del
-        // punto más cercano de la pantalla actual.
+        // From outside any screen (geometry just changed) it starts from the
+        // nearest point of the current screen.
         let pos = screen.rect.clamp(pos);
         let target = Point::new(pos.x + dx, pos.y + dy);
         if ml.screens.iter().any(|s| s.rect.contains(target)) {
@@ -376,8 +376,8 @@ impl Layout {
         let ml = self.machine(machine);
         let side = ml.side.as_ref()?;
         let rect = ml.screens[cur].rect;
-        // Si el movimiento pasa el borde que mira a la otra: qué parte del movimiento hace
-        // falta para tocarlo.
+        // If the movement passes the edge that faces the other: what part of the movement
+        // is needed to touch it.
         let t = match side.facing {
             Side::Right if dx > 0.0 && pos.x + dx >= rect.right() => (rect.right() - pos.x) / dx,
             Side::Left if dx < 0.0 && pos.x + dx < rect.left() => (rect.left() - pos.x) / dx,
@@ -386,7 +386,7 @@ impl Layout {
             _ => return None,
         };
         let t = t.clamp(0.0, 1.0);
-        // Dónde, a lo largo del borde, lo toca la trayectoria.
+        // Where, along the edge, the trajectory touches it.
         let hit = if side.facing.is_vertical_edge() {
             pos.y + dy * t
         } else {
@@ -398,8 +398,8 @@ impl Layout {
         if hit < lo + margin || hit >= hi - margin {
             return None;
         }
-        // Sin alineación se mide en unidades nativas (fracción del largo); con alineación,
-        // en puntos lógicos (la misma distancia en las dos).
+        // Without alignment it is measured in native units (fraction of the length); with alignment,
+        // in logical points (the same distance on both).
         let logical = self.align.is_some();
         let mut before = 0.0;
         let mut offset = None;
@@ -419,7 +419,7 @@ impl Layout {
         let at = match self.align {
             None => offset / mine * theirs,
             Some(align) => {
-                // Dónde empieza el otro escritorio sobre este borde.
+                // Where the other desktop starts over this edge.
                 let at = offset - (mine - theirs) * align.factor();
                 if at < 0.0 || at >= theirs {
                     return None;
@@ -431,8 +431,8 @@ impl Layout {
         Some(Motion::Cross { to, pos })
     }
 
-    /// Punto del borde de `machine` que está a `at` de su inicio, medido como en
-    /// [`MachineLayout::measure`] (el último del borde si `at` lo pasa).
+    /// Point of `machine`'s edge that is `at` from its start, measured as in
+    /// [`MachineLayout::measure`] (the last one of the edge if `at` passes it).
     fn land(&self, machine: Machine, at: f64, logical: bool) -> Option<Point> {
         let ml = self.machine(machine);
         let side = ml.side.as_ref()?;
@@ -442,7 +442,7 @@ impl Layout {
         for seg in &side.edge {
             let len = ml.measure(seg, logical);
             if left < len {
-                // De la medida del tramo a unidades nativas.
+                // From the measure of the stretch to native units.
                 hit = (seg, left / len * seg.len());
                 break;
             }
@@ -482,7 +482,7 @@ impl Layout {
     }
 }
 
-/// Tramos del lado `facing` de cada pantalla que no tocan otra pantalla local.
+/// Stretches of the `facing` side of each screen that do not touch another local screen.
 fn exposed_edge(screens: &[Screen], facing: Side) -> Vec<Segment> {
     let mut edge = Vec::new();
     for (i, s) in screens.iter().enumerate() {
@@ -492,7 +492,7 @@ fn exposed_edge(screens: &[Screen], facing: Side) -> Vec<Segment> {
                 continue;
             }
             let (s, o) = (&s.rect, &o.rect);
-            // `o` tapa el borde si contiene los puntos justo del otro lado.
+            // `o` covers the edge if it contains the points just on the other side.
             let covers = match facing {
                 Side::Right => o.left() <= s.right() && s.right() < o.right(),
                 Side::Left => o.left() < s.left() && s.left() <= o.right(),
@@ -564,7 +564,7 @@ mod tests {
         LayoutOptions { corner_margin: 0.0 }
     }
 
-    /// El 34" (3440×1440) en la PC a la izquierda; el 32" (1920×1080) en la Mac a la derecha.
+    /// The 34" (3440×1440) on the PC at the left; the 32" (1920×1080) on the Mac at the right.
     fn shared(opts: LayoutOptions) -> Layout {
         let mac = vec![mon("m32", 3440, 0, 1920, 1080, 1.0)];
         let pc = vec![mon("m34", 0, 0, 3440, 1440, 1.0)];
@@ -572,14 +572,14 @@ mod tests {
     }
 
     #[test]
-    fn cada_maquina_mira_hacia_la_otra_segun_el_acomodo() {
+    fn each_machine_faces_the_other_according_to_the_arrangement() {
         let l = shared(no_margin());
         assert_eq!(l.screens(Machine::B)[0].id, "m34".into());
         assert_eq!(l.screens(Machine::A)[0].id, "m32".into());
         assert_eq!(l.facing(Machine::B), Some(Side::Right));
         assert_eq!(l.facing(Machine::A), Some(Side::Left));
 
-        // Sin acomodo declarado la Mac va a la izquierda.
+        // Without a declared arrangement the Mac goes on the left.
         let l = Layout::compute(
             &Arrangement {
                 a: vec![laptop(0, 0)],
@@ -594,9 +594,9 @@ mod tests {
     }
 
     #[test]
-    fn cruce_entre_monitores_de_distinto_tamano_es_proporcional() {
+    fn crossing_between_monitors_of_different_size_is_proportional() {
         let l = shared(no_margin());
-        // Mitad del 34" (1440 de alto) → mitad del 32" de la Mac (1080 de alto).
+        // Half of the 34" (1440 tall) → half of the 32" of the Mac (1080 tall).
         let m = l.step(Machine::B, Point::new(3439.0, 720.0), 5.0, 0.0);
         assert_eq!(
             m,
@@ -605,7 +605,7 @@ mod tests {
                 pos: Point::new(3440.0, 540.0)
             }
         );
-        // Un cuarto desde arriba.
+        // A quarter from the top.
         let m = l.step(Machine::B, Point::new(3439.0, 360.0), 1.0, 0.0);
         assert_eq!(
             m,
@@ -614,7 +614,7 @@ mod tests {
                 pos: Point::new(3440.0, 270.0)
             }
         );
-        // Y de vuelta: el borde izquierdo de la Mac lleva al derecho de la PC.
+        // And back: the Mac's left edge leads to the PC's right.
         let m = l.step(Machine::A, Point::new(3440.0, 270.0), -1.0, 0.0);
         assert_eq!(
             m,
@@ -626,19 +626,19 @@ mod tests {
     }
 
     #[test]
-    fn el_borde_que_no_mira_a_la_otra_maquina_no_cruza() {
+    fn the_edge_that_does_not_face_the_other_machine_does_not_cross() {
         let l = shared(no_margin());
-        // Izquierda del 34" de la PC: no hay nada ahí.
+        // Left of the PC's 34": there is nothing there.
         assert_eq!(
             l.step(Machine::B, Point::new(0.0, 500.0), -10.0, 0.0),
             Motion::Local(Point::new(0.0, 500.0))
         );
-        // Derecha del 32" de la Mac.
+        // Right of the Mac's 32".
         assert_eq!(
             l.step(Machine::A, Point::new(5359.0, 500.0), 10.0, 3.0),
             Motion::Local(Point::new(5359.0, 503.0))
         );
-        // Un movimiento normal dentro de la pantalla.
+        // A normal movement inside the screen.
         assert_eq!(
             l.step(Machine::B, Point::new(100.0, 100.0), 10.0, -5.0),
             Motion::Local(Point::new(110.0, 95.0))
@@ -651,19 +651,19 @@ mod tests {
             corner_margin: 20.0,
         });
         let at = |y| l.step(Machine::B, Point::new(3439.0, y), 4.0, 0.0);
-        // Dentro del margen de arriba y de abajo el cursor se queda contra el borde.
+        // Within the top and bottom margin the cursor stays against the edge.
         assert_eq!(at(0.0), Motion::Local(Point::new(3439.0, 0.0)));
         assert_eq!(at(19.0), Motion::Local(Point::new(3439.0, 19.0)));
         assert_eq!(at(1420.5), Motion::Local(Point::new(3439.0, 1420.5)));
         assert_eq!(at(1439.0), Motion::Local(Point::new(3439.0, 1439.0)));
-        // Justo fuera del margen cruza.
+        // Just outside the margin it crosses.
         assert!(matches!(at(20.0), Motion::Cross { to: Machine::A, .. }));
         assert!(matches!(at(1419.0), Motion::Cross { to: Machine::A, .. }));
     }
 
     #[test]
-    fn el_margen_de_las_esquinas_se_escala_por_dpi() {
-        // La PC con el 34" y el 32" a 150 %; la Mac a la derecha con su pantalla.
+    fn the_corner_margin_scales_by_dpi() {
+        // The PC with the 34" and the 32" at 150 %; the Mac on the right with its screen.
         let pc = vec![
             mon("m34", 0, 0, 3440, 1440, 1.0),
             mon("m32", 3440, 0, 3840, 2160, 1.5),
@@ -676,12 +676,12 @@ mod tests {
         )
         .unwrap();
         let at = |y| l.step(Machine::B, Point::new(7279.0, y), 4.0, 0.0);
-        // 20 puntos a 150 % son 30 píxeles.
+        // 20 points at 150 % are 30 pixels.
         assert!(matches!(at(29.0), Motion::Local(_)));
         assert!(matches!(at(30.0), Motion::Cross { to: Machine::A, .. }));
         assert!(matches!(at(2130.0), Motion::Local(_)));
         assert!(matches!(at(2129.0), Motion::Cross { to: Machine::A, .. }));
-        // Mitad del 32" de la PC (2160 de alto) → mitad de la pantalla de la Mac (982).
+        // Half of the PC's 32" (2160 tall) → half of the Mac's screen (982).
         let l = Layout::compute(
             &arr(
                 vec![laptop(0, 0)],
@@ -704,10 +704,10 @@ mod tests {
     }
 
     #[test]
-    fn la_velocidad_se_escala_por_dpi() {
+    fn speed_scales_by_dpi() {
         let m34 = mon("m34", 0, 0, 3440, 1440, 1.0);
         let m32 = mon("m32", 3440, 0, 3840, 2160, 1.5);
-        // 30 píxeles en el 32" a 150 % son 20 puntos; en el 34" a 100 %, 20 píxeles.
+        // 30 pixels on the 32" at 150 % are 20 points; on the 34" at 100 %, 20 pixels.
         let (lx, ly) = m32.to_logical(30.0, -15.0);
         assert_eq!((lx, ly), (20.0, -10.0));
         assert_eq!(m34.to_native(lx, ly), (20.0, -10.0));
@@ -715,39 +715,39 @@ mod tests {
     }
 
     #[test]
-    fn cruce_en_diagonal_usa_la_altura_donde_toca_el_borde() {
+    fn diagonal_crossing_uses_the_height_where_it_touches_the_edge() {
         let l = shared(no_margin());
-        // Desde x=3430 con dx=20 toca el borde a mitad del camino: y = 700 + 10.
+        // From x=3430 with dx=20 it touches the edge halfway: y = 700 + 10.
         let m = l.step(Machine::B, Point::new(3430.0, 700.0), 20.0, 20.0);
         let Motion::Cross { to, pos } = m else {
-            panic!("no cruzó: {m:?}");
+            panic!("did not cross: {m:?}");
         };
         assert_eq!(to, Machine::A);
         assert!((pos.y - 710.0 * 1080.0 / 1440.0).abs() < 1e-9);
     }
 
     #[test]
-    fn sin_pantallas_de_la_otra_no_hay_cruce_y_el_lado_sale_del_acomodo() {
+    fn without_the_others_screens_there_is_no_crossing_and_the_side_comes_from_the_arrangement() {
         let mac = vec![
             mon("m34", 0, 0, 3440, 1440, 1.0),
             mon("m32", 3440, 0, 1920, 1080, 1.0),
         ];
         let pc = vec![mon("pc", 0, 0, 2560, 1440, 1.0)];
-        // La PC apagada (o sin pantallas todavía): no hay a dónde cruzar.
+        // The PC off (or without screens yet): there is nowhere to cross to.
         let l = Layout::compute(&arr(mac.clone(), vec![], Side::Left), no_margin()).unwrap();
         assert_eq!(l.facing(Machine::A), None);
         assert_eq!(
             l.step(Machine::A, Point::new(5359.0, 10.0), 50.0, 0.0),
             Motion::Local(Point::new(5359.0, 10.0))
         );
-        // La Mac a la izquierda: su borde derecho lleva a la PC.
+        // The Mac on the left: its right edge leads to the PC.
         let l = Layout::compute(&arr(mac.clone(), pc.clone(), Side::Left), no_margin()).unwrap();
         assert_eq!(l.facing(Machine::A), Some(Side::Right));
         assert!(matches!(
             l.step(Machine::A, Point::new(5359.0, 500.0), 3.0, 0.0),
             Motion::Cross { to: Machine::B, .. }
         ));
-        // A la derecha: el izquierdo.
+        // On the right: the left one.
         let l = Layout::compute(&arr(mac, pc, Side::Right), no_margin()).unwrap();
         assert_eq!(l.facing(Machine::A), Some(Side::Left));
         assert!(matches!(
@@ -758,17 +758,17 @@ mod tests {
 
     #[test]
     fn dos_pantallas_apiladas_suman_su_borde() {
-        // La Mac tiene el 34" y su pantalla debajo, alineada a la derecha.
+        // The Mac has the 34" and its screen below, aligned to the right.
         let mac = vec![
             mon("m34", 0, 0, 3440, 1440, 1.0),
             Screen::new("laptop".into(), Rect::new(1928, 1440, 1512, 982), 1.0),
         ];
         let pc = vec![mon("m32", 0, 0, 2560, 1440, 1.0)];
         let l = Layout::compute(&arr(mac, pc, Side::Left), no_margin()).unwrap();
-        // El borde derecho de la Mac mide 1440 + 982; la de abajo ocupa la parte de abajo.
+        // The Mac's right edge measures 1440 + 982; the bottom one takes the bottom part.
         let m = l.step(Machine::A, Point::new(3439.0, 1440.0 + 491.0), 1.0, 0.0);
         let Motion::Cross { pos, .. } = m else {
-            panic!("no cruzó: {m:?}");
+            panic!("did not cross: {m:?}");
         };
         let expected = (1440.0 + 491.0) / (1440.0 + 982.0) * 1440.0;
         assert!((pos.y - expected).abs() < 1e-9);
@@ -776,12 +776,12 @@ mod tests {
     }
 
     #[test]
-    fn un_borde_tapado_por_otra_pantalla_local_no_cruza() {
+    fn an_edge_covered_by_another_local_screen_does_not_cross() {
         let mac = vec![
             mon("m34", 0, 0, 3440, 1440, 1.0),
             mon("m32", 3440, 0, 1920, 1080, 1.0),
         ];
-        // Con las dos pantallas en la Mac, la unión entre ellas no es un borde.
+        // With both screens on the Mac, the join between them is not an edge.
         let edge = exposed_edge(&mac, Side::Right);
         assert_eq!(
             edge,
@@ -801,7 +801,7 @@ mod tests {
     }
 
     #[test]
-    fn pasa_a_otra_pantalla_local_sin_cruzar() {
+    fn moves_to_another_local_screen_without_crossing() {
         let pc = vec![
             mon("m34", 0, 0, 3440, 1440, 1.0),
             mon("m32", 3440, 0, 3840, 2160, 1.5),
@@ -814,7 +814,7 @@ mod tests {
     }
 
     #[test]
-    fn rechaza_pantallas_invalidas() {
+    fn rejects_invalid_screens() {
         let bad = arr(vec![mon("m34", 0, 0, 0, 1440, 1.0)], vec![], Side::Left);
         assert!(matches!(
             Layout::compute(&bad, LayoutOptions::default()),
@@ -834,7 +834,7 @@ mod tests {
         ));
     }
 
-    /// Un punto del borde `side` de `r` a `f` de su largo, y el paso que lo saca por ahí.
+    /// A point of edge `side` of `r` at `f` of its length, and the step that takes it out there.
     fn on_edge(r: Rect, side: Side, f: f64) -> (Point, f64, f64) {
         let along = |lo: f64, len: u32| {
             (lo + f * f64::from(len))
@@ -857,11 +857,11 @@ mod tests {
         }
     }
 
-    /// DESIGN §7 / D18: la otra máquina en cada uno de los 4 lados con cada una de las 3
-    /// alineaciones. B tiene el 34" (3440×1440) y A una pantalla más chica (1920×1080):
-    /// el borde de cruce es el tramo que comparten, y sale a la misma distancia.
+    /// DESIGN §7 / D18: the other machine on each of the 4 sides with each of the 3
+    /// alignments. B has the 34" (3440×1440) and A a smaller screen (1920×1080):
+    /// the crossing edge is the stretch they share, and it exits at the same distance.
     #[test]
-    fn cuatro_lados_por_tres_alineaciones_dan_el_borde_compartido() {
+    fn four_sides_by_three_alignments_give_the_shared_edge() {
         let a_rect = Rect::new(0, 0, 1920, 1080);
         let b_rect = Rect::new(0, 0, 3440, 1440);
         for a_side in Side::ALL {
@@ -879,7 +879,7 @@ mod tests {
                 let case = format!("{a_side:?} {align:?}");
                 assert_eq!(l.facing(Machine::B), Some(a_side), "{case}");
                 assert_eq!(l.facing(Machine::A), Some(a_side.opposite()), "{case}");
-                // Largo de cada borde y dónde empieza A sobre el de B.
+                // Length of each edge and where A starts on B's.
                 let (len_a, len_b) = if a_side.is_vertical_edge() {
                     (1080.0, 1440.0)
                 } else {
@@ -902,7 +902,7 @@ mod tests {
                     let (p, _, _) = on_edge(a_rect, a_side.opposite(), along / len_a);
                     p
                 };
-                // Dentro del tramo cruza a la misma distancia de su inicio.
+                // Within the stretch it crosses at the same distance from its start.
                 for d in [0.0, 1.0, len_a / 2.0, len_a - 1.0] {
                     assert_eq!(
                         at(start + d),
@@ -910,20 +910,20 @@ mod tests {
                             to: Machine::A,
                             pos: land(d)
                         },
-                        "{case} a {d}"
+                        "{case} at {d}"
                     );
                 }
-                // Fuera del tramo, el cursor se queda contra el borde.
+                // Outside the stretch, the cursor stays against the edge.
                 if start >= 1.0 {
                     assert!(matches!(at(start - 1.0), Motion::Local(_)), "{case}");
                 }
                 if start + len_a < len_b {
                     assert!(matches!(at(start + len_a), Motion::Local(_)), "{case}");
                 }
-                // Y de vuelta: de cualquier punto de A se llega al tramo de B.
+                // And back: from any point of A the stretch of B is reached.
                 let (p, dx, dy) = on_edge(a_rect, a_side.opposite(), 0.5);
                 let Motion::Cross { to, pos } = l.step(Machine::A, p, dx, dy) else {
-                    panic!("{case}: A no cruzó");
+                    panic!("{case}: A did not cross");
                 };
                 assert_eq!(to, Machine::B);
                 let u = if a_side.is_vertical_edge() {
@@ -937,9 +937,9 @@ mod tests {
     }
 
     #[test]
-    fn con_alineacion_el_tramo_se_mide_en_puntos_logicos() {
-        // B con un 4K a 150 % (2560×1440 puntos) a la derecha de A (1512×982 a 100 %),
-        // alineados al centro: A empieza a (1440 − 982) / 2 = 229 puntos del borde de B.
+    fn with_alignment_the_stretch_is_measured_in_logical_points() {
+        // B with a 4K at 150 % (2560×1440 points) to the right of A (1512×982 at 100 %),
+        // aligned to the center: A starts at (1440 − 982) / 2 = 229 points from B's edge.
         let l = Layout::compute(
             &Arrangement {
                 a: vec![laptop(0, 0)],
@@ -951,14 +951,14 @@ mod tests {
         )
         .unwrap();
         assert_eq!(l.crossing_span(Machine::B), Some((229.0, 1211.0)));
-        // 229 puntos son 343.5 píxeles: justo antes no cruza; justo después sí, arriba.
+        // 229 points are 343.5 pixels: just before it does not cross; just after it does, at the top.
         assert!(matches!(
             l.step(Machine::B, Point::new(3839.0, 343.0), 1.0, 0.0),
             Motion::Local(_)
         ));
         let Motion::Cross { to, pos } = l.step(Machine::B, Point::new(3839.0, 345.0), 1.0, 0.0)
         else {
-            panic!("no cruzó dentro del tramo");
+            panic!("did not cross within the stretch");
         };
         assert_eq!((to, pos.x), (Machine::A, 0.0));
         assert!((pos.y - 1.0).abs() < 1e-9, "{pos:?}");
@@ -968,7 +968,7 @@ mod tests {
     }
 
     #[test]
-    fn sin_pantallas_el_cursor_no_se_mueve() {
+    fn without_screens_the_cursor_does_not_move() {
         let l = Layout::compute(&Arrangement::default(), LayoutOptions::default()).unwrap();
         let p = Point::new(10.0, 10.0);
         assert_eq!(l.step(Machine::B, p, 5.0, 5.0), Motion::Local(p));
@@ -994,8 +994,8 @@ mod tests {
         prop::option::of(prop::sample::select(Align::ALL.to_vec()))
     }
 
-    /// Una pantalla por máquina, en cualquier lugar, la Mac de cualquier lado, con o sin
-    /// alineación.
+    /// One screen per machine, anywhere, the Mac on either side, with or without
+    /// alignment.
     fn arb_layout() -> impl Strategy<Value = Layout> {
         (
             arb_screen("a"),
@@ -1020,8 +1020,8 @@ mod tests {
         l.screens(m).iter().any(|s| s.rect.contains(p))
     }
 
-    /// Varias pantallas por máquina, en cualquier posición (pueden solaparse o dejar
-    /// huecos); a veces la PC sin ninguna.
+    /// Several screens per machine, in any position (they may overlap or leave
+    /// gaps); sometimes the PC with none.
     fn arb_multi_layout() -> impl Strategy<Value = Layout> {
         (
             proptest::collection::vec(arb_screen("mac"), 1..4),
@@ -1042,12 +1042,12 @@ mod tests {
             })
     }
 
-    // QA ronda 1: las propiedades de abajo solo usan una pantalla por máquina.
+    // QA round 1: the properties below only use one screen per machine.
     proptest! {
-        /// Con varias pantallas, solapadas o con huecos, el cursor siempre termina
-        /// dentro de una pantalla, y nunca en la máquina que no tiene ninguna.
+        /// With several screens, overlapping or with gaps, the cursor always ends up
+        /// inside a screen, and never on the machine that has none.
         #[test]
-        fn varias_pantallas_el_cursor_siempre_queda_en_una_pantalla(
+        fn several_screens_the_cursor_always_ends_up_on_a_screen(
             l in arb_multi_layout(),
             mac in any::<bool>(),
             pick in any::<prop::sample::Index>(),
@@ -1056,7 +1056,7 @@ mod tests {
             dx in -3000.0f64..3000.0,
             dy in -3000.0f64..3000.0,
         ) {
-            // La Mac siempre tiene algo; la PC no siempre.
+            // The Mac always has something; the PC not always.
             let m = if mac || l.screens(Machine::B).is_empty() {
                 Machine::A
             } else {
@@ -1074,8 +1074,8 @@ mod tests {
                     prop_assert_eq!(to, m.other());
                     prop_assert!(l.facing(m).is_some());
                     prop_assert!(inside(&l, to, pos), "{pos:?}");
-                    // Se entra por el lado que mira a la máquina de origen, en el
-                    // borde de alguna pantalla que contiene el punto.
+                    // It enters through the side that faces the origin machine, on the
+                    // edge of some screen that contains the point.
                     let facing = l.facing(to).unwrap();
                     let on_edge = l.screens(to).iter().any(|s| {
                         s.rect.contains(pos)
@@ -1086,25 +1086,25 @@ mod tests {
                                 Side::Down => pos.y == s.rect.bottom() - 1.0,
                             }
                     });
-                    prop_assert!(on_edge, "{pos:?} no está en el borde {facing:?}");
+                    prop_assert!(on_edge, "{pos:?} is not on edge {facing:?}");
                 }
             }
         }
 
-        /// Los dos lados siempre se miran: si una máquina puede cruzar, la otra
-        /// también, por el lado opuesto.
+        /// The two sides always face each other: if one machine can cross, the other
+        /// can too, through the opposite side.
         #[test]
-        fn los_lados_siempre_son_opuestos(l in arb_multi_layout()) {
+        fn the_sides_are_always_opposite(l in arb_multi_layout()) {
             match (l.facing(Machine::A), l.facing(Machine::B)) {
                 (Some(a), Some(b)) => prop_assert_eq!(a, b.opposite()),
                 (None, None) => {}
-                other => prop_assert!(false, "lados inconsistentes: {other:?}"),
+                other => prop_assert!(false, "inconsistent sides: {other:?}"),
             }
         }
 
-        /// Un movimiento nulo nunca cruza ni mueve el cursor que está dentro.
+        /// A null movement never crosses or moves a cursor that is inside.
         #[test]
-        fn sin_movimiento_no_hay_cruce(
+        fn without_movement_there_is_no_crossing(
             l in arb_multi_layout(),
             mac in any::<bool>(),
             pick in any::<prop::sample::Index>(),
@@ -1117,16 +1117,16 @@ mod tests {
             };
             let screens = l.screens(m);
             let r = pick.get(screens).rect;
-            // En el borde derecho, donde más fácil sería cruzar por error.
+            // On the right edge, where it would be easiest to cross by mistake.
             let p = Point::new(r.right() - 1.0, (r.top() + fy * f64::from(r.height)).floor());
             prop_assert_eq!(l.step(m, p, 0.0, 0.0), Motion::Local(p));
         }
     }
 
     proptest! {
-        /// Pase lo que pase, el cursor termina dentro de una pantalla.
+        /// Whatever happens, the cursor ends up inside a screen.
         #[test]
-        fn el_cursor_siempre_queda_en_una_pantalla(
+        fn the_cursor_always_ends_up_on_a_screen(
             l in arb_layout(),
             mac in any::<bool>(),
             fx in 0.0f64..1.0,
@@ -1149,10 +1149,10 @@ mod tests {
             }
         }
 
-        /// Cruzar y volver enseguida deja el cursor a menos de un píxel de la posición
-        /// original a lo largo del borde, por cualquiera de los cuatro lados.
+        /// Crossing and coming straight back leaves the cursor within one pixel of the original
+        /// position along the edge, through any of the four sides.
         #[test]
-        fn ida_y_vuelta_conserva_la_posicion(l in arb_layout(), f in 0.0f64..1.0) {
+        fn round_trip_keeps_the_position(l in arb_layout(), f in 0.0f64..1.0) {
             let side = l.facing(Machine::B).unwrap();
             let b = &l.screens(Machine::B)[0];
             let a = &l.screens(Machine::A)[0];
@@ -1166,8 +1166,8 @@ mod tests {
                         } else {
                             (f64::from(b.rect.width), f64::from(a.rect.width))
                         };
-                        // La vuelta puede caer en la esquina muerta de la Mac; solo
-                        // se mide cuando vuelve.
+                        // The return may land in the Mac's dead corner; it is only
+                        // measured when it returns.
                         let tol = 1.0 + (len_b / len_a).max(b.scale / a.scale);
                         if side.is_vertical_edge() {
                             prop_assert_eq!(back.x, p.x);
@@ -1182,10 +1182,10 @@ mod tests {
             }
         }
 
-        /// Con alineación, solo se cruza dentro del borde compartido, y se sale a la misma
-        /// distancia (en puntos lógicos) de donde empieza el otro escritorio.
+        /// With alignment, it only crosses within the shared edge, and exits at the same
+        /// distance (in logical points) from where the other desktop starts.
         #[test]
-        fn con_alineacion_solo_cruza_el_tramo_compartido(
+        fn with_alignment_only_the_shared_stretch_crosses(
             l in arb_layout(),
             f in 0.0f64..1.0,
         ) {
@@ -1198,15 +1198,15 @@ mod tests {
             match l.step(Machine::B, p, dx, dy) {
                 Motion::Cross { .. } => {
                     let (s, e) = span.unwrap();
-                    prop_assert!(u >= s - 1e-9 && u < e + 1e-9, "{u} fuera de {s}..{e}");
+                    prop_assert!(u >= s - 1e-9 && u < e + 1e-9, "{u} outside {s}..{e}");
                 }
                 Motion::Local(_) => {}
             }
         }
     }
 
-    /// Pantallas de una máquina en fila, de alturas distintas y alineadas arriba, abajo o
-    /// al centro (bordes parciales del lado que mira a la otra).
+    /// Screens of a machine in a row, of different heights and aligned top, bottom or
+    /// center (partial edges of the side that faces the other).
     fn arb_row(id: &'static str) -> impl Strategy<Value = Vec<Screen>> {
         proptest::collection::vec(
             (
@@ -1236,8 +1236,8 @@ mod tests {
         })
     }
 
-    /// Si `p` está en el borde que mira a la otra máquina de alguna pantalla, en un tramo
-    /// que no tapa otra pantalla local.
+    /// Whether `p` is on the edge that faces the other machine of some screen, in a stretch
+    /// that does not cover another local screen.
     fn on_exposed_edge(screens: &[Screen], facing: Side, p: Point) -> bool {
         exposed_edge(screens, facing).iter().any(|seg| {
             let r = screens[seg.screen].rect;
@@ -1252,14 +1252,14 @@ mod tests {
     }
 
     proptest! {
-        /// T-093, respetar pantallas: en un paseo largo de movimientos al azar, yendo y
-        /// viniendo entre las dos máquinas por cualquiera de los 4 lados, con o sin
-        /// alineación, y con pantallas de alturas distintas (bordes parciales y huecos en
-        /// las esquinas), el cursor nunca queda fuera de una pantalla de la máquina donde
-        /// está; cada cruce sale de un tramo expuesto del borde, fuera del margen de las
-        /// esquinas de su pantalla, y entra por un tramo expuesto de la otra.
+        /// T-093, respecting screens: in a long walk of random movements, going back and
+        /// forth between the two machines through any of the 4 sides, with or without
+        /// alignment, and with screens of different heights (partial edges and gaps in
+        /// the corners), the cursor never ends up outside a screen of the machine it
+        /// is on; every crossing leaves from an exposed stretch of the edge, outside the margin of the
+        /// corners of its screen, and enters through an exposed stretch of the other.
         #[test]
-        fn un_paseo_nunca_sale_de_las_pantallas_y_cruza_solo_por_bordes_expuestos(
+        fn a_walk_never_leaves_the_screens_and_crosses_only_through_exposed_edges(
             a in arb_row("a"),
             b in arb_row("b"),
             a_side in side(),
@@ -1278,15 +1278,15 @@ mod tests {
             for (dx, dy) in moves {
                 match l.step(m, p, dx, dy) {
                     Motion::Local(q) => {
-                        prop_assert!(inside(&l, m, q), "{q:?} fuera de {m}");
+                        prop_assert!(inside(&l, m, q), "{q:?} outside {m}");
                         p = q;
                     }
                     Motion::Cross { to, pos } => {
                         let facing = l.facing(m).unwrap();
                         let s = l.screen_at(m, p).unwrap();
                         let rect = s.rect;
-                        // Dónde la trayectoria toca el borde de la pantalla de origen, como
-                        // lo mide `crossing`.
+                        // Where the trajectory touches the edge of the origin screen, as
+                        // `crossing` measures it.
                         let t = match facing {
                             Side::Right => (rect.right() - p.x) / dx,
                             Side::Left => (rect.left() - p.x) / dx,
@@ -1299,7 +1299,7 @@ mod tests {
                         let margin = margin * s.scale;
                         prop_assert!(
                             along >= lo + margin - 1e-6 && along < hi - margin + 1e-6,
-                            "cruzó en la esquina: {along} en {rect:?}"
+                            "crossed at the corner: {along} in {rect:?}"
                         );
                         let along = along.clamp(lo, hi - 1.0);
                         let exit = match facing {
@@ -1310,12 +1310,12 @@ mod tests {
                         };
                         prop_assert!(
                             on_exposed_edge(l.screens(m), facing, exit),
-                            "salió por un tramo tapado o sin borde: {exit:?}"
+                            "left through a covered stretch or one without an edge: {exit:?}"
                         );
-                        prop_assert!(inside(&l, to, pos), "{pos:?} fuera de {to}");
+                        prop_assert!(inside(&l, to, pos), "{pos:?} outside {to}");
                         prop_assert!(
                             on_exposed_edge(l.screens(to), l.facing(to).unwrap(), pos),
-                            "entró fuera de un tramo expuesto: {pos:?}"
+                            "entered outside an exposed stretch: {pos:?}"
                         );
                         m = to;
                         p = pos;

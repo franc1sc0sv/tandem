@@ -35,7 +35,7 @@ fn take(e: &mut MacEmulator<RecordingSink>) -> Vec<MacEvent> {
 const NC: u64 = NON_COALESCED;
 
 #[test]
-fn tecla_simple_baja_y_sube_con_su_keycode() {
+fn a_simple_key_goes_down_and_up_with_its_keycode() {
     let mut e = emulator();
     e.emit(&press(0x04)).unwrap(); // A → kVK_ANSI_A (0x00)
     e.emit(&release(0x04)).unwrap();
@@ -59,9 +59,9 @@ fn tecla_simple_baja_y_sube_con_su_keycode() {
 }
 
 #[test]
-fn modificador_va_como_flags_changed_y_marca_las_teclas() {
+fn a_modifier_goes_as_flags_changed_and_marks_the_keys() {
     let mut e = emulator();
-    e.emit(&press(0xE1)).unwrap(); // Shift izquierdo
+    e.emit(&press(0xE1)).unwrap(); // left Shift
     e.emit(&press(0x04)).unwrap();
     e.emit(&release(0x04)).unwrap();
     e.emit(&release(0xE1)).unwrap();
@@ -94,7 +94,7 @@ fn modificador_va_como_flags_changed_y_marca_las_teclas() {
 }
 
 #[test]
-fn cada_modificador_lleva_su_lado_y_su_keycode() {
+fn each_modifier_carries_its_side_and_its_keycode() {
     // (HID, kVK, flags)
     let cases = [
         (0xE0, 0x3B, CONTROL | DEVICE_LEFT_CONTROL),
@@ -121,7 +121,7 @@ fn cada_modificador_lleva_su_lado_y_su_keycode() {
 }
 
 #[test]
-fn soltar_un_lado_conserva_el_otro() {
+fn releasing_one_side_keeps_the_other() {
     let mut e = emulator();
     e.emit(&press(0xE1)).unwrap();
     e.emit(&press(0xE5)).unwrap();
@@ -137,7 +137,7 @@ fn soltar_un_lado_conserva_el_otro() {
 }
 
 #[test]
-fn repetir_una_tecla_marca_autorepeat() {
+fn repeating_a_key_marks_autorepeat() {
     let mut e = emulator();
     for _ in 0..3 {
         e.emit(&press(0x04)).unwrap();
@@ -153,7 +153,7 @@ fn repetir_una_tecla_marca_autorepeat() {
 }
 
 #[test]
-fn un_modificador_mantenido_no_se_repite() {
+fn a_held_modifier_does_not_repeat() {
     let mut e = emulator();
     e.emit(&press(0xE3)).unwrap();
     e.emit(&press(0xE3)).unwrap();
@@ -161,7 +161,7 @@ fn un_modificador_mantenido_no_se_repite() {
 }
 
 #[test]
-fn soltar_algo_que_no_estaba_presionado_no_publica_nada() {
+fn releasing_something_not_pressed_publishes_nothing() {
     let mut e = emulator();
     e.emit(&release(0x04)).unwrap();
     e.emit(&release(0xE0)).unwrap();
@@ -170,7 +170,7 @@ fn soltar_algo_que_no_estaba_presionado_no_publica_nada() {
 }
 
 #[test]
-fn flechas_f_y_teclado_numerico_llevan_sus_flags() {
+fn arrows_f_keys_and_numeric_keypad_carry_their_flags() {
     // (HID, kVK, flags)
     let cases = [
         (0x52, 0x7E, NUMERIC_PAD | SECONDARY_FN), // ↑
@@ -179,11 +179,11 @@ fn flechas_f_y_teclado_numerico_llevan_sus_flags() {
         (0x4F, 0x7C, NUMERIC_PAD | SECONDARY_FN), // →
         (0x3E, 0x60, SECONDARY_FN),               // F5
         (0x45, 0x6F, SECONDARY_FN),               // F12
-        (0x4A, 0x73, SECONDARY_FN),               // Inicio
-        (0x4C, 0x75, SECONDARY_FN),               // Supr
+        (0x4A, 0x73, SECONDARY_FN),               // Home
+        (0x4C, 0x75, SECONDARY_FN),               // Delete
         (0x59, 0x53, NUMERIC_PAD),                // Num 1
-        (0x58, 0x4C, NUMERIC_PAD),                // Num Intro
-        (0x28, 0x24, 0),                          // Intro
+        (0x58, 0x4C, NUMERIC_PAD),                // Num Enter
+        (0x28, 0x24, 0),                          // Enter
     ];
     for (hid, kvk, f) in cases {
         let mut e = emulator();
@@ -202,11 +202,11 @@ fn flechas_f_y_teclado_numerico_llevan_sus_flags() {
 }
 
 #[test]
-fn bloq_mayus_alterna_al_presionar() {
+fn caps_lock_toggles_on_press() {
     let mut e = emulator();
     e.emit(&press(0x39)).unwrap();
-    e.emit(&press(0x39)).unwrap(); // repetición: nada
-    e.emit(&release(0x39)).unwrap(); // soltar: nada
+    e.emit(&press(0x39)).unwrap(); // repeat: nothing
+    e.emit(&release(0x39)).unwrap(); // release: nothing
     e.emit(&press(0x04)).unwrap();
     e.emit(&press(0x39)).unwrap();
     assert_eq!(
@@ -231,7 +231,7 @@ fn bloq_mayus_alterna_al_presionar() {
 }
 
 #[test]
-fn tecla_sin_keycode_falla_y_no_queda_presionada() {
+fn a_key_without_keycode_fails_and_is_not_left_pressed() {
     let mut e = emulator();
     let unknown = HidUsage::new(0xFF00, 1);
     let err = e
@@ -246,8 +246,8 @@ fn tecla_sin_keycode_falla_y_no_queda_presionada() {
 }
 
 #[test]
-fn multimedia_va_como_evento_de_sistema() {
-    // (uso, NX_KEYTYPE)
+fn media_goes_as_a_system_event() {
+    // (usage, NX_KEYTYPE)
     let cases = [
         (HidUsage::consumer(0xCD), 16),
         (HidUsage::consumer(0xB5), 17),
@@ -289,7 +289,7 @@ fn multimedia_va_como_evento_de_sistema() {
 }
 
 #[test]
-fn movimiento_relativo_y_absoluto() {
+fn relative_and_absolute_movement() {
     let mut e = emulator();
     e.emit(&InputEvent::MotionRelative {
         dx: 10.5,
@@ -323,20 +323,20 @@ fn movimiento_relativo_y_absoluto() {
 }
 
 #[test]
-fn el_cursor_no_sale_de_las_pantallas() {
+fn the_cursor_does_not_leave_the_screens() {
     let mut sink = RecordingSink::new();
-    // Principal 1920×1080 y una a la izquierda, más arriba.
+    // Main 1920×1080 and one to the left, higher up.
     sink.screens = vec![
         Rect::new(0, 0, 1920, 1080),
         Rect::new(-1440, -200, 1440, 900),
     ];
     sink.cursor = Point::new(5.0, 1000.0);
     let mut e = MacEmulator::new(sink).unwrap();
-    // A la izquierda, a una altura donde no hay pantalla: queda en el borde.
+    // On the left, at a height where there is no screen: it stays at the edge.
     e.emit(&InputEvent::MotionRelative { dx: -50.0, dy: 0.0 })
         .unwrap();
     assert_eq!(e.sink().cursor, Point::new(0.0, 1000.0));
-    // Más arriba sí entra a la otra pantalla.
+    // Higher up it does enter the other screen.
     e.emit(&InputEvent::MotionAbsolute { x: -30.0, y: 100.0 })
         .unwrap();
     assert_eq!(e.sink().cursor, Point::new(-30.0, 100.0));
@@ -349,7 +349,7 @@ fn el_cursor_no_sale_de_las_pantallas() {
 }
 
 #[test]
-fn sin_pantallas_no_se_mueve() {
+fn without_screens_it_does_not_move() {
     let mut sink = RecordingSink::new();
     sink.screens.clear();
     let mut e = MacEmulator::new(sink).unwrap();
@@ -370,13 +370,13 @@ fn mouse_kinds(events: &[MacEvent]) -> Vec<(MouseKind, u32)> {
 }
 
 #[test]
-fn con_un_boton_presionado_el_movimiento_es_arrastre() {
+fn with_a_pressed_button_the_movement_is_a_drag() {
     let mut e = emulator();
     let mv = InputEvent::MotionRelative { dx: 1.0, dy: 0.0 };
     e.emit(&btn(Button::Left, KeyState::Pressed)).unwrap();
     e.emit(&mv).unwrap();
     e.emit(&btn(Button::Right, KeyState::Pressed)).unwrap();
-    e.emit(&mv).unwrap(); // izquierdo y derecho: manda el izquierdo
+    e.emit(&mv).unwrap(); // left and right: the left one sends
     e.emit(&btn(Button::Left, KeyState::Released)).unwrap();
     e.emit(&mv).unwrap();
     e.emit(&btn(Button::Right, KeyState::Released)).unwrap();
@@ -409,12 +409,12 @@ fn con_un_boton_presionado_el_movimiento_es_arrastre() {
 }
 
 #[test]
-fn botones_laterales_son_3_y_4_y_other_bajo_es_el_mismo_boton() {
+fn side_buttons_are_3_and_4_and_low_other_is_the_same_button() {
     let mut e = emulator();
     e.emit(&btn(Button::Back, KeyState::Pressed)).unwrap();
     e.emit(&btn(Button::Forward, KeyState::Pressed)).unwrap();
     e.emit(&btn(Button::Other(0), KeyState::Pressed)).unwrap();
-    // Ya está presionado como Other(0): Left no vuelve a bajar.
+    // It is already pressed as Other(0): Left does not go down again.
     e.emit(&btn(Button::Left, KeyState::Pressed)).unwrap();
     e.emit(&btn(Button::Left, KeyState::Released)).unwrap();
     assert_eq!(
@@ -444,20 +444,20 @@ fn click(e: &mut MacEmulator<RecordingSink>, button: Button, at: Instant) {
 }
 
 #[test]
-fn doble_y_triple_clic_dentro_de_la_ventana() {
+fn double_and_triple_click_within_the_window() {
     let mut e = emulator();
     let t0 = Instant::now();
     let ms = Duration::from_millis;
     click(&mut e, Button::Left, t0);
     click(&mut e, Button::Left, t0 + ms(200));
     click(&mut e, Button::Left, t0 + ms(400));
-    // Fuera de la ventana: empieza de nuevo.
+    // Outside the window: it starts over.
     click(&mut e, Button::Left, t0 + ms(1000));
     assert_eq!(click_states(&take(&mut e)), vec![1, 1, 2, 2, 3, 3, 1, 1]);
 }
 
 #[test]
-fn el_doble_clic_exige_el_mismo_boton_y_el_mismo_lugar() {
+fn the_double_click_requires_the_same_button_and_the_same_place() {
     let mut e = emulator();
     let t0 = Instant::now();
     let ms = Duration::from_millis;
@@ -465,10 +465,10 @@ fn el_doble_clic_exige_el_mismo_boton_y_el_mismo_lugar() {
     click(&mut e, Button::Right, t0 + ms(100));
     e.emit_at(&InputEvent::MotionRelative { dx: 3.0, dy: 0.0 }, t0)
         .unwrap();
-    click(&mut e, Button::Right, t0 + ms(200)); // a 3 px: cuenta
+    click(&mut e, Button::Right, t0 + ms(200)); // at 3 px: counts
     e.emit_at(&InputEvent::MotionRelative { dx: 10.0, dy: 0.0 }, t0)
         .unwrap();
-    click(&mut e, Button::Right, t0 + ms(300)); // a 10 px: no
+    click(&mut e, Button::Right, t0 + ms(300)); // at 10 px: does not
     assert_eq!(
         click_states(&take(&mut e)),
         vec![1, 1, 1, 1, 0, 2, 2, 0, 1, 1]
@@ -476,7 +476,7 @@ fn el_doble_clic_exige_el_mismo_boton_y_el_mismo_lugar() {
 }
 
 #[test]
-fn la_ventana_del_doble_clic_es_la_de_la_mac() {
+fn the_double_click_window_is_the_macs() {
     let mut sink = RecordingSink::new();
     sink.double_click = Duration::from_millis(150);
     let mut e = MacEmulator::new(sink).unwrap();
@@ -487,7 +487,7 @@ fn la_ventana_del_doble_clic_es_la_de_la_mac() {
 }
 
 #[test]
-fn los_clics_llevan_los_modificadores() {
+fn clicks_carry_the_modifiers() {
     let mut e = emulator();
     e.emit(&press(0xE3)).unwrap();
     e.emit(&btn(Button::Left, KeyState::Pressed)).unwrap();
@@ -518,13 +518,13 @@ fn wheel(dx_v120: i32, dy_v120: i32) -> InputEvent {
 }
 
 #[test]
-fn la_rueda_va_en_lineas_y_acumula_fracciones() {
+fn the_wheel_goes_in_lines_and_accumulates_fractions() {
     let mut e = emulator();
-    e.emit(&wheel(0, 120)).unwrap(); // adelante
-    e.emit(&wheel(0, -240)).unwrap(); // atrás, dos muescas
-    e.emit(&wheel(0, 60)).unwrap(); // media: nada todavía
-    e.emit(&wheel(0, 60)).unwrap(); // la otra mitad
-    e.emit(&wheel(120, 0)).unwrap(); // derecha
+    e.emit(&wheel(0, 120)).unwrap(); // forward
+    e.emit(&wheel(0, -240)).unwrap(); // back, two notches
+    e.emit(&wheel(0, 60)).unwrap(); // half: nothing yet
+    e.emit(&wheel(0, 60)).unwrap(); // the other half
+    e.emit(&wheel(120, 0)).unwrap(); // right
     assert_eq!(
         scrolls(&take(&mut e)),
         vec![
@@ -537,7 +537,7 @@ fn la_rueda_va_en_lineas_y_acumula_fracciones() {
 }
 
 #[test]
-fn el_scroll_natural_invierte_los_dos_ejes() {
+fn natural_scrolling_inverts_both_axes() {
     let mut sink = RecordingSink::new();
     sink.natural_scroll = true;
     let mut e = MacEmulator::new(sink).unwrap();
@@ -551,7 +551,7 @@ fn el_scroll_natural_invierte_los_dos_ejes() {
 }
 
 #[test]
-fn el_trackpad_va_en_pixeles_y_acumula_fracciones() {
+fn the_trackpad_goes_in_pixels_and_accumulates_fractions() {
     let mut e = emulator();
     for _ in 0..4 {
         e.emit(&InputEvent::Scroll(Scroll::Pixels { dx: 0.0, dy: 0.4 }))
@@ -569,7 +569,7 @@ fn el_trackpad_va_en_pixeles_y_acumula_fracciones() {
 }
 
 #[test]
-fn sincronizar_modificadores_suelta_y_presiona_lo_necesario() {
+fn synchronizing_modifiers_releases_and_presses_what_is_needed() {
     let mut e = emulator();
     e.emit(&press(0xE0)).unwrap(); // Ctrl
     e.emit(&press(0xE1)).unwrap(); // Shift
@@ -591,13 +591,13 @@ fn sincronizar_modificadores_suelta_y_presiona_lo_necesario() {
             },
         ]
     );
-    // Ya sincronizado: nada.
+    // Already synchronized: nothing.
     e.emit(&InputEvent::Modifiers(target)).unwrap();
     assert!(take(&mut e).is_empty());
 }
 
 #[test]
-fn release_all_suelta_botones_teclas_y_al_final_modificadores() {
+fn release_all_releases_buttons_keys_and_last_modifiers() {
     let mut e = emulator();
     e.emit(&press(0xE3)).unwrap(); // Cmd
     e.emit(&press(0x06)).unwrap(); // C
@@ -639,29 +639,29 @@ fn release_all_suelta_botones_teclas_y_al_final_modificadores() {
         }
     );
     assert_eq!(events.len(), 4);
-    // Después, el movimiento ya no es arrastre.
+    // After that, the movement is no longer a drag.
     e.emit(&InputEvent::MotionRelative { dx: 1.0, dy: 1.0 })
         .unwrap();
     assert_eq!(mouse_kinds(&take(&mut e)), vec![(MouseKind::Moved, 0)]);
 }
 
 #[test]
-fn release_all_sigue_aunque_falle_un_evento_y_devuelve_el_error() {
+fn release_all_goes_on_even_if_an_event_fails_and_returns_the_error() {
     let mut e = emulator();
     e.emit(&press(0x04)).unwrap();
     e.emit(&press(0xE0)).unwrap();
     take(&mut e);
-    e.sink_mut().fail_post = Some("sin permiso".into());
+    e.sink_mut().fail_post = Some("no permission".into());
     let err = e.release_all().unwrap_err();
-    assert!(matches!(err, EmulateError::Platform(m) if m == "sin permiso"));
-    // El estado quedó limpio: no hay nada que volver a soltar.
+    assert!(matches!(err, EmulateError::Platform(m) if m == "no permission"));
+    // The state was left clean: there is nothing left to release.
     e.sink_mut().fail_post = None;
     e.release_all().unwrap();
     assert!(take(&mut e).is_empty());
 }
 
 #[test]
-fn refresh_relee_pantallas_y_preferencias() {
+fn refresh_rereads_screens_and_preferences() {
     let mut e = emulator();
     e.sink_mut().screens = vec![Rect::new(0, 0, 100, 100)];
     e.sink_mut().natural_scroll = true;
@@ -674,7 +674,7 @@ fn refresh_relee_pantallas_y_preferencias() {
 }
 
 #[test]
-fn data1_de_teclas_de_sistema() {
+fn data1_of_system_keys() {
     assert_eq!(system_key_data1(16, true, false), 0x10_0A00);
     assert_eq!(system_key_data1(16, false, false), 0x10_0B00);
     assert_eq!(system_key_data1(0, true, true), 0x0A01);
@@ -721,7 +721,7 @@ fn any_event() -> impl Strategy<Value = InputEvent> {
     ]
 }
 
-/// Algunas teclas del rango no existen en la Mac; eso no es un fallo aquí.
+/// Some keys in the range do not exist on the Mac; that is not a failure here.
 fn emit_lenient(e: &mut MacEmulator<RecordingSink>, ev: &InputEvent) {
     match e.emit(ev) {
         Ok(()) | Err(EmulateError::Unmapped(_)) => {}
@@ -731,7 +731,7 @@ fn emit_lenient(e: &mut MacEmulator<RecordingSink>, ev: &InputEvent) {
 
 proptest! {
     #[test]
-    fn tras_release_all_no_queda_nada_presionado(
+    fn after_release_all_nothing_is_left_pressed(
         events in prop::collection::vec(any_event(), 0..60),
     ) {
         let mut e = emulator();
@@ -740,7 +740,7 @@ proptest! {
         }
         e.release_all().unwrap();
         take(&mut e);
-        // Una tecla y un movimiento ya no llevan modificadores ni son arrastre.
+        // A key and a movement no longer carry modifiers nor are a drag.
         e.emit(&press(0x04)).unwrap();
         e.emit(&InputEvent::MotionRelative { dx: 1.0, dy: 0.0 }).unwrap();
         let out = take(&mut e);
@@ -751,7 +751,7 @@ proptest! {
     }
 
     #[test]
-    fn el_cursor_siempre_queda_en_una_pantalla(
+    fn the_cursor_always_ends_up_on_a_screen(
         events in prop::collection::vec(any_event(), 0..60),
     ) {
         let mut sink = RecordingSink::new();
@@ -768,7 +768,7 @@ proptest! {
     }
 
     #[test]
-    fn la_rueda_no_pierde_ni_inventa_muescas(
+    fn the_wheel_neither_loses_nor_invents_notches(
         deltas in prop::collection::vec((-400i32..400, -400i32..400), 0..40),
     ) {
         let mut e = emulator();
@@ -788,7 +788,7 @@ proptest! {
     }
 
     #[test]
-    fn los_flags_distinguen_cada_combinacion_de_modificadores(a: u8, b: u8) {
+    fn the_flags_tell_each_modifier_combination_apart(a: u8, b: u8) {
         let fa = modifier_flags(Modifiers::from_bits(a), false);
         let fb = modifier_flags(Modifiers::from_bits(b), false);
         prop_assert_eq!(fa == fb, a == b);

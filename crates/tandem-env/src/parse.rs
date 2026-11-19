@@ -1,14 +1,14 @@
-//! Lectura de la salida de cada herramienta. Funciones puras: se prueban con las salidas
-//! reales guardadas en `tests/fixtures/`.
+//! Reading the output of each tool. Pure functions: tested with the real outputs
+//! saved in `tests/fixtures/`.
 
 use serde_json::Value;
 use tandem_proto::{Gpu, GpuLoad};
 
-/// Texto de una salida: UTF-16LE si lo parece (`wsl.exe` sin `WSL_UTF8`), si no UTF-8 con
-/// los bytes inválidos reemplazados. Sin BOM y sin `\r`.
+/// Text of an output: UTF-16LE if it looks like it (`wsl.exe` without `WSL_UTF8`), otherwise UTF-8 with
+/// invalid bytes replaced. Without BOM and without `\r`.
 pub fn decode_text(bytes: &[u8]) -> String {
     let utf16 = bytes.starts_with(&[0xFF, 0xFE])
-        // ASCII en UTF-16LE: un cero en cada byte impar.
+        // ASCII in UTF-16LE: a zero in every odd byte.
         || (bytes.len() >= 4 && bytes.len().is_multiple_of(2) && bytes[1] == 0 && bytes[3] == 0);
     let text = if utf16 {
         let units: Vec<u16> = bytes
@@ -24,9 +24,9 @@ pub fn decode_text(bytes: &[u8]) -> String {
     text.trim_start_matches('\u{feff}').replace('\r', "")
 }
 
-/// La primera versión (`1.2`, `5.2.21`, `v24.1.0`) que aparece en el texto: solo los números
-/// y puntos del principio de la palabra (`2.51.0.windows.1` → `2.51.0`). `None` si no hay
-/// ninguna, como en los avisos de «no está instalado» de macOS y de la tienda de Windows.
+/// The first version (`1.2`, `5.2.21`, `v24.1.0`) that appears in the text: only the numbers
+/// and dots at the start of the word (`2.51.0.windows.1` → `2.51.0`). `None` if there is
+/// none, as in the "not installed" notices of macOS and the Windows store.
 pub fn version_token(text: &str) -> Option<String> {
     text.split(|c: char| c.is_whitespace() || c == ',' || c == '[' || c == ']')
         .map(|w| {
@@ -48,19 +48,19 @@ pub fn version_token(text: &str) -> Option<String> {
         .next()
 }
 
-/// Una distro de `wsl.exe -l -v`.
+/// A distro from `wsl.exe -l -v`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WslDistro {
     pub name: String,
     pub running: bool,
-    /// 1 o 2.
+    /// 1 or 2.
     pub wsl: u8,
     pub default: bool,
 }
 
-/// `wsl.exe -l -v`: la primera línea es el encabezado (traducido según el idioma de
-/// Windows); cada distro es `[*] NOMBRE ESTADO VERSIÓN`. Las distros internas de Docker
-/// Desktop no son entornos del usuario.
+/// `wsl.exe -l -v`: the first line is the header (translated according to the Windows
+/// language); each distro is `[*] NAME STATE VERSION`. Docker Desktop's internal distros
+/// are not user environments.
 pub fn wsl_list(text: &str) -> Vec<WslDistro> {
     text.lines()
         .filter(|l| !l.trim().is_empty())
@@ -87,7 +87,7 @@ pub fn wsl_list(text: &str) -> Vec<WslDistro> {
         .collect()
 }
 
-/// «Ubuntu 24.04» desde `/etc/os-release`: `NAME` y `VERSION_ID`, o `PRETTY_NAME`.
+/// "Ubuntu 24.04" from `/etc/os-release`: `NAME` and `VERSION_ID`, or `PRETTY_NAME`.
 pub fn os_release_name(text: &str) -> Option<String> {
     let field = |key: &str| {
         text.lines().find_map(|l| {
@@ -103,24 +103,24 @@ pub fn os_release_name(text: &str) -> Option<String> {
     }
 }
 
-/// Lo que dijo `docker version --format json`.
+/// What `docker version --format json` said.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DockerVersion {
     pub client: Option<String>,
-    /// `None` si el daemon no respondió.
+    /// `None` if the daemon did not respond.
     pub server: Option<DockerServer>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DockerServer {
-    /// «Docker Desktop», «Docker Engine - Community»...
+    /// "Docker Desktop", "Docker Engine - Community"...
     pub platform: Option<String>,
     pub version: Option<String>,
     pub arch: Option<String>,
 }
 
-/// `docker version --format json`. Con el daemon caído el CLI igual escribe la parte del
-/// cliente (y `"Server": null`) y sale con error.
+/// `docker version --format json`. With the daemon down the CLI still writes the
+/// client part (and `"Server": null`) and exits with an error.
 pub fn docker_version(text: &str) -> Option<DockerVersion> {
     let v: Value = serde_json::from_str(text.trim()).ok()?;
     let s = |v: &Value| v.as_str().map(str::to_owned).filter(|s| !s.is_empty());
@@ -141,7 +141,7 @@ pub fn docker_version(text: &str) -> Option<DockerVersion> {
     })
 }
 
-/// «Docker Desktop 4.92.0 (240144)» → «Docker Desktop».
+/// "Docker Desktop 4.92.0 (240144)" → "Docker Desktop".
 fn strip_build(name: &str) -> String {
     let words: Vec<&str> = name
         .split_whitespace()
@@ -154,17 +154,17 @@ fn strip_build(name: &str) -> String {
     }
 }
 
-/// `docker info --format '{{range $k, $v := .Runtimes}}{{$k}} {{end}}'`: la GPU de NVIDIA
-/// llega a los contenedores si está el runtime `nvidia`.
+/// `docker info --format '{{range $k, $v := .Runtimes}}{{$k}} {{end}}'`: the NVIDIA GPU
+/// reaches the containers if the `nvidia` runtime is there.
 pub fn docker_has_gpu(runtimes: &str) -> bool {
     runtimes.split_whitespace().any(|r| r == "nvidia")
 }
 
-/// Las columnas que se piden a `nvidia-smi`, en este orden.
+/// The columns requested from `nvidia-smi`, in this order.
 pub const NVIDIA_QUERY: &str =
     "--query-gpu=name,memory.total,driver_version,memory.used,utilization.gpu,temperature.gpu";
 
-/// Una GPU según `nvidia-smi` ([`NVIDIA_QUERY`], `--format=csv,noheader,nounits`).
+/// A GPU according to `nvidia-smi` ([`NVIDIA_QUERY`], `--format=csv,noheader,nounits`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NvidiaGpu {
     pub gpu: Gpu,
@@ -173,7 +173,7 @@ pub struct NvidiaGpu {
 
 const MIB: u64 = 1 << 20;
 
-/// Una línea por GPU; los valores que la tarjeta no da vienen como `[N/A]`.
+/// One line per GPU; values the card does not give come as `[N/A]`.
 pub fn nvidia_smi(text: &str) -> Vec<NvidiaGpu> {
     text.lines()
         .filter_map(|line| {
@@ -185,7 +185,7 @@ pub fn nvidia_smi(text: &str) -> Vec<NvidiaGpu> {
                 return None;
             }
             let number = |s: &str| s.parse::<f64>().ok().filter(|v| v.is_finite() && *v >= 0.0);
-            // `as` satura en los valores absurdos; el producto también tiene que saturar.
+            // `as` saturates on absurd values; the product has to saturate too.
             let total = number(total).map(|m| (m as u64).saturating_mul(MIB));
             Some(NvidiaGpu {
                 gpu: Gpu {
@@ -206,7 +206,7 @@ pub fn nvidia_smi(text: &str) -> Vec<NvidiaGpu> {
         .collect()
 }
 
-/// Porcentaje (0–100) a décimas, recortado.
+/// Percentage (0–100) to tenths, clamped.
 pub fn tenths(percent: f32) -> u16 {
     if percent.is_finite() {
         (percent.clamp(0.0, 100.0) * 10.0).round() as u16
@@ -216,8 +216,8 @@ pub fn tenths(percent: f32) -> u16 {
 }
 
 /// `Get-CimInstance Win32_VideoController | Select Name,AdapterRAM,DriverVersion |
-/// ConvertTo-Json`: un objeto si hay una sola, un arreglo si hay varias. `AdapterRAM` es de
-/// 32 bits: lo que llega a ~4 GiB está recortado y no se usa.
+/// ConvertTo-Json`: one object if there is a single one, an array if there are several. `AdapterRAM` is
+/// 32 bits: what reaches ~4 GiB is clipped and not used.
 pub fn cim_gpus(text: &str) -> Vec<Gpu> {
     let Ok(v) = serde_json::from_str::<Value>(text.trim()) else {
         return Vec::new();
@@ -231,7 +231,7 @@ pub fn cim_gpus(text: &str) -> Vec<Gpu> {
         .iter()
         .filter_map(|g| {
             let name = g.get("Name")?.as_str()?.trim().to_owned();
-            // Los adaptadores que no son una tarjeta (escritorio remoto, el básico de Windows).
+            // Adapters that are not a card (remote desktop, the basic Windows one).
             if name.is_empty() || name.starts_with("Microsoft ") {
                 return None;
             }
@@ -248,8 +248,8 @@ pub fn cim_gpus(text: &str) -> Vec<Gpu> {
         .collect()
 }
 
-/// `system_profiler SPDisplaysDataType -json`. En Apple Silicon la GPU comparte la RAM (sin
-/// `vram`); en una Mac Intel la discreta dice `spdisplays_vram` («4 GB»).
+/// `system_profiler SPDisplaysDataType -json`. On Apple Silicon the GPU shares RAM (no
+/// `vram`); on an Intel Mac the discrete one says `spdisplays_vram` ("4 GB").
 pub fn system_profiler_gpus(text: &str) -> Vec<Gpu> {
     let Ok(v) = serde_json::from_str::<Value>(text.trim()) else {
         return Vec::new();
@@ -279,7 +279,7 @@ pub fn system_profiler_gpus(text: &str) -> Vec<Gpu> {
         .collect()
 }
 
-/// «4 GB», «1536 MB» → bytes.
+/// "4 GB", "1536 MB" → bytes.
 fn size_text(s: &str) -> Option<u64> {
     let mut words = s.split_whitespace();
     let n: f64 = words.next()?.parse().ok()?;
@@ -291,9 +291,9 @@ fn size_text(s: &str) -> Option<u64> {
     Some((n * unit as f64) as u64)
 }
 
-/// `ioreg -r -d 1 -c IOAccelerator`: cada acelerador con su modelo y sus
-/// `PerformanceStatistics` (uso del dispositivo y memoria en uso). macOS no da la
-/// temperatura sin APIs privadas.
+/// `ioreg -r -d 1 -c IOAccelerator`: each accelerator with its model and its
+/// `PerformanceStatistics` (device utilization and memory in use). macOS does not give
+/// the temperature without private APIs.
 pub fn ioreg_gpus(text: &str) -> Vec<GpuLoad> {
     text.split("+-o ")
         .filter_map(|block| {
@@ -319,12 +319,12 @@ pub fn ioreg_gpus(text: &str) -> Vec<GpuLoad> {
 
 fn quoted_after(text: &str, key: &str) -> Option<String> {
     let rest = &text[text.find(key)? + key.len()..];
-    // Como texto (`"Apple M4 Pro"`) o como datos (`<"AMD Radeon Pro 5500M">`).
+    // As text (`"Apple M4 Pro"`) or as data (`<"AMD Radeon Pro 5500M">`).
     let rest = rest.strip_prefix('<').unwrap_or(rest).strip_prefix('"')?;
     Some(rest[..rest.find('"')?].to_owned())
 }
 
-/// Las secciones `@@clave resto` del guion de escaneo de un shell Unix ([`crate::scan`]).
+/// The `@@key rest` sections of a Unix shell's scan script ([`crate::scan`]).
 pub fn sections(text: &str) -> Vec<(String, String)> {
     let mut out: Vec<(String, String)> = Vec::new();
     for line in text.lines() {
@@ -391,7 +391,7 @@ mod tests {
             .flat_map(u16::to_le_bytes)
             .collect();
         assert_eq!(decode_text(&utf16), "  NAME\n* Ubuntu\n");
-        assert_eq!(decode_text(b"\xEF\xBB\xBFhola\r\n"), "hola\n");
+        assert_eq!(decode_text(b"\xEF\xBB\xBFhello\r\n"), "hello\n");
         assert_eq!(decode_text(b""), "");
     }
 
@@ -458,7 +458,7 @@ mod tests {
     }
 
     proptest! {
-        /// Números absurdos en las columnas no desbordan.
+        /// Absurd numbers in the columns do not overflow.
         #[test]
         fn nvidia_smi_never_overflows(total in any::<u64>(), used in any::<f64>(), temp in any::<f64>()) {
             let text = format!("GPU, {total}, 1.0, {used}, 50, {temp}");
@@ -469,7 +469,7 @@ mod tests {
 
     #[test]
     fn sections_split_the_scan_script_output() {
-        let text = "basura\n@@os\nNAME=x\n@@tool git\ngit version 2.43.0\n@@gpu\n";
+        let text = "garbage\n@@os\nNAME=x\n@@tool git\ngit version 2.43.0\n@@gpu\n";
         assert_eq!(
             sections(text),
             [

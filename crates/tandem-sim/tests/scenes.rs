@@ -1,8 +1,8 @@
-//! Escenarios de las escenas (T-100, D6): aplicar una de punta a punta con dos agentes, la
-//! vuelta atrás completa cuando falla un paso y encender primero la máquina que necesita.
+//! Scene scenarios (T-100, D6): applying one end to end with two agents, the full
+//! rollback when a step fails and powering on first the machine it needs.
 //!
-//! Los monitores de escena son el doble del paso abstracto ([`tandem_sim::SceneScreens`]);
-//! T-111 los conecta a los monitores reales.
+//! The scene monitors are the abstract step's double ([`tandem_sim::SceneScreens`]);
+//! T-111 connects them to the real monitors.
 
 use std::time::Duration;
 
@@ -12,7 +12,7 @@ use tandem_sim::{Desk, FaultAction, FaultPlan, Outcome, Power, TxnRun};
 
 const LIMIT: Duration = Duration::from_secs(600);
 
-/// Las dos prendidas, emparejadas, con las escenas por omisión en las dos.
+/// Both on, paired, with the default scenes on both.
 async fn paired(d: &Desk) {
     let run = d.power_on(Machine::B).await.unwrap();
     assert_eq!(run.outcome(), Some(Outcome::Committed), "{:#?}", run.events);
@@ -32,14 +32,14 @@ async fn has_defaults(d: &Desk, m: Machine) {
         }),
     )
     .await
-    .expect("las escenas por omisión no llegaron")
+    .expect("the default scenes did not arrive")
     .unwrap();
 }
 
 fn steps(run: &TxnRun) -> Vec<Step> {
     match run.events.first() {
         Some(TxnEvent::Started { steps, .. }) => steps.clone(),
-        other => panic!("sin inicio: {other:?}"),
+        other => panic!("no start: {other:?}"),
     }
 }
 
@@ -53,7 +53,7 @@ fn undone(run: &TxnRun) -> Vec<u32> {
         .collect()
 }
 
-/// Una escena nueva desde la UI de `on`.
+/// A new scene from the UI of `on`.
 fn add(d: &Desk, on: Machine, scene: Scene) {
     let reply = d.agent(on).handle(UiCommand::EditDesk {
         patch: DeskPatch::AddScene(scene),
@@ -61,11 +61,11 @@ fn add(d: &Desk, on: Machine, scene: Scene) {
     assert!(matches!(reply, Reply::Desk(_)), "{reply:?}");
 }
 
-/// Al emparejar aparecen «Trabajo», «Solo A» y «Solo B». Con la otra apagada, aplicar
-/// «Trabajo» (las dos, con acomodo) la enciende primero y después acomoda: queda como la
-/// escena activa en las dos.
+/// On pairing, "Trabajo", "Solo A" and "Solo B" appear. With the other off, applying
+/// "Trabajo" (both, with arrangement) powers it on first and then arranges: it stays as the
+/// active scene on both.
 #[tokio::test(start_paused = true)]
-async fn trabajo_con_la_otra_apagada_la_enciende_primero() {
+async fn work_with_the_other_off_powers_it_on_first() {
     let d = Desk::new().await.unwrap();
     paired(&d).await;
     let names: Vec<String> = d.mac.desk().scenes.iter().map(|s| s.name.clone()).collect();
@@ -106,21 +106,21 @@ async fn trabajo_con_la_otra_apagada_la_enciende_primero() {
     assert_eq!(pc.scene.as_deref(), Some("trabajo"));
     d.check().await.unwrap();
 
-    // Aplicarla otra vez no tiene nada que hacer, y sigue activa.
+    // Applying it again has nothing to do, and it stays active.
     let again = d.apply_scene(Machine::A, "trabajo").await.unwrap();
     assert_eq!(again.outcome(), Some(Outcome::Committed));
     assert!(steps(&again).is_empty(), "{:?}", steps(&again));
 
-    // Se apaga la que «Trabajo» necesita: deja de ser la activa.
+    // The one "Trabajo" needs is powered off: it stops being the active one.
     d.shutdown_pc().await.unwrap();
     d.settle().await;
     assert_eq!(d.mac.state().scene, None);
 }
 
-/// «Solo B» pedido desde B con A apagada: también se enciende primero (el espejo).
+/// "Solo B" requested from B with A off: it is also powered on first (the mirror).
 #[tokio::test(start_paused = true)]
-async fn solo_la_otra_desde_la_pc() {
-    let d = Desk::builder().principal(Machine::B).build().await.unwrap();
+async fn only_the_other_from_the_pc() {
+    let d = Desk::builder().primary(Machine::B).build().await.unwrap();
     add(
         &d,
         Machine::B,
@@ -141,11 +141,11 @@ async fn solo_la_otra_desde_la_pc() {
     assert_eq!(d.pc.state().scene.as_deref(), Some("solo-mac"));
 }
 
-/// Una escena con dos monitores y acomodo: falla el segundo monitor → el primero vuelve a
-/// lo que mostraba, el acomodo y la geometría no se tocan y la escena activa sigue siendo la
-/// de antes. Después, con el monitor sano, se aplica entera.
+/// A scene with two monitors and arrangement: the second monitor fails → the first goes back to
+/// what it showed, the arrangement and the geometry are not touched and the active scene stays
+/// the previous one. Then, with the healthy monitor, it is applied whole.
 #[tokio::test(start_paused = true)]
-async fn falla_un_monitor_y_la_escena_se_deshace_entera() {
+async fn a_monitor_fails_and_the_whole_scene_rolls_back() {
     let d = Desk::builder()
         .scene_monitors(&[("34", Machine::A), ("27", Machine::A)])
         .build()
@@ -163,11 +163,11 @@ async fn falla_un_monitor_y_la_escena_se_deshace_entera() {
             icon: "play".into(),
             monitors: vec![("34".into(), Machine::B), ("27".into(), Machine::B)],
             layout: Some(up),
-            ..Scene::new("", "Juego")
+            ..Scene::new("", "Game")
         },
     );
-    let solo = d.apply_scene(Machine::A, "solo-a").await.unwrap();
-    assert_eq!(solo.outcome(), Some(Outcome::Committed));
+    let only_a = d.apply_scene(Machine::A, "solo-a").await.unwrap();
+    assert_eq!(only_a.outcome(), Some(Outcome::Committed));
     let before = d.scene_screens().shows();
     let desk_before = d.mac.desk().arrangement;
 
@@ -177,14 +177,18 @@ async fn falla_un_monitor_y_la_escena_se_deshace_entera() {
             monitor: "27".into(),
             machine: Machine::B,
         },
-        FaultAction::Fail("sin veredicto".into()),
+        FaultAction::Fail("no verdict".into()),
     ));
-    let run = d.apply_scene(Machine::A, "juego").await.unwrap();
+    let run = d.apply_scene(Machine::A, "game").await.unwrap();
     assert_eq!(run.outcome(), Some(Outcome::Failed), "{:#?}", run.events);
     assert_eq!(run.failure().map(|f| f.0), Some(1));
-    assert!(run.failure().unwrap().1.contains("sin veredicto"));
+    assert!(run.failure().unwrap().1.contains("no verdict"));
     assert_eq!(undone(&run), [0]);
-    assert_eq!(d.scene_screens().shows(), before, "el 34 volvió a la Mac");
+    assert_eq!(
+        d.scene_screens().shows(),
+        before,
+        "the 34 went back to the Mac"
+    );
     assert_eq!(
         d.scene_screens().log(),
         [
@@ -197,17 +201,17 @@ async fn falla_un_monitor_y_la_escena_se_deshace_entera() {
     assert_eq!(d.mac.state().scene.as_deref(), Some("solo-a"));
     d.check().await.unwrap();
 
-    // Sin el fallo, la misma escena se aplica entera y llega a la otra.
-    let run = d.apply_scene(Machine::A, "juego").await.unwrap();
+    // Without the fault, the same scene is applied whole and it reaches the other side.
+    let run = d.apply_scene(Machine::A, "game").await.unwrap();
     assert_eq!(run.outcome(), Some(Outcome::Committed), "{:#?}", run.events);
     assert!(d.scene_screens().shows().values().all(|&m| m == Machine::B));
     assert_eq!(d.mac.desk().arrangement, Some(up));
-    assert_eq!(d.pc_agrees().await.unwrap().scene.as_deref(), Some("juego"));
+    assert_eq!(d.pc_agrees().await.unwrap().scene.as_deref(), Some("game"));
 }
 
-/// Si falla la geometría (el último paso), también vuelven los monitores y el acomodo.
+/// If the geometry fails (the last step), the arrangement and monitors also go back.
 #[tokio::test(start_paused = true)]
-async fn falla_la_geometria_y_vuelven_monitores_y_acomodo() {
+async fn geometry_fails_and_monitors_and_arrangement_roll_back() {
     let d = Desk::builder()
         .scene_monitors(&[("34", Machine::A)])
         .build()
@@ -224,21 +228,21 @@ async fn falla_la_geometria_y_vuelven_monitores_y_acomodo() {
         Scene {
             monitors: vec![("34".into(), Machine::B)],
             layout: Some(left_start),
-            ..Scene::new("pc", "PC grande")
+            ..Scene::new("pc", "Big PC")
         },
     );
     let arrangement = d.mac.desk().arrangement;
     d.arm(FaultPlan::new().on(
         Machine::A,
         Step::Geometry,
-        FaultAction::Fail("el motor no respondió".into()),
+        FaultAction::Fail("the engine did not respond".into()),
     ));
     let run = d.apply_scene(Machine::A, "pc").await.unwrap();
     assert_eq!(run.outcome(), Some(Outcome::Failed), "{:#?}", run.events);
     assert_eq!(undone(&run), [1, 0]);
     assert_eq!(d.scene_screens().shows()["34"], Machine::A);
     assert_eq!(d.mac.desk().arrangement, arrangement);
-    // El acomodo también volvió en la otra máquina.
+    // The arrangement also went back on the other machine.
     let mut pc = d.pc.subscribe_desk();
     tokio::time::timeout(LIMIT, pc.wait_for(|p| p.arrangement == arrangement))
         .await
@@ -247,31 +251,31 @@ async fn falla_la_geometria_y_vuelven_monitores_y_acomodo() {
     assert_eq!(d.mac.state().scene, None);
 }
 
-/// Una escena que no existe, o con un monitor que no se sabe controlar, no cambia nada.
+/// A scene that does not exist, or with a monitor that cannot be controlled, changes nothing.
 #[tokio::test(start_paused = true)]
-async fn una_escena_imposible_no_toca_nada() {
+async fn an_impossible_scene_touches_nothing() {
     let d = Desk::new().await.unwrap();
     paired(&d).await;
-    let Reply::Rejected(why) = d.mac.handle(UiCommand::ApplyScene { id: "nada".into() }) else {
-        panic!("se aceptó una escena que no existe");
+    let Reply::Rejected(why) = d.mac.handle(UiCommand::ApplyScene { id: "none".into() }) else {
+        panic!("a scene that does not exist was accepted");
     };
     assert!(why.contains("does not exist"), "{why}");
-    // Un monitor que no se ve no entra en una escena (T-111: el editor lo rechaza).
+    // A monitor that is not seen does not go into a scene (T-111: the editor rejects it).
     let reply = d.mac.handle(UiCommand::EditDesk {
         patch: DeskPatch::AddScene(Scene {
-            monitors: vec![("fantasma".into(), Machine::B)],
-            ..Scene::new("f", "Fantasma")
+            monitors: vec![("ghost".into(), Machine::B)],
+            ..Scene::new("f", "Ghost")
         }),
     });
     let Reply::Rejected(why) = reply else {
-        panic!("se aceptó un monitor que no existe: {reply:?}");
+        panic!("a monitor that does not exist was accepted: {reply:?}");
     };
-    assert!(why.contains("fantasma"), "{why}");
+    assert!(why.contains("ghost"), "{why}");
     assert!(d.mac.desk().scenes.iter().all(|s| s.id != "f"));
     assert!(d.scene_screens().log().is_empty());
 }
 
-/// Espera a que el puesto de `m` cumpla `pred`.
+/// Waits for `m`'s desk to satisfy `pred`.
 async fn desk_until(d: &Desk, m: Machine, what: &str, pred: impl Fn(&tandem_core::Desk) -> bool) {
     let mut desk = d.agent(m).subscribe_desk();
     tokio::time::timeout(LIMIT, desk.wait_for(|d| pred(d)))
@@ -280,10 +284,10 @@ async fn desk_until(d: &Desk, m: Machine, what: &str, pred: impl Fn(&tandem_core
         .unwrap();
 }
 
-/// Revisión de #82 (D4/D5): una escena creada en A llega a B; editada en B llega a A; B borra
-/// la escena activa y las dos se quedan sin ella, también como escena activa.
+/// Review of #82 (D4/D5): a scene created on A reaches B; edited on B it reaches A; B deletes
+/// the active scene and both are left without it, also as the active scene.
 #[tokio::test(start_paused = true)]
-async fn las_escenas_se_crean_editan_y_borran_en_las_dos() {
+async fn scenes_are_created_edited_and_deleted_on_both() {
     let d = Desk::new().await.unwrap();
     paired(&d).await;
     add(
@@ -292,42 +296,42 @@ async fn las_escenas_se_crean_editan_y_borran_en_las_dos() {
         Scene {
             require_on: Some(Machine::B),
             shortcut: vec!["ControlLeft".into(), "AltLeft".into(), "Digit4".into()],
-            ..Scene::new("", "Juego")
+            ..Scene::new("", "Game")
         },
     );
-    let juego = d.mac.desk().scenes[3].clone();
-    assert_eq!(juego.id, "juego");
-    desk_until(&d, Machine::B, "la escena nueva", |p| {
-        p.scenes.contains(&juego)
+    let game = d.mac.desk().scenes[3].clone();
+    assert_eq!(game.id, "game");
+    desk_until(&d, Machine::B, "the new scene", |p| {
+        p.scenes.contains(&game)
     })
     .await;
 
     let edited = Scene {
         icon: "play".into(),
-        name: "Juego en la PC".into(),
-        ..juego.clone()
+        name: "Game on the PC".into(),
+        ..game.clone()
     };
     let reply = d.pc.handle(UiCommand::EditDesk {
         patch: DeskPatch::EditScene(edited.clone()),
     });
     assert!(matches!(reply, Reply::Desk(_)), "{reply:?}");
-    desk_until(&d, Machine::A, "la escena editada", |p| {
+    desk_until(&d, Machine::A, "the edited scene", |p| {
         p.scenes.contains(&edited)
     })
     .await;
 
-    // Activa en las dos.
-    let run = d.apply_scene(Machine::A, "juego").await.unwrap();
+    // Active on both.
+    let run = d.apply_scene(Machine::A, "game").await.unwrap();
     assert_eq!(run.outcome(), Some(Outcome::Committed), "{:#?}", run.events);
-    assert_eq!(d.pc_agrees().await.unwrap().scene.as_deref(), Some("juego"));
+    assert_eq!(d.pc_agrees().await.unwrap().scene.as_deref(), Some("game"));
 
-    // B la borra: desaparece de las dos y ninguna la tiene como activa.
+    // B deletes it: it disappears from both and neither has it as the active one.
     let reply = d.pc.handle(UiCommand::EditDesk {
-        patch: DeskPatch::DeleteScene { id: "juego".into() },
+        patch: DeskPatch::DeleteScene { id: "game".into() },
     });
     assert!(matches!(reply, Reply::Desk(_)), "{reply:?}");
-    desk_until(&d, Machine::A, "la escena borrada", |p| {
-        p.scenes.iter().all(|s| s.id != "juego")
+    desk_until(&d, Machine::A, "the scene deleted", |p| {
+        p.scenes.iter().all(|s| s.id != "game")
     })
     .await;
     assert_eq!(d.pc.state().scene, None);
@@ -339,57 +343,57 @@ async fn las_escenas_se_crean_editan_y_borran_en_las_dos() {
     assert_eq!(d.mac.desk(), d.pc.desk());
 }
 
-/// T-129: el atajo de una escena y el de bloqueo se editan desde cualquiera de las dos y llegan
-/// a la otra por el puesto; un choque (con el bloqueo o con otra escena) se rechaza sin tocar
-/// a ninguna.
+/// T-129: a scene's shortcut and the lock one are edited from either machine and reach
+/// the other through the desk; a clash (with the lock or with another scene) is rejected without touching
+/// either.
 #[tokio::test(start_paused = true)]
-async fn los_atajos_se_editan_en_una_y_llegan_a_la_otra() {
+async fn shortcuts_are_edited_on_one_and_reach_the_other() {
     let d = Desk::new().await.unwrap();
     paired(&d).await;
     let trabajo = d.mac.desk().scenes[0].clone();
     assert_eq!(trabajo.id, "trabajo");
 
-    // El atajo de una escena, editado en A, llega a B.
-    let nuevo = vec![
+    // A scene's shortcut, edited on A, reaches B.
+    let new_keys = vec![
         "ControlLeft".to_owned(),
         "AltLeft".to_owned(),
         "Digit7".to_owned(),
     ];
     let edited = Scene {
-        shortcut: nuevo.clone(),
+        shortcut: new_keys.clone(),
         ..trabajo.clone()
     };
     let reply = d.mac.handle(UiCommand::EditDesk {
         patch: DeskPatch::EditScene(edited.clone()),
     });
     assert!(matches!(reply, Reply::Desk(_)), "{reply:?}");
-    desk_until(&d, Machine::B, "el atajo de la escena", |p| {
+    desk_until(&d, Machine::B, "the scene shortcut", |p| {
         p.scenes.contains(&edited)
     })
     .await;
 
-    // El de bloqueo, editado en B, llega a A.
+    // The lock one, edited on B, reaches A.
     let lock = vec!["ControlLeft".to_owned(), "KeyL".to_owned()];
     let reply = d.pc.handle(UiCommand::EditDesk {
         patch: DeskPatch::Shortcuts(tandem_core::Shortcuts { lock: lock.clone() }),
     });
     assert!(matches!(reply, Reply::Desk(_)), "{reply:?}");
-    desk_until(&d, Machine::A, "el atajo de bloqueo", |p| {
+    desk_until(&d, Machine::A, "the lock shortcut", |p| {
         p.shortcuts.lock == lock
     })
     .await;
 
-    // Choques: el bloqueo con el de una escena, y una escena con el bloqueo.
+    // Clashes: the lock with a scene's, and a scene with the lock.
     let before = d.mac.desk();
     let reply = d.mac.handle(UiCommand::EditDesk {
-        patch: DeskPatch::Shortcuts(tandem_core::Shortcuts { lock: nuevo }),
+        patch: DeskPatch::Shortcuts(tandem_core::Shortcuts { lock: new_keys }),
     });
     assert!(!matches!(reply, Reply::Desk(_)), "{reply:?}");
-    let otra = d.mac.desk().scenes[1].clone();
+    let other_scene = d.mac.desk().scenes[1].clone();
     let reply = d.mac.handle(UiCommand::EditDesk {
         patch: DeskPatch::EditScene(Scene {
             shortcut: lock,
-            ..otra
+            ..other_scene
         }),
     });
     assert!(!matches!(reply, Reply::Desk(_)), "{reply:?}");

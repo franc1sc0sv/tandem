@@ -16,16 +16,16 @@ use super::{ALPN, PAIRING_ALPN, TransportError};
 use crate::identity::{Identity, PublicKey, TLS_SERVER_NAME};
 use crate::qos::Qos;
 
-/// Endpoint QUIC de un agente: escucha y también abre conexiones, con el
-/// mismo certificado y la misma confianza en los dos papeles.
+/// QUIC endpoint of an agent: it listens and also opens connections, with the
+/// same certificate and the same trust in both roles.
 pub struct Endpoint {
     inner: quinn::Endpoint,
 }
 
 impl Endpoint {
-    /// Abre el socket UDP en `addr` (puerto 0 = cualquiera libre).
+    /// Opens the UDP socket on `addr` (port 0 = any free one).
     ///
-    /// Tiene que llamarse dentro de un runtime de tokio.
+    /// It has to be called inside a tokio runtime.
     pub fn bind(
         addr: SocketAddr,
         identity: &Identity,
@@ -34,11 +34,11 @@ impl Endpoint {
         Self::bind_with(addr, identity, trust, ALPN)
     }
 
-    /// Endpoint solo para emparejarse: acepta cualquier llave Ed25519 (el par todavía
-    /// no es de confianza) pero exige que la otra punta firme el handshake con ella,
-    /// así [`Connection::peer`] es la llave real del otro lado. Usa otro ALPN
-    /// ([`PAIRING_ALPN`]): no puede hablar con un endpoint normal ni al revés, y lo
-    /// único que pasa por él es el emparejamiento.
+    /// Endpoint only for pairing: accepts any Ed25519 key (the peer is not yet
+    /// trusted) but requires the other end to sign the handshake with it,
+    /// so [`Connection::peer`] is the real key of the other side. It uses another ALPN
+    /// ([`PAIRING_ALPN`]): it cannot talk to a normal endpoint or vice versa, and the
+    /// only thing that passes through it is pairing.
     pub fn bind_pairing(addr: SocketAddr, identity: &Identity) -> Result<Self, TransportError> {
         Self::bind_with(addr, identity, Arc::new(AnyKey), PAIRING_ALPN)
     }
@@ -68,18 +68,18 @@ impl Endpoint {
         self.inner.local_addr().map_err(TransportError::Bind)
     }
 
-    /// Conecta con el agente en `addr`. Falla si su llave no es de confianza.
+    /// Connects with the agent at `addr`. Fails if its key is not trusted.
     ///
-    /// Si es el otro lado el que no confía en nosotros, TLS 1.3 puede dar el
-    /// handshake por terminado aquí antes de que el servidor lo rechace: el
-    /// rechazo llega como error en la primera operación de la conexión.
+    /// If it is the other side that does not trust us, TLS 1.3 may consider the
+    /// handshake finished here before the server rejects it: the
+    /// rejection arrives as an error on the first operation of the connection.
     pub async fn connect(&self, addr: SocketAddr) -> Result<Connection, TransportError> {
         let conn = self.inner.connect(addr, TLS_SERVER_NAME)?.await?;
         Connection::new(conn)
     }
 
-    /// Espera la siguiente conexión entrante; `None` si el endpoint se cerró.
-    /// Un par no emparejado sale como `Some(Err(..))`.
+    /// Waits for the next incoming connection; `None` if the endpoint closed.
+    /// An unpaired peer comes out as `Some(Err(..))`.
     pub async fn accept(&self) -> Option<Result<Connection, TransportError>> {
         let incoming = self.inner.accept().await?;
         Some(match incoming.await {
@@ -88,12 +88,12 @@ impl Endpoint {
         })
     }
 
-    /// Cierra todas las conexiones y deja de aceptar.
+    /// Closes all the connections and stops accepting.
     pub fn close(&self) {
-        self.inner.close(0u32.into(), b"cierre");
+        self.inner.close(0u32.into(), b"closed");
     }
 
-    /// Espera a que los pares se enteren del cierre.
+    /// Waits for the peers to find out about the close.
     pub async fn wait_idle(&self) {
         self.inner.wait_idle().await;
     }
@@ -131,7 +131,7 @@ fn configs(
     trust: Arc<dyn PeerTrust>,
     alpn: &[u8],
 ) -> Result<(quinn::ServerConfig, quinn::ClientConfig), TransportError> {
-    // ring y no aws-lc-rs: ya lo usa rcgen y compila sin cmake en Windows.
+    // ring and not aws-lc-rs: rcgen already uses it and it builds without cmake on Windows.
     let provider = Arc::new(rustls::crypto::ring::default_provider());
     let tls = identity.tls_certificate()?;
     let cert = CertificateDer::from(tls.cert_der);
@@ -158,7 +158,7 @@ fn configs(
     Ok((server, client))
 }
 
-/// Conexión autenticada con un par de confianza. Las copias comparten la conexión y su
+/// Connection authenticated with a trusted peer. Copies share the connection and its
 /// [`Qos`].
 #[derive(Clone)]
 pub struct Connection {
@@ -181,9 +181,9 @@ impl Connection {
         })
     }
 
-    /// Prioridad, tope y pausa de los datos por esta conexión. Sin [`Self::with_qos`] es
-    /// uno propio, sin camino conocido (y sin tope).
-    /// Identifica esta conexión mientras viva (el `stable_id` de quinn).
+    /// Priority, cap and pause of the data over this connection. Without [`Self::with_qos`] it is
+    /// one of its own, with no known path (and no cap).
+    /// Identifies this connection while it lives (quinn's `stable_id`).
     pub fn id(&self) -> usize {
         self.inner.stable_id()
     }
@@ -192,16 +192,16 @@ impl Connection {
         &self.qos
     }
 
-    /// La misma conexión con el [`Qos`] de su camino, compartido con las demás conexiones
-    /// por ese camino ([`LinkQos`](crate::qos::LinkQos)): así el tope vale para todas
-    /// juntas. Se pone al abrirla o aceptarla, antes de clonarla.
+    /// The same connection with the [`Qos`] of its path, shared with the other connections
+    /// over that path ([`LinkQos`](crate::qos::LinkQos)): that way the cap holds for all
+    /// together. It is set on opening or accepting it, before cloning it.
     #[must_use]
     pub fn with_qos(mut self, qos: Qos) -> Self {
         self.qos = qos;
         self
     }
 
-    /// Llave del par, ya verificada contra la confianza local.
+    /// The peer's key, already verified against the local trust.
     pub fn peer(&self) -> PublicKey {
         self.peer
     }
@@ -210,27 +210,27 @@ impl Connection {
         self.inner.remote_address()
     }
 
-    /// Estimación de ida y vuelta de QUIC.
+    /// QUIC's round-trip estimate.
     pub fn rtt(&self) -> Duration {
         self.inner.rtt()
     }
 
-    /// Abre el stream de control (lo hace quien conectó) e intercambia los
-    /// [`Hello`]: devuelve el stream y el Hello del par.
+    /// Opens the control stream (done by whoever connected) and exchanges the
+    /// [`Hello`]s: returns the stream and the peer's Hello.
     pub async fn open_control(
         &self,
         hello: &Hello,
     ) -> Result<(ControlStream, Hello), TransportError> {
         let (send, recv) = self.inner.open_bi().await?;
         let mut stream = ControlStream::new(send, recv);
-        // QUIC no anuncia el stream hasta que lleva datos: el Hello va primero.
+        // QUIC does not announce the stream until it carries data: the Hello goes first.
         stream.send(hello).await?;
         let theirs = stream.recv_hello().await?;
         Ok((stream, theirs))
     }
 
-    /// Acepta el stream de control que abrió el par e intercambia los
-    /// [`Hello`].
+    /// Accepts the control stream the peer opened and exchanges the
+    /// [`Hello`]s.
     pub async fn accept_control(
         &self,
         hello: &Hello,
@@ -238,15 +238,15 @@ impl Connection {
         let (send, recv) = self.inner.accept_bi().await?;
         let mut stream = ControlStream::new(send, recv);
         let theirs = stream.recv_hello().await;
-        // El Hello propio sale aunque el del par sea de otra versión, para
-        // que el otro lado también vea el error tipado y no un corte mudo.
+        // The own Hello goes out even if the peer's is of another version, so
+        // that the other side also sees the typed error and not a silent cut.
         let sent = stream.send(hello).await;
         let theirs = theirs?;
         sent?;
         Ok((stream, theirs))
     }
 
-    /// Envía un datagrama no confiable (movimiento del mouse, por ejemplo).
+    /// Sends an unreliable datagram (mouse movement, for example).
     pub fn send_datagram(&self, data: Bytes) -> Result<(), TransportError> {
         Ok(self.inner.send_datagram(data)?)
     }
@@ -255,8 +255,8 @@ impl Connection {
         Ok(self.inner.read_datagram().await?)
     }
 
-    /// Tamaño máximo de datagrama que admite ahora la ruta; `None` si el par
-    /// no acepta datagramas.
+    /// Maximum datagram size the path admits now; `None` if the peer
+    /// does not accept datagrams.
     pub fn max_datagram_size(&self) -> Option<usize> {
         self.inner.max_datagram_size()
     }
@@ -265,7 +265,7 @@ impl Connection {
         self.inner.close(0u32.into(), reason.as_bytes());
     }
 
-    /// Espera al cierre de la conexión y devuelve el motivo.
+    /// Waits for the connection to close and returns the reason.
     pub async fn closed(&self) -> TransportError {
         self.inner.closed().await.into()
     }

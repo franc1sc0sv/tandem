@@ -1,24 +1,24 @@
-//! Inyección de entrada en macOS.
+//! Input injection on macOS.
 //!
-//! [`MacEmulator`] traduce cada [`InputEvent`] a los eventos de CoreGraphics que
-//! macOS espera de un teclado y un mouse reales ([`MacEvent`]) y los entrega a un
-//! [`MacSink`]. Toda la traducción es portable y se prueba en Linux con
-//! [`RecordingSink`]; el sink real, [`CgSink`], solo existe en macOS.
+//! [`MacEmulator`] translates each [`InputEvent`] into the CoreGraphics events that
+//! macOS expects from a real keyboard and mouse ([`MacEvent`]) and hands them to a
+//! [`MacSink`]. All the translation is portable and is tested on Linux with
+//! [`RecordingSink`]; the real sink, [`CgSink`], only exists on macOS.
 //!
-//! Lo que macOS necesita y no viene en el evento portable:
-//! - Los modificadores no son teclas: llegan como `kCGEventFlagsChanged`, y cada
-//!   tecla y cada clic lleva los flags vigentes (con el lado en los bits del
-//!   dispositivo, para que Option derecha se distinga de la izquierda).
-//! - Las flechas llevan `NumericPad|SecondaryFn`; las F, Inicio/Fin, RePág/AvPág y
-//!   Supr llevan `SecondaryFn`; el teclado numérico, `NumericPad`.
-//! - Repetición: una tecla presionada otra vez sin soltarla sale con
+//! What macOS needs and does not come in the portable event:
+//! - Modifiers are not keys: they arrive as `kCGEventFlagsChanged`, and every
+//!   key and every click carries the current flags (with the side in the device
+//!   bits, so that right Option is told apart from the left).
+//! - Arrows carry `NumericPad|SecondaryFn`; F keys, Home/End, PageUp/PageDown and
+//!   Delete carry `SecondaryFn`; the numeric keypad, `NumericPad`.
+//! - Repeat: a key pressed again without releasing it goes out with
 //!   `kCGKeyboardEventAutorepeat`.
-//! - Mouse: con un botón presionado, el movimiento es `*Dragged`; doble y triple
-//!   clic se marcan con `kCGMouseEventClickState`, contado aquí.
-//! - Scroll: la rueda va en líneas (acumulando fracciones de v120) y el trackpad en
-//!   píxeles, aplicando el "scroll natural" de la Mac.
-//! - Multimedia: macOS no las acepta como keycodes; van como `NSEvent`
-//!   `SystemDefined` subtipo 8 con el `NX_KEYTYPE_*`.
+//! - Mouse: with a button pressed, movement is `*Dragged`; double and triple
+//!   clicks are marked with `kCGMouseEventClickState`, counted here.
+//! - Scroll: the wheel goes in lines (accumulating v120 fractions) and the trackpad in
+//!   pixels, applying the Mac's "natural scrolling".
+//! - Media: macOS does not accept them as keycodes; they go as `NSEvent`
+//!   `SystemDefined` subtype 8 with the `NX_KEYTYPE_*`.
 
 #[cfg(target_os = "macos")]
 mod cg;
@@ -39,8 +39,8 @@ use crate::geometry::{Point, Rect};
 pub use cg::CgSink;
 pub use sink::RecordingSink;
 
-/// Bits de `CGEventFlags`. Los de abajo (`DEVICE_*`) son los `NX_DEVICE*` que
-/// macOS pone en los eventos reales para saber de qué lado está el modificador.
+/// Bits of `CGEventFlags`. The ones below (`DEVICE_*`) are the `NX_DEVICE*` that
+/// macOS puts on real events to know which side the modifier is on.
 pub mod flags {
     pub const ALPHA_SHIFT: u64 = 0x0001_0000;
     pub const SHIFT: u64 = 0x0002_0000;
@@ -49,7 +49,7 @@ pub mod flags {
     pub const COMMAND: u64 = 0x0010_0000;
     pub const NUMERIC_PAD: u64 = 0x0020_0000;
     pub const SECONDARY_FN: u64 = 0x0080_0000;
-    /// Lo llevan todos los eventos del HID; algunas apps lo esperan.
+    /// All HID events carry it; some apps expect it.
     pub const NON_COALESCED: u64 = 0x0000_0100;
 
     pub const DEVICE_LEFT_CONTROL: u64 = 0x0000_0001;
@@ -62,7 +62,7 @@ pub mod flags {
     pub const DEVICE_RIGHT_CONTROL: u64 = 0x0000_2000;
 }
 
-/// Tipo de evento de mouse de CoreGraphics (`kCGEvent*Mouse*`).
+/// CoreGraphics mouse event type (`kCGEvent*Mouse*`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MouseKind {
     Moved,
@@ -77,14 +77,14 @@ pub enum MouseKind {
     OtherDragged,
 }
 
-/// Unidad del scroll (`kCGScrollEventUnit*`).
+/// Scroll unit (`kCGScrollEventUnit*`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScrollUnit {
     Line,
     Pixel,
 }
 
-/// Un evento listo para `CGEventPost`, sin tipos de CoreGraphics.
+/// An event ready for `CGEventPost`, without CoreGraphics types.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum MacEvent {
     Key {
@@ -93,67 +93,67 @@ pub enum MacEvent {
         autorepeat: bool,
         flags: u64,
     },
-    /// Cambio de un modificador: `keycode` es la tecla y `flags` el estado nuevo.
+    /// Change of a modifier: `keycode` is the key and `flags` the new state.
     FlagsChanged { keycode: u16, flags: u64 },
     Mouse {
         kind: MouseKind,
-        /// Posición en puntos globales (origen arriba a la izquierda de la principal).
+        /// Position in global points (origin at the top left of the main screen).
         pos: Point,
-        /// `kCGMouseEventButtonNumber`: 0 izquierdo, 1 derecho, 2 medio, …
+        /// `kCGMouseEventButtonNumber`: 0 left, 1 right, 2 middle, …
         button: u32,
-        /// `kCGMouseEventClickState`: 1 simple, 2 doble, 3 triple.
+        /// `kCGMouseEventClickState`: 1 single, 2 double, 3 triple.
         click_state: i64,
-        /// `kCGMouseEventDeltaX/Y`, para juegos y apps que leen el delta.
+        /// `kCGMouseEventDeltaX/Y`, for games and apps that read the delta.
         delta: (f64, f64),
         flags: u64,
     },
-    /// `wheel1` vertical, `wheel2` horizontal, con el signo de CoreGraphics.
+    /// `wheel1` vertical, `wheel2` horizontal, with CoreGraphics's sign.
     Scroll {
         unit: ScrollUnit,
         wheel1: i32,
         wheel2: i32,
         flags: u64,
     },
-    /// Tecla multimedia: `NSEvent` `SystemDefined` subtipo 8.
+    /// Media key: `NSEvent` `SystemDefined` subtype 8.
     SystemKey { data1: i64, modifier_flags: u64 },
 }
 
 #[derive(Debug, Error)]
 pub enum EmulateError {
-    #[error("la tecla {0:?} no tiene keycode en macOS")]
+    #[error("key {0:?} has no keycode on macOS")]
     Unmapped(HidUsage),
-    #[error("no hay pantallas activas para poner el cursor")]
+    #[error("there are no active screens to place the cursor on")]
     NoScreens,
     #[error("CoreGraphics: {0}")]
     Platform(String),
 }
 
-/// Lo que el emulador necesita del sistema: publicar eventos y leer el cursor.
+/// What the emulator needs from the system: publish events and read the cursor.
 pub trait MacSink {
     fn post(&mut self, event: &MacEvent) -> Result<(), EmulateError>;
 
-    /// Posición real del cursor, en puntos globales.
+    /// Real position of the cursor, in global points.
     fn cursor(&mut self) -> Result<Point, EmulateError>;
 
-    /// Rectángulos de las pantallas activas, en puntos globales.
+    /// Rectangles of the active screens, in global points.
     fn screens(&mut self) -> Result<Vec<Rect>, EmulateError>;
 
-    /// Ventana del doble clic que el usuario configuró en la Mac.
+    /// Double-click window that the user configured on the Mac.
     fn double_click_interval(&mut self) -> Duration;
 
-    /// `true` si la Mac tiene el "scroll natural" activado.
+    /// `true` if the Mac has "natural scrolling" on.
     fn natural_scroll(&mut self) -> bool;
 }
 
-/// Distancia máxima, en puntos, entre clics para que cuenten como doble clic.
+/// Maximum distance, in points, between clicks for them to count as a double click.
 const CLICK_SLOP: f64 = 4.0;
 
-/// Una muesca de rueda en unidades v120.
+/// One wheel notch in v120 units.
 const V120: i32 = 120;
 
-/// Traduce eventos portables a eventos de macOS. Lleva el estado que macOS
-/// espera ver coherente: teclas y botones presionados, Bloq Mayús, posición del
-/// cursor, contador de clics y restos de scroll.
+/// Translates portable events into macOS events. It keeps the state macOS
+/// expects to see coherent: pressed keys and buttons, Caps Lock, cursor
+/// position, click counter and scroll remainders.
 #[derive(Debug)]
 pub struct MacEmulator<S: MacSink> {
     sink: S,
@@ -168,7 +168,7 @@ pub struct MacEmulator<S: MacSink> {
 }
 
 impl<S: MacSink> MacEmulator<S> {
-    /// Lee del sink las pantallas, el doble clic y el scroll natural.
+    /// Reads from the sink the screens, the double click and natural scrolling.
     pub fn new(mut sink: S) -> Result<Self, EmulateError> {
         let screens = sink.screens()?;
         let double_click = sink.double_click_interval();
@@ -194,8 +194,8 @@ impl<S: MacSink> MacEmulator<S> {
         &mut self.sink
     }
 
-    /// Vuelve a leer las pantallas y las preferencias; llamarlo cuando cambie la
-    /// configuración de pantallas.
+    /// Rereads the screens and preferences; call it when the screen
+    /// configuration changes.
     pub fn refresh(&mut self) -> Result<(), EmulateError> {
         self.screens = self.sink.screens()?;
         self.double_click = self.sink.double_click_interval();
@@ -203,21 +203,21 @@ impl<S: MacSink> MacEmulator<S> {
         Ok(())
     }
 
-    /// Inyecta un evento.
+    /// Injects an event.
     pub fn emit(&mut self, event: &InputEvent) -> Result<(), EmulateError> {
         self.emit_at(event, Instant::now())
     }
 
-    /// Suelta todo lo que esté presionado (al salir de la pantalla, al
-    /// desconectarse o por timeout), para que nada quede pegado en la Mac.
+    /// Releases everything that is pressed (on leaving the screen, on
+    /// disconnecting or on timeout), so that nothing is left stuck on the Mac.
     pub fn release_all(&mut self) -> Result<(), EmulateError> {
         let now = Instant::now();
         let mut first_err = None;
-        // Se sueltan de a uno, en el orden de `Pressed::release_all`, para que
-        // cada evento lleve los modificadores que siguen abajo en ese momento
-        // (soltar C con Cmd todavía presionado, como un teclado real).
+        // They are released one at a time, in the order of `Pressed::release_all`, so that
+        // each event carries the modifiers that are still down at that moment
+        // (releasing C with Cmd still pressed, like a real keyboard).
         for event in self.pressed.clone().release_all() {
-            // Se intenta soltar todo aunque una falle.
+            // It tries to release everything even if one fails.
             if let Err(e) = self.emit_at(&event, now) {
                 first_err.get_or_insert(e);
             }
@@ -228,8 +228,8 @@ impl<S: MacSink> MacEmulator<S> {
     fn emit_at(&mut self, event: &InputEvent, now: Instant) -> Result<(), EmulateError> {
         match *event {
             InputEvent::Key { usage, state } => {
-                // Validar antes de registrar: una tecla sin keycode no debe quedar
-                // como presionada para siempre.
+                // Validate before recording: a key without a keycode must not be left
+                // pressed forever.
                 if media_key(usage).is_none() && keymap::to_mac(usage).is_none() {
                     return Err(EmulateError::Unmapped(usage));
                 }
@@ -237,8 +237,8 @@ impl<S: MacSink> MacEmulator<S> {
                 self.key(usage, state, change)
             }
             InputEvent::Button { button, state } => {
-                // `Other(0)` y `Left` son el mismo botón: un solo nombre para que
-                // el conjunto de presionados y el arrastre no se confundan.
+                // `Other(0)` and `Left` are the same button: a single name so that
+                // the pressed set and the drag are not confused.
                 let button = normalize_button(button);
                 match self.pressed.record(&InputEvent::Button { button, state }) {
                     Change::Changed => self.button(button, state, now),
@@ -281,7 +281,7 @@ impl<S: MacSink> MacEmulator<S> {
             .0;
 
         if usage.modifier().is_some() {
-            // Un modificador mantenido no se repite en macOS.
+            // A held modifier does not repeat on macOS.
             if repeat {
                 return Ok(());
             }
@@ -289,7 +289,7 @@ impl<S: MacSink> MacEmulator<S> {
             return self.sink.post(&MacEvent::FlagsChanged { keycode, flags });
         }
         if usage == CAPS_LOCK {
-            // Bloq Mayús alterna al presionar; soltarla no cambia nada.
+            // Caps Lock toggles on press; releasing it changes nothing.
             if !down || repeat {
                 return Ok(());
             }
@@ -350,7 +350,7 @@ impl<S: MacSink> MacEmulator<S> {
         })
     }
 
-    /// Con un botón presionado el movimiento es un arrastre del botón más bajo.
+    /// With a button pressed the movement is a drag of the lowest button.
     fn drag_kind(&self) -> (MouseKind, u32) {
         let named = [
             Button::Left,
@@ -372,9 +372,9 @@ impl<S: MacSink> MacEmulator<S> {
     }
 
     fn scroll(&mut self, scroll: Scroll) -> Result<(), EmulateError> {
-        // Convención portable: y+ = rueda hacia adelante, x+ = derecha. En
-        // CoreGraphics sin scroll natural, adelante es wheel1 positivo y derecha
-        // es wheel2 negativo; con scroll natural los dos se invierten.
+        // Portable convention: y+ = wheel forward, x+ = right. In
+        // CoreGraphics without natural scrolling, forward is positive wheel1 and right
+        // is negative wheel2; with natural scrolling both are inverted.
         let sign = if self.natural_scroll { -1 } else { 1 };
         let (unit, dx, dy) = match scroll {
             Scroll::Wheel { dx_v120, dy_v120 } => {
@@ -401,8 +401,8 @@ impl<S: MacSink> MacEmulator<S> {
         })
     }
 
-    /// Deja los modificadores presionados iguales a `target`: suelta los que
-    /// sobran y presiona los que faltan.
+    /// Leaves the pressed modifiers equal to `target`: releases the ones
+    /// that are extra and presses the ones that are missing.
     fn sync_modifiers(&mut self, target: Modifiers, now: Instant) -> Result<(), EmulateError> {
         let current = self.pressed.modifiers();
         for key in ModifierKey::ALL {
@@ -420,7 +420,7 @@ impl<S: MacSink> MacEmulator<S> {
         Ok(())
     }
 
-    /// Flags vigentes: modificadores presionados, con su lado, y Bloq Mayús.
+    /// Current flags: pressed modifiers, with their side, and Caps Lock.
     fn flags(&self) -> u64 {
         modifier_flags(self.pressed.modifiers(), self.caps_lock)
     }
@@ -428,7 +428,7 @@ impl<S: MacSink> MacEmulator<S> {
 
 const CAPS_LOCK: HidUsage = HidUsage::key(0x39);
 
-/// `CGEventFlags` de un conjunto de modificadores.
+/// `CGEventFlags` of a set of modifiers.
 pub fn modifier_flags(mods: Modifiers, caps_lock: bool) -> u64 {
     use flags::*;
     let mut f = NON_COALESCED;
@@ -450,17 +450,17 @@ pub fn modifier_flags(mods: Modifiers, caps_lock: bool) -> u64 {
     f
 }
 
-/// Flags propios de la tecla, como los pone el teclado de una Mac.
+/// The key's own flags, as a Mac keyboard sets them.
 pub fn key_flags(keycode: u16) -> u64 {
     use flags::*;
     match keycode {
-        // Flechas: ← → ↓ ↑.
+        // Arrows: ← → ↓ ↑.
         0x7B..=0x7E => NUMERIC_PAD | SECONDARY_FN,
-        // F1–F20, Ayuda/Insert, Inicio, RePág, Supr, Fin, AvPág.
+        // F1–F20, Help/Insert, Home, PageUp, Delete, End, PageDown.
         0x7A | 0x78 | 0x63 | 0x76 | 0x60 | 0x61 | 0x62 | 0x64 | 0x65 | 0x6D | 0x67 | 0x6F
         | 0x69 | 0x6B | 0x71 | 0x6A | 0x40 | 0x4F | 0x50 | 0x5A | 0x72 | 0x73 | 0x74 | 0x75
         | 0x77 | 0x79 => SECONDARY_FN,
-        // Teclado numérico.
+        // Numeric keypad.
         0x41 | 0x43 | 0x45 | 0x47 | 0x4B | 0x4C | 0x4E | 0x51 | 0x52..=0x59 | 0x5B | 0x5C => {
             NUMERIC_PAD
         }
@@ -468,8 +468,8 @@ pub fn key_flags(keycode: u16) -> u64 {
     }
 }
 
-/// `NX_KEYTYPE_*` de una tecla multimedia, si lo es. Incluye el volumen de la
-/// página de teclado (0x7F–0x81): como keycode macOS lo ignora.
+/// `NX_KEYTYPE_*` of a media key, if it is one. It includes the volume of the
+/// keyboard page (0x7F–0x81): as a keycode macOS ignores it.
 pub fn media_key(usage: HidUsage) -> Option<u32> {
     let key = match (usage.page, usage.id) {
         (PAGE_CONSUMER, 0xE9) | (PAGE_KEYBOARD, 0x80) => 0, // NX_KEYTYPE_SOUND_UP
@@ -488,20 +488,20 @@ pub fn media_key(usage: HidUsage) -> Option<u32> {
     Some(key)
 }
 
-/// `data1` del `NSEvent` de una tecla multimedia: tipo en los 16 bits altos,
-/// 0xA (abajo) o 0xB (arriba) en el byte siguiente y la repetición en el bit 0.
+/// `data1` of a media key's `NSEvent`: type in the high 16 bits,
+/// 0xA (down) or 0xB (up) in the next byte and the repeat in bit 0.
 pub fn system_key_data1(key: u32, down: bool, repeat: bool) -> i64 {
     let state: i64 = if down { 0xA } else { 0xB };
     (i64::from(key) << 16) | (state << 8) | i64::from(repeat)
 }
 
-/// `modifierFlags` del `NSEvent` de una tecla multimedia.
+/// `modifierFlags` of a media key's `NSEvent`.
 pub fn system_key_modifier_flags(down: bool) -> u64 {
     if down { 0xA00 } else { 0xB00 }
 }
 
-/// Número de botón de CoreGraphics. Atrás y adelante son 3 y 4, como en un
-/// mouse USB en la Mac.
+/// CoreGraphics button number. Back and forward are 3 and 4, as on a
+/// USB mouse on the Mac.
 pub fn button_number(button: Button) -> u32 {
     match button {
         Button::Left => 0,
@@ -513,7 +513,7 @@ pub fn button_number(button: Button) -> u32 {
     }
 }
 
-/// `Other(n)` con el nombre propio del botón, si lo tiene.
+/// `Other(n)` with the button's own name, if it has one.
 fn normalize_button(button: Button) -> Button {
     match button {
         Button::Other(0) => Button::Left,
@@ -525,8 +525,8 @@ fn normalize_button(button: Button) -> Button {
     }
 }
 
-/// Lleva el punto a la pantalla activa más cercana, para que el cursor nunca
-/// quede fuera de las pantallas (macOS lo dejaría en un lugar raro).
+/// Takes the point to the nearest active screen, so that the cursor never
+/// ends up outside the screens (macOS would leave it somewhere odd).
 pub fn clamp_to_screens(screens: &[Rect], p: Point) -> Option<Point> {
     screens
         .iter()
@@ -538,20 +538,20 @@ fn dist2(a: Point, b: Point) -> f64 {
     (a.x - b.x).powi(2) + (a.y - b.y).powi(2)
 }
 
-/// Separa unidades v120 en líneas enteras y el resto, hacia cero.
+/// Splits v120 units into whole lines and the remainder, toward zero.
 fn split_v120(total: i32) -> (i32, i32) {
     (total % V120, total / V120)
 }
 
-/// Separa píxeles en un entero y el resto fraccionario, hacia cero.
+/// Splits pixels into an integer and the fractional remainder, toward zero.
 fn split_pixels(total: f64) -> (f64, i32) {
     let whole = total.trunc();
-    // `as` satura en los extremos, que es lo que queremos con valores absurdos.
+    // `as` saturates at the extremes, which is what we want with absurd values.
     (total - whole, whole as i32)
 }
 
-/// Cuenta clics seguidos del mismo botón, en el mismo lugar y dentro de la
-/// ventana del doble clic, como hace macOS con un mouse real.
+/// Counts consecutive clicks of the same button, in the same place and within the
+/// double-click window, as macOS does with a real mouse.
 #[derive(Debug, Default)]
 struct ClickCounter {
     last: Option<LastClick>,
@@ -586,7 +586,7 @@ impl ClickCounter {
         count
     }
 
-    /// El evento de soltar lleva la misma cuenta que el de presionar.
+    /// The release event carries the same count as the press.
     fn release(&self, button: Button) -> i64 {
         match self.last {
             Some(l) if l.button == button => l.count,

@@ -1,16 +1,16 @@
-//! Identidades y config de los agentes de prueba, en una carpeta temporal.
+//! Identities and config of the test agents, in a temporary folder.
 //!
-//! Las dos máquinas se emparejan sin ceremonia: cada una trae su semilla y la clave pública
-//! de la otra ya en su confianza. Las semillas son constantes de prueba, sin relación con
-//! las identidades reales del usuario, y el agente de prueba nunca ve el directorio de datos
-//! de la instalación real.
+//! The two machines pair without ceremony: each one brings its seed and the other's public
+//! key already in its trust. The seeds are test constants, unrelated to the user's real
+//! identities, and the test agent never sees the
+//! real installation's data directory.
 
 use std::path::{Path, PathBuf};
 
 use tandem_core::Machine;
 use tandem_link::identity::{Identity, TrustStore, TrustedPeer};
 
-/// Puerto UDP de los agentes de prueba: distinto del de la instalación real.
+/// UDP port of the test agents: different from the real installation's.
 pub const TEST_PORT: u16 = 47871;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -43,7 +43,7 @@ impl Role {
     }
 }
 
-/// `A` es la de clave pública menor (DECISIONS A1).
+/// `A` is the one with the lower public key (DECISIONS A1).
 pub fn machine_of(role: Role) -> Machine {
     let mine = Identity::from_seed(role.seed()).public_key();
     let theirs = Identity::from_seed(role.other().seed()).public_key();
@@ -61,8 +61,8 @@ pub struct Provisioned {
     pub data_dir: PathBuf,
 }
 
-/// Escribe `<root>/data` (identidad y confianza) y `<root>/tandem.toml`.
-/// `peer_addr` es `ip:puerto` de la otra máquina.
+/// Writes `<root>/data` (identity and trust) and `<root>/tandem.toml`.
+/// `peer_addr` is `ip:port` of the other machine.
 pub fn provision(
     root: &Path,
     role: Role,

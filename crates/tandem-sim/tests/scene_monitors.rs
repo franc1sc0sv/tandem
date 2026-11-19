@@ -1,8 +1,8 @@
-//! Escenas con monitores de verdad (T-111, D6, D13): dos agentes reales con los dobles de
-//! `monitor-ddc`. El paso de escena «que el 34" muestre B» es un cambio de entrada que hace el
-//! dueño (la PC, más rápida), con veredicto del firmware; la geometría saca la pantalla de la
-//! máquina que deja de verse; un veredicto fallido vuelve atrás los monitores ya cambiados; la
-//! escena activa sale de la entrada real; el editor solo acepta monitores compatibles.
+//! Scenes with real monitors (T-111, D6, D13): two real agents with the `monitor-ddc` doubles.
+//! The scene step "the 34" shows B" is an input switch done by the
+//! owner (the PC, faster), with the firmware's verdict; the geometry takes the screen off the
+//! machine that stops being seen; a failed verdict rolls back the monitors already switched; the
+//! active scene comes from the real input; the editor only accepts compatible monitors.
 
 use std::time::Duration;
 
@@ -22,9 +22,9 @@ fn ms(n: u64) -> Duration {
     Duration::from_millis(n)
 }
 
-/// El 34" y un 27" con el firmware propio (la PC por DP, más rápida; la Mac por HDMI, sin
-/// tipo de interfaz en su EDID) y uno de fábrica que solo ve la PC. Del 27" el EDID de la PC
-/// dice la entrada solo si `known27`.
+/// The 34" and a 27" with the own firmware (the PC over DP, faster; the Mac over HDMI, without an
+/// interface type in its EDID) and a factory one that only the PC sees. For the 27" the PC's EDID
+/// says the input only if `known27`.
 fn specs(switch27: SwitchBehavior, known27: bool) -> Vec<MonitorSpec> {
     let both = vec![(Machine::A, ms(30)), (Machine::B, ms(5))];
     let mut m27 = FakeMonitorConfig::new(Personality::Standard);
@@ -71,12 +71,12 @@ async fn scene_until(d: &Desk, m: Machine, scene: Option<&str>) {
     let mut state = d.agent(m).subscribe();
     tokio::time::timeout(LIMIT, state.wait_for(|s| s.scene.as_deref() == scene))
         .await
-        .unwrap_or_else(|_| panic!("{m}: la escena activa no llegó a {scene:?}"))
+        .unwrap_or_else(|_| panic!("{m}: the active scene did not reach {scene:?}"))
         .unwrap();
 }
 
-/// Las dos prendidas y emparejadas; la PC (dueña) presentó los monitores compatibles cuyas
-/// entradas se saben, y las dos reconocen «Trabajo» por la entrada real (todo en DP, la PC).
+/// Both on and paired; the PC (owner) presented the compatible monitors whose
+/// inputs are known, and both recognize "Trabajo" by the real input (all on DP, the PC).
 async fn paired(switch27: SwitchBehavior, known27: bool) -> Desk {
     let d = Desk::builder()
         .monitors(specs(switch27, known27))
@@ -87,7 +87,7 @@ async fn paired(switch27: SwitchBehavior, known27: bool) -> Desk {
     assert_eq!(run.outcome(), Some(Outcome::Committed), "{:#?}", run.events);
     let (m34, m27) = (id(&d, M34), id(&d, M27));
     for m in Machine::ALL {
-        desk_until(&d, m, "los monitores presentados", |p| {
+        desk_until(&d, m, "the monitors presented", |p| {
             p.cable(&m34).is_some() && p.cable(&m27).is_some() == known27 && p.scenes.len() == 3
         })
         .await;
@@ -97,9 +97,12 @@ async fn paired(switch27: SwitchBehavior, known27: bool) -> Desk {
     assert_eq!(
         (cable.a.input, cable.b.input),
         (Some(MonitorInput::Hdmi), Some(MonitorInput::DisplayPort)),
-        "la Mac va a la otra entrada"
+        "the Mac goes to the other input"
     );
-    assert!(desk.cable(&id(&d, FAB)).is_none(), "el de fábrica no entra");
+    assert!(
+        desk.cable(&id(&d, FAB)).is_none(),
+        "the factory one does not come in"
+    );
     let n = if known27 { 2 } else { 1 };
     let scene = |sid: &str| desk.scenes.iter().find(|s| s.id == sid).unwrap().clone();
     assert_eq!(scene("solo-a").monitors.len(), n);
@@ -122,8 +125,8 @@ async fn paired(switch27: SwitchBehavior, known27: bool) -> Desk {
     d
 }
 
-/// Pantallas declaradas: la Mac con la suya y el 34"; la PC solo con el 34". El cableado dice
-/// qué pantalla de cada una es el 34".
+/// Declared screens: the Mac with its own and the 34"; the PC only with the 34". The wiring says
+/// which screen of each one is the 34".
 fn declare_screens(d: &Desk) {
     let screen = |id: &str, x: i32, width: u32, height: u32| ScreenSpec {
         machine: Machine::A,
@@ -154,8 +157,8 @@ fn declare_screens(d: &Desk) {
     d.mac.edit_desk(DeskPatch::Cable(cable)).unwrap();
 }
 
-/// Las pantallas de A y de B en la geometría de `on`, con lo que muestra cada monitor según
-/// lo que leyó (lo mismo que calcula su motor de entrada).
+/// A's and B's screens in `on`'s geometry, with what each monitor shows according to
+/// what it read (the same as its input engine computes).
 fn geometry(d: &Desk, on: Machine) -> (Vec<String>, Vec<String>) {
     let agent = d.agent(on);
     let desk = agent.desk();
@@ -172,7 +175,7 @@ async fn geometry_until(d: &Desk, on: Machine, a: &[&str], b: &[&str]) {
         a.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>(),
         b.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>(),
     );
-    // Cambia con el puesto, el estado y los monitores: se mira cada tanto (reloj pausado).
+    // It changes with the desk, the state and the monitors: it is looked at every so often (paused clock).
     tokio::time::timeout(LIMIT, async {
         while geometry(d, on) != want {
             tokio::time::sleep(ms(100)).await;
@@ -181,7 +184,7 @@ async fn geometry_until(d: &Desk, on: Machine, a: &[&str], b: &[&str]) {
     .await
     .unwrap_or_else(|_| {
         panic!(
-            "{on}: geometría {:?}, se esperaba {want:?}",
+            "{on}: geometry {:?}, {want:?} was expected",
             geometry(d, on)
         )
     });
@@ -190,7 +193,7 @@ async fn geometry_until(d: &Desk, on: Machine, a: &[&str], b: &[&str]) {
 fn steps(run: &TxnRun) -> Vec<Step> {
     match run.events.first() {
         Some(TxnEvent::Started { steps, .. }) => steps.clone(),
-        other => panic!("sin inicio: {other:?}"),
+        other => panic!("no start: {other:?}"),
     }
 }
 
@@ -211,7 +214,7 @@ fn show(monitor: &str, machine: Machine) -> Step {
     }
 }
 
-/// Los `Set 0x60` al monitor `i`: quién y a qué entrada.
+/// The `Set 0x60`s to monitor `i`: who and to which input.
 fn input_sets(d: &Desk, i: usize) -> Vec<(Machine, u16)> {
     let sim = d.monitors().unwrap();
     sim.sets_to(sim.handle(i))
@@ -226,11 +229,11 @@ fn on_screen(d: &Desk, i: usize) -> Option<Input> {
     sim.fake().screen_input(sim.handle(i))
 }
 
-/// Aplicar «Solo A» y después «Solo B» desde la Mac: cada monitor lo cambia la PC (su dueña)
-/// con el veredicto del firmware, y la geometría de las dos máquinas saca el 34" de la que
-/// deja de verse en él.
+/// Apply "Solo A" and then "Solo B" from the Mac: each monitor is switched by the PC (its owner)
+/// with the firmware's verdict, and both machines' geometry takes the 34" off the one
+/// that stops being seen on it.
 #[tokio::test(start_paused = true)]
-async fn solo_b_cambia_los_monitores_y_la_geometria() {
+async fn only_b_switches_the_monitors_and_the_geometry() {
     let d = paired(SwitchBehavior::Done, true).await;
     let (m34, m27) = (id(&d, M34), id(&d, M27));
     declare_screens(&d);
@@ -276,7 +279,7 @@ async fn solo_b_cambia_los_monitores_y_la_geometria() {
             (Machine::B, Input::Hdmi.vcp()),
             (Machine::B, Input::DisplayPort.vcp())
         ],
-        "solo la dueña escribe"
+        "only the owner writes"
     );
     assert_eq!(
         geometry(&d, Machine::A),
@@ -288,10 +291,10 @@ async fn solo_b_cambia_los_monitores_y_la_geometria() {
     d.check().await.unwrap();
 }
 
-/// El 27" da veredicto fallido: el 34", que ya había cambiado, vuelve a la PC; la escena
-/// activa sigue siendo la de antes y la geometría no se movió.
+/// The 27" gives a failed verdict: the 34", which had already switched, goes back to the PC; the
+/// active scene stays the previous one and the geometry did not move.
 #[tokio::test(start_paused = true)]
-async fn falla_un_veredicto_y_vuelven_los_monitores_ya_cambiados() {
+async fn a_verdict_fails_and_the_already_switched_monitors_roll_back() {
     let d = paired(SwitchBehavior::Fail, true).await;
     declare_screens(&d);
     d.monitors().unwrap().clear_ops();
@@ -303,9 +306,13 @@ async fn falla_un_veredicto_y_vuelven_los_monitores_ya_cambiados() {
     assert_eq!(
         on_screen(&d, M34),
         Some(Input::DisplayPort),
-        "volvió a la PC"
+        "went back to the PC"
     );
-    assert_eq!(on_screen(&d, M27), Some(Input::DisplayPort), "nunca cambió");
+    assert_eq!(
+        on_screen(&d, M27),
+        Some(Input::DisplayPort),
+        "never switched"
+    );
     assert_eq!(
         input_sets(&d, M34),
         [
@@ -320,10 +327,10 @@ async fn falla_un_veredicto_y_vuelven_los_monitores_ya_cambiados() {
     }
 }
 
-/// El 27" cambia pero nunca da veredicto: pudo haber cambiado, así que vuelve él también, y
-/// después el 34".
+/// The 27" switches but never gives a verdict: it might have switched, so it goes back too, and
+/// then the 34".
 #[tokio::test(start_paused = true)]
-async fn sin_veredicto_vuelve_tambien_el_monitor_que_fallo() {
+async fn without_a_verdict_the_monitor_that_failed_also_rolls_back() {
     let d = paired(SwitchBehavior::Silent, true).await;
     let run = d.apply_scene(Machine::A, "solo-a").await.unwrap();
     assert_eq!(run.outcome(), Some(Outcome::Failed), "{:#?}", run.events);
@@ -343,10 +350,10 @@ async fn sin_veredicto_vuelve_tambien_el_monitor_que_fallo() {
     assert_eq!(d.mac.state().scene.as_deref(), Some("trabajo"));
 }
 
-/// La escena activa sale de la entrada real: alguien cambia las entradas desde el menú del
-/// monitor y las dos máquinas reconocen «Solo A»; con una sola cambiada no hay ninguna.
+/// The active scene comes from the real input: someone switches the inputs from the monitor's
+/// menu and both machines recognize "Solo A"; with only one switched there is none.
 #[tokio::test(start_paused = true)]
-async fn la_escena_activa_sale_de_la_entrada_real() {
+async fn the_active_scene_comes_from_the_real_input() {
     let d = paired(SwitchBehavior::Done, true).await;
     let sim = d.monitors().unwrap().clone();
     sim.fake().osd_switch(sim.handle(M34), Input::Hdmi);
@@ -360,45 +367,45 @@ async fn la_escena_activa_sale_de_la_entrada_real() {
     }
 }
 
-/// El editor solo deja entrar monitores compatibles cuya entrada se sabe: el de fábrica y uno
-/// que no se ve, no; el 27" sin entrada conocida, hasta que se declara su cable.
+/// The editor only lets in compatible monitors whose input is known: the factory one and one
+/// that is not seen, no; the 27" without a known input, until its cable is declared.
 #[tokio::test(start_paused = true)]
-async fn el_editor_solo_acepta_monitores_compatibles() {
+async fn the_editor_only_accepts_compatible_monitors() {
     let d = paired(SwitchBehavior::Done, false).await;
     let (m34, m27, fab) = (id(&d, M34), id(&d, M27), id(&d, FAB));
     let add = |monitor: &str| {
         d.mac.handle(UiCommand::EditDesk {
             patch: DeskPatch::AddScene(Scene {
                 monitors: vec![(monitor.to_owned(), Machine::B)],
-                ..Scene::new("", format!("Con {monitor}"))
+                ..Scene::new("", format!("With {monitor}"))
             }),
         })
     };
     for (monitor, why) in [
         (fab.as_str(), "is not compatible"),
-        ("fantasma", "is not seen"),
+        ("ghost", "is not seen"),
         (m27.as_str(), "it is not known which input"),
     ] {
         match add(monitor) {
             Reply::Rejected(e) => assert!(e.contains(why), "{monitor}: {e}"),
-            other => panic!("{monitor}: se aceptó: {other:?}"),
+            other => panic!("{monitor}: was accepted: {other:?}"),
         }
     }
     assert!(matches!(add(&m34), Reply::Desk(_)));
-    // Con su cable declarado (la PC por DP), el 27" ya entra.
+    // With its cable declared (the PC over DP), the 27" now comes in.
     let mut cable = tandem_core::MonitorCable::new(m27.clone());
     cable.b.input = Some(MonitorInput::DisplayPort);
     d.mac.edit_desk(DeskPatch::Cable(cable)).unwrap();
     assert!(matches!(add(&m27), Reply::Desk(_)));
-    // Una escena que ya lo tenía se puede renombrar aunque el monitor deje de verse.
+    // A scene that already had it can be renamed even if the monitor stops being seen.
     let mut scene = d.mac.desk().scenes[3].clone();
     sim_unplug(&d, M34);
-    d.wait_monitors(Machine::A, "el 34\" desconectado", |v| {
+    d.wait_monitors(Machine::A, "the disconnected 34\"", |v| {
         v.iter().all(|m| m.id != m34)
     })
     .await
     .unwrap();
-    scene.name = "Renombrada".into();
+    scene.name = "Renamed".into();
     let reply = d.mac.handle(UiCommand::EditDesk {
         patch: DeskPatch::EditScene(scene),
     });

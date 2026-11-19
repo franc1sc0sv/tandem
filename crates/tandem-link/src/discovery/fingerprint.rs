@@ -6,11 +6,11 @@ use sha2::{Digest, Sha256};
 use super::DiscoveryError;
 use crate::identity::PublicKey;
 
-/// Huella de la llave pública de un agente: SHA-256 de sus 32 bytes.
+/// Fingerprint of an agent's public key: SHA-256 of its 32 bytes.
 ///
-/// Es lo que se anuncia por mDNS. No es un secreto ni sustituye al pinning
-/// del transporte: solo sirve para que cada agente reconozca, entre los
-/// anuncios de la LAN, el de su par emparejado.
+/// It is what is announced over mDNS. It is not a secret and does not replace the
+/// transport's pinning: it only lets each agent recognize, among the
+/// announcements on the LAN, the one from its paired peer.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Fingerprint([u8; 32]);
 
@@ -35,8 +35,8 @@ impl Fingerprint {
         self.0.iter().map(|b| format!("{b:02x}")).collect()
     }
 
-    /// Prefijo corto para nombres de instancia y de host (las etiquetas DNS
-    /// tienen un máximo de 63 bytes).
+    /// Short prefix for instance and host names (DNS labels
+    /// have a maximum of 63 bytes).
     pub fn short(&self) -> String {
         self.0[..6].iter().map(|b| format!("{b:02x}")).collect()
     }
@@ -89,22 +89,22 @@ mod tests {
     }
 
     #[test]
-    fn es_estable_y_distingue_llaves() {
+    fn is_stable_and_tells_keys_apart() {
         assert_eq!(Fingerprint::of(&key(1)), Fingerprint::of(&key(1)));
         assert_ne!(Fingerprint::of(&key(1)), Fingerprint::of(&key(2)));
-        // No es la llave en claro.
+        // It is not the key in the clear.
         assert_ne!(Fingerprint::of(&key(1)).as_bytes(), key(1).as_bytes());
     }
 
     #[test]
-    fn el_prefijo_corto_cabe_en_una_etiqueta_dns() {
+    fn the_short_prefix_fits_in_a_dns_label() {
         let fp = Fingerprint::of(&key(3));
         assert_eq!(fp.short().len(), 12);
         assert!(fp.to_hex().starts_with(&fp.short()));
     }
 
     #[test]
-    fn rechaza_hex_mal_formado() {
+    fn rejects_malformed_hex() {
         assert!("".parse::<Fingerprint>().is_err());
         assert!("ab".repeat(31).parse::<Fingerprint>().is_err());
         assert!("zz".repeat(32).parse::<Fingerprint>().is_err());
@@ -113,7 +113,7 @@ mod tests {
 
     proptest! {
         #[test]
-        fn hex_ida_y_vuelta(bytes in any::<[u8; 32]>()) {
+        fn hex_round_trip(bytes in any::<[u8; 32]>()) {
             let fp = Fingerprint(bytes);
             prop_assert_eq!(fp.to_hex().parse::<Fingerprint>().unwrap(), fp);
             prop_assert_eq!(fp.to_hex().to_uppercase().parse::<Fingerprint>().unwrap(), fp);

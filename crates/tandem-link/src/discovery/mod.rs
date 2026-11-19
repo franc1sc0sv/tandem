@@ -1,19 +1,19 @@
-//! Descubrimiento del otro agente (DESIGN §6).
+//! Discovery of the other agent (DESIGN §6).
 //!
-//! Dos fuentes de direcciones para el [`LinkManager`](crate::manager::LinkManager):
+//! Two sources of addresses for the [`LinkManager`](crate::manager::LinkManager):
 //!
-//! - Las fijas de los enlaces directos (USB4 `10.77.1.0/30`, Ethernet
-//!   `10.77.2.0/30`), que vienen de la config: [`validate_static_links`] y
+//! - The fixed ones of the direct links (USB4 `10.77.1.0/30`, Ethernet
+//!   `10.77.2.0/30`), which come from the config: [`validate_static_links`] and
 //!   [`link_candidates`].
-//! - La LAN de casa por mDNS: cada agente anuncia `_tandem._udp` con la
-//!   [`Fingerprint`] de su llave y busca la de su par emparejado
-//!   ([`PeerResolver`]); los anuncios de otros agentes se ignoran. Lo que se
-//!   descubre entra como candidato Wi-Fi.
-//! - Mientras se empareja, quien espera anuncia `_tandem-pair._udp` y quien busca
-//!   acepta a cualquier agente ([`MdnsDiscovery::pairing`]).
+//! - The home LAN over mDNS: each agent announces `_tandem._udp` with the
+//!   [`Fingerprint`] of its key and looks for that of its paired peer
+//!   ([`PeerResolver`]); announcements from other agents are ignored. What is
+//!   discovered enters as a Wi-Fi candidate.
+//! - While pairing, whoever waits announces `_tandem-pair._udp` and whoever searches
+//!   accepts any agent ([`MdnsDiscovery::pairing`]).
 //!
-//! Encontrar al par por mDNS no le da confianza: el transporte sigue
-//! verificando la llave por pinning al conectar.
+//! Finding the peer over mDNS does not give it trust: the transport still
+//! verifies the key by pinning on connect.
 
 mod fingerprint;
 mod mdns;
@@ -31,13 +31,13 @@ use crate::manager::{LinkCandidate, LinkKind};
 
 #[derive(Debug, thiserror::Error)]
 pub enum DiscoveryError {
-    #[error("huella inválida: se esperan 64 dígitos hex")]
+    #[error("invalid fingerprint: 64 hex digits expected")]
     InvalidFingerprint,
-    #[error("el enlace fijo {} ({}) no tiene puerto", .0.kind, .0.addr)]
+    #[error("the fixed link {} ({}) has no port", .0.kind, .0.addr)]
     StaticWithoutPort(LinkCandidate),
-    #[error("el enlace fijo {} tiene una dirección inválida: {}", .0.kind, .0.addr)]
+    #[error("the fixed link {} has an invalid address: {}", .0.kind, .0.addr)]
     StaticBadAddress(LinkCandidate),
-    #[error("el enlace fijo {0} está configurado dos veces")]
+    #[error("the fixed link {0} is configured twice")]
     DuplicateStatic(LinkKind),
     #[error("mDNS: {0}")]
     Mdns(#[from] mdns_sd::Error),

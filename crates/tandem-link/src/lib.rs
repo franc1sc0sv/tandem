@@ -1,4 +1,4 @@
-//! Descubrimiento, enlaces, salud, prioridad, política de planos.
+//! Discovery, links, health, priority, plane policy.
 
 pub mod discovery;
 pub mod identity;

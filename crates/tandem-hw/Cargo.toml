@@ -1,6 +1,6 @@
 [package]
 name = "tandem-hw"
-description = "Suite de pruebas en hardware (T-123): aprovisiona agentes de prueba, corre las comprobaciones por la IPC y arma el informe. Nunca corre en CI."
+description = "Hardware test suite (T-123): provisions test agents, runs the checks over IPC and builds the report. Never runs in CI."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

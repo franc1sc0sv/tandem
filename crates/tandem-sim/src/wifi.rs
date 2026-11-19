@@ -1,23 +1,23 @@
-//! Un Wi-Fi simulado con ancho de banda, para probar que los datos no le meten latencia a
-//! la entrada (T-101, DESIGN §6).
+//! A simulated Wi-Fi with bandwidth, to test that data does not add latency to
+//! input (T-101, DESIGN §6).
 //!
-//! El Wi-Fi es un solo medio: todo lo que sale de una máquina pasa por la misma cola (la
-//! del sistema y la del punto de acceso) y esa cola sale en orden de llegada a la
-//! capacidad del momento. La prioridad de QUIC ordena lo que todavía no salió, pero no
-//! puede adelantar una tecla a los datos que ya están en esa cola: si los datos la llenan,
-//! cada tecla espera lo que tarde en vaciarse. El modelo es solo eso: capacidad, una
-//! demora fija de propagación y una cola de tamaño fijo.
+//! Wi-Fi is a single medium: everything leaving a machine goes through the same queue (the
+//! system's and the access point's) and that queue drains in arrival order at the
+//! capacity of the moment. QUIC's priority orders what has not yet left, but it cannot
+//! put a key ahead of the data already in that queue: if data fills it,
+//! every key waits as long as it takes to drain. The model is just that: capacity, a
+//! fixed propagation delay and a fixed-size queue.
 //!
-//! - La entrada ([`SimWifi::send_input`]) nunca espera para entrar a la cola: son unos
-//!   bytes y van con la prioridad más alta, así que entran en el primer hueco.
-//! - Los datos ([`SimWifi::data_writer`]) esperan a que haya lugar en la cola, como un
-//!   stream de QUIC frenado por la ventana de congestión.
+//! - Input ([`SimWifi::send_input`]) never waits to enter the queue: it is a few
+//!   bytes and goes with the highest priority, so it enters in the first gap.
+//! - Data ([`SimWifi::data_writer`]) waits until there is room in the queue, like a
+//!   QUIC stream held back by the congestion window.
 //!
-//! - [`SimWifi::data_pipe`] da además el otro extremo ([`WifiReader`]): lo escrito llega
-//!   cuando sale de la cola más la propagación (la prueba de ancho de banda de T-102).
-//!   Solo viajan los tamaños: se lee como ceros.
+//! - [`SimWifi::data_pipe`] also gives the other end ([`WifiReader`]): what is written arrives
+//!   when it leaves the queue plus the propagation (T-102's bandwidth test).
+//!   Only the sizes travel: it reads as zeros.
 //!
-//! Corre con el reloj de tokio (pausado en las pruebas): los tiempos son exactos.
+//! It runs on the tokio clock (paused in tests): times are exact.
 
 use std::future::Future;
 use std::io;
@@ -30,20 +30,20 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::sync::mpsc;
 use tokio::time::{Instant, Sleep};
 
-/// Lo más chico que se espera tener lugar para escribir datos: un paquete.
+/// The smallest amount of room waited for before writing data: a packet.
 const PACKET: u64 = 1500;
 
 #[derive(Debug)]
 struct Air {
-    /// Bytes por segundo.
+    /// Bytes per second.
     capacity: u64,
-    /// Propagación, igual para todo.
+    /// Propagation, the same for everything.
     base: Duration,
-    /// Lo que cabe en la cola.
+    /// What fits in the queue.
     buffer: u64,
-    /// Cuándo sale de la cola lo último que entró.
+    /// When the last thing that entered leaves the queue.
     busy_until: Instant,
-    /// Datos que entraron a la cola: cuándo y cuántos bytes.
+    /// Data that entered the queue: when and how many bytes.
     data: Vec<(Instant, usize)>,
 }
 
@@ -53,13 +53,13 @@ impl Air {
         Duration::from_nanos(u64::try_from(ns).unwrap_or(u64::MAX))
     }
 
-    /// Bytes que esperan en la cola en `now`.
+    /// Bytes waiting in the queue at `now`.
     fn backlog(&self, now: Instant) -> u64 {
         let left = self.busy_until.saturating_duration_since(now).as_nanos();
         u64::try_from(left * u128::from(self.capacity) / 1_000_000_000).unwrap_or(u64::MAX)
     }
 
-    /// Pone `bytes` al final de la cola; devuelve cuándo llegan al otro lado.
+    /// Puts `bytes` at the end of the queue; returns when they arrive at the other side.
     fn enqueue(&mut self, now: Instant, bytes: u64) -> Instant {
         let start = self.busy_until.max(now);
         self.busy_until = start + self.transmit_time(bytes);
@@ -67,14 +67,14 @@ impl Air {
     }
 }
 
-/// El Wi-Fi entre las dos máquinas, en un sentido. Se clona barato.
+/// The Wi-Fi between the two machines, in one direction. Cheap to clone.
 #[derive(Debug, Clone)]
 pub struct SimWifi {
     air: Arc<Mutex<Air>>,
 }
 
 impl SimWifi {
-    /// `capacity` en bytes por segundo, `base` de propagación y una cola de `buffer` bytes.
+    /// `capacity` in bytes per second, `base` propagation and a queue of `buffer` bytes.
     pub fn new(capacity: u64, base: Duration, buffer: u64) -> Self {
         SimWifi {
             air: Arc::new(Mutex::new(Air {
@@ -91,28 +91,28 @@ impl SimWifi {
         self.air.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// El Wi-Fi empeora o mejora (interferencia, otro equipo descargando). Lo que ya está
-    /// en la cola sale a la capacidad nueva.
+    /// The Wi-Fi gets worse or better (interference, another machine downloading). What is already
+    /// in the queue leaves at the new capacity.
     pub fn set_capacity(&self, capacity: u64) {
         let now = Instant::now();
         let mut air = self.lock();
         let backlog = air.backlog(now);
         air.capacity = capacity.max(1);
         air.busy_until = now + air.transmit_time(backlog);
-        tracing::info!(capacity, "capacidad del Wi-Fi (simulado)");
+        tracing::info!(capacity, "Wi-Fi capacity (simulated)");
     }
 
     pub fn capacity(&self) -> u64 {
         self.lock().capacity
     }
 
-    /// Un mensaje de entrada de `bytes`: entra a la cola ya y devuelve cuándo llega.
+    /// An input message of `bytes`: enters the queue now and returns when it arrives.
     pub fn send_input(&self, bytes: usize) -> Instant {
         let now = Instant::now();
         self.lock().enqueue(now, bytes as u64)
     }
 
-    /// Para escribir datos: espera a que haya lugar en la cola.
+    /// For writing data: waits until there is room in the queue.
     pub fn data_writer(&self) -> WifiWriter {
         WifiWriter {
             wifi: self.clone(),
@@ -121,8 +121,8 @@ impl SimWifi {
         }
     }
 
-    /// Los dos extremos de un flujo de datos por el Wi-Fi. El lector ve el fin cuando el
-    /// escritor se cierra (o se suelta) y llegó todo lo anterior.
+    /// The two ends of a data stream over the Wi-Fi. The reader sees the end when the
+    /// writer closes (or is dropped) and everything before it arrived.
     pub fn data_pipe(&self) -> (WifiWriter, WifiReader) {
         let (tx, rx) = mpsc::unbounded_channel();
         let writer = WifiWriter {
@@ -138,24 +138,24 @@ impl SimWifi {
         (writer, reader)
     }
 
-    /// Los datos que salieron (entraron a la cola): cuándo y cuántos bytes.
+    /// The data that left (entered the queue): when and how many bytes.
     pub fn data_sent(&self) -> Vec<(Instant, usize)> {
         self.lock().data.clone()
     }
 }
 
-/// Escritura de datos por el [`SimWifi`].
+/// Data write through the [`SimWifi`].
 pub struct WifiWriter {
     wifi: SimWifi,
     wait: Option<Pin<Box<Sleep>>>,
-    /// Al otro extremo, si hay ([`SimWifi::data_pipe`]): cuándo llega cada tramo.
+    /// At the other end, if any ([`SimWifi::data_pipe`]): when each stretch arrives.
     deliver: Option<mpsc::UnboundedSender<(Instant, usize)>>,
 }
 
-/// El extremo que recibe de [`SimWifi::data_pipe`].
+/// The end that receives from [`SimWifi::data_pipe`].
 pub struct WifiReader {
     arrivals: mpsc::UnboundedReceiver<(Instant, usize)>,
-    /// El tramo que se está leyendo: cuándo llega y cuánto falta.
+    /// The stretch being read: when it arrives and how much is left.
     current: Option<(Instant, usize)>,
     wait: Option<Pin<Box<Sleep>>>,
 }
@@ -174,7 +174,7 @@ impl AsyncRead for WifiReader {
                         self.current = Some(c);
                         c
                     }
-                    // Sin escritor: el fin.
+                    // Without a writer: the end.
                     Poll::Ready(None) => return Poll::Ready(Ok(())),
                     Poll::Pending => return Poll::Pending,
                 },
@@ -229,7 +229,7 @@ impl AsyncWrite for WifiWriter {
                 }
                 return Poll::Ready(Ok(n));
             }
-            // Hasta que salga lo que falta para que entre un paquete.
+            // Until what is missing for a packet to fit leaves.
             let until = now + air.transmit_time(need - room);
             drop(air);
             self.wait = Some(Box::pin(tokio::time::sleep_until(until)));
@@ -241,7 +241,7 @@ impl AsyncWrite for WifiWriter {
     }
 
     fn poll_shutdown(mut self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<io::Result<()>> {
-        // El lector ve el fin después de lo que ya está en camino.
+        // The reader sees the end after what is already on the way.
         self.deliver = None;
         Poll::Ready(Ok(()))
     }
@@ -258,23 +258,23 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
-    async fn sin_cola_la_entrada_tarda_lo_que_tarda_el_aire() {
+    async fn without_a_queue_input_takes_what_the_air_takes() {
         let wifi = SimWifi::new(1_000_000, ms(2), 100_000);
         let t0 = Instant::now();
-        // 1000 bytes a 1 MB/s: 1 ms, más 2 ms de propagación.
+        // 1000 bytes at 1 MB/s: 1 ms, plus 2 ms of propagation.
         assert_eq!(wifi.send_input(1000), t0 + ms(3));
     }
 
     #[tokio::test(start_paused = true)]
-    async fn los_datos_llenan_la_cola_y_la_entrada_espera_detrás() {
+    async fn data_fills_the_queue_and_input_waits_behind() {
         let wifi = SimWifi::new(1_000_000, ms(2), 100_000);
         let mut w = wifi.data_writer();
         let t0 = Instant::now();
         w.write_all(&[0; 100_000]).await.unwrap();
-        // Entró todo sin esperar: la cola tiene lugar para 100 kB.
+        // Everything entered without waiting: the queue has room for 100 kB.
         assert_eq!(Instant::now(), t0);
         assert_eq!(wifi.send_input(1000), t0 + ms(103));
-        // Lo que no entra espera a que se vacíe.
+        // What does not fit waits until it drains.
         w.write_all(&[0; 50_000]).await.unwrap();
         assert!(Instant::now() >= t0 + ms(49), "{:?}", Instant::now() - t0);
         let sent: usize = wifi.data_sent().iter().map(|(_, n)| n).sum();
@@ -282,7 +282,7 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
-    async fn lo_escrito_llega_al_otro_extremo_a_su_hora() {
+    async fn what_is_written_reaches_the_other_end_on_time() {
         use tokio::io::AsyncReadExt;
 
         let wifi = SimWifi::new(1_000_000, ms(2), 100_000);
@@ -292,20 +292,20 @@ mod tests {
         w.shutdown().await.unwrap();
         let mut got = Vec::new();
         r.read_to_end(&mut got).await.unwrap();
-        // 10 kB a 1 MB/s son 10 ms, más 2 ms de propagación.
+        // 10 kB at 1 MB/s is 10 ms, plus 2 ms of propagation.
         assert_eq!(got.len(), 10_000);
         assert_eq!(Instant::now() - t0, ms(12));
     }
 
     #[tokio::test(start_paused = true)]
-    async fn bajar_la_capacidad_alarga_la_cola() {
+    async fn lowering_the_capacity_lengthens_the_queue() {
         let wifi = SimWifi::new(1_000_000, Duration::ZERO, 100_000);
         let mut w = wifi.data_writer();
         w.write_all(&[0; 10_000]).await.unwrap();
         let t0 = Instant::now();
         wifi.set_capacity(500_000);
         assert_eq!(wifi.capacity(), 500_000);
-        // 10 kB a 500 kB/s son 20 ms, y la tecla (500 B) 1 ms más.
+        // 10 kB at 500 kB/s is 20 ms, and the key (500 B) 1 ms more.
         assert_eq!(wifi.send_input(500), t0 + ms(21));
     }
 }

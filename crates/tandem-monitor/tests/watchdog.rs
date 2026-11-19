@@ -1,5 +1,5 @@
-//! El vigilante como proceso aparte: desarmado no toca nada; si el que lo lanzó se va sin
-//! desarmarlo, intenta volver (aquí no hay ese monitor, así que falla con su motivo).
+//! The watchdog as a separate process: disarmed it touches nothing; if the one that launched it leaves without
+//! disarming it, it tries to return (there is no such monitor here, so it fails with its reason).
 
 use std::path::Path;
 
@@ -8,8 +8,8 @@ use tandem_monitor::guard::{WatchPlan, Watchdog};
 
 fn plan() -> WatchPlan {
     WatchPlan {
-        // Un id que ningún equipo tiene: la prueba nunca toca un monitor de verdad.
-        monitor: "prueba-00000000".into(),
+        // An id that no machine has: the test never touches a real monitor.
+        monitor: "test-00000000".into(),
         restore_to: Input::DisplayPort,
     }
 }

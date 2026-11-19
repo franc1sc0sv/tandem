@@ -1,12 +1,12 @@
-//! Watchdog de los hooks.
+//! Hooks watchdog.
 //!
-//! Windows quita un hook de bajo nivel sin avisar si una llamada tarda más que
-//! `LowLevelHooksTimeout`. El watchdog es pasivo: nunca inyecta nada, porque la
-//! entrada inyectada reinicia el contador de inactividad de Windows y la PC no se
-//! bloquearía ni se suspendería nunca. La referencia es Raw Input de dispositivos
-//! reales, que no depende de los hooks: si Raw Input ve teclado (o mouse) real y
-//! el hook de ese tipo no ve nada durante `hook_timeout`, el hook se perdió y se
-//! reinstalan los dos. Sin entrada real no hay nada que comprobar.
+//! Windows removes a low-level hook without warning if a call takes longer than
+//! `LowLevelHooksTimeout`. The watchdog is passive: it never injects anything, because
+//! injected input resets Windows's inactivity counter and the PC would never
+//! lock or suspend. The reference is Raw Input from real devices,
+//! which does not depend on the hooks: if Raw Input sees real keyboard (or mouse) and
+//! the hook of that type sees nothing for `hook_timeout`, the hook was lost and
+//! both are reinstalled. Without real input there is nothing to check.
 
 use std::time::{Duration, Instant};
 
@@ -18,9 +18,9 @@ pub enum HookKind {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WatchdogConfig {
-    /// Cuánto puede haber entrada real sin que el hook la vea antes de darlo por
-    /// perdido. También es la tolerancia entre el hook y Raw Input del mismo
-    /// evento, que no llegan en un orden fijo.
+    /// How long real input can go without the hook seeing it before taking it as
+    /// lost. It is also the tolerance between the hook and Raw Input of the same
+    /// event, which do not arrive in a fixed order.
     pub hook_timeout: Duration,
 }
 
@@ -40,9 +40,9 @@ pub enum WatchdogAction {
 
 #[derive(Debug, Clone, Copy, Default)]
 struct Liveness {
-    /// Último evento que vio el hook.
+    /// Last event the hook saw.
     hook_seen: Option<Instant>,
-    /// Primera entrada real que el hook todavía no confirmó.
+    /// First real input that the hook has not yet confirmed.
     unanswered: Option<Instant>,
 }
 
@@ -53,7 +53,7 @@ impl Liveness {
     }
 
     fn raw(&mut self, now: Instant, timeout: Duration) {
-        // El evento del hook pudo llegar justo antes que el de Raw Input.
+        // The hook's event may have arrived just before Raw Input's.
         let recent = self
             .hook_seen
             .is_some_and(|seen| now.saturating_duration_since(seen) <= timeout);
@@ -93,12 +93,12 @@ impl Watchdog {
         }
     }
 
-    /// El hook de este tipo vio un evento: está instalado.
+    /// The hook of this type saw an event: it is installed.
     pub fn hook_activity(&mut self, kind: HookKind, now: Instant) {
         self.liveness(kind).hook(now);
     }
 
-    /// Raw Input vio entrada real (`hDevice != 0`) de este tipo.
+    /// Raw Input saw real input (`hDevice != 0`) of this type.
     pub fn real_activity(&mut self, kind: HookKind, now: Instant) {
         let timeout = self.config.hook_timeout;
         self.liveness(kind).raw(now, timeout);
@@ -111,7 +111,7 @@ impl Watchdog {
     pub fn tick(&mut self, now: Instant) -> WatchdogAction {
         let timeout = self.config.hook_timeout;
         if self.keyboard.lost(now, timeout) || self.mouse.lost(now, timeout) {
-            // Se reinstalan los dos; la entrada que siga se compara con los nuevos.
+            // Both are reinstalled; the input that follows is compared with the new ones.
             self.keyboard = Liveness::default();
             self.mouse = Liveness::default();
             self.reinstalls += 1;
@@ -138,7 +138,7 @@ mod tests {
     fn inactivo_durante_minutos_no_hace_nada() {
         let t0 = Instant::now();
         let mut w = Watchdog::new(cfg());
-        // Diez minutos de ticks cada 100 ms sin ningún evento.
+        // Ten minutes of ticks every 100 ms without any event.
         for i in 0..6000u32 {
             assert_eq!(w.tick(t0 + i * 100 * MS), WatchdogAction::Idle);
         }
@@ -146,9 +146,9 @@ mod tests {
     }
 
     #[test]
-    fn hooks_sin_raw_input_no_hacen_nada() {
-        // Un hook que ve eventos sin Raw Input (p. ej. inyectados) nunca es motivo
-        // para actuar.
+    fn hooks_without_raw_input_do_nothing() {
+        // A hook that sees events without Raw Input (e.g. injected) is never a reason
+        // to act.
         let t0 = Instant::now();
         let mut w = Watchdog::new(cfg());
         for i in 0..100u32 {
@@ -159,10 +159,10 @@ mod tests {
     }
 
     #[test]
-    fn raw_input_de_teclado_sin_hook_reinstala() {
+    fn keyboard_raw_input_without_hook_reinstalls() {
         let t0 = Instant::now();
         let mut w = Watchdog::new(cfg());
-        // El mouse sigue vivo; del teclado solo llega Raw Input.
+        // The mouse is still alive; from the keyboard only Raw Input arrives.
         for i in 0..10u32 {
             let now = t0 + i * 100 * MS;
             w.hook_activity(HookKind::Mouse, now);
@@ -172,7 +172,7 @@ mod tests {
         }
         assert_eq!(w.tick(t0 + S), WatchdogAction::Reinstall);
         assert_eq!(w.reinstalls(), 1);
-        // Tras reinstalar, el plazo empieza de nuevo y el hook nuevo contesta.
+        // After reinstalling, the deadline starts over and the new hook answers.
         assert_eq!(w.tick(t0 + S + 500 * MS), WatchdogAction::Idle);
         w.real_activity(HookKind::Keyboard, t0 + 2 * S);
         w.hook_activity(HookKind::Keyboard, t0 + 2 * S + 5 * MS);
@@ -181,7 +181,7 @@ mod tests {
     }
 
     #[test]
-    fn raw_input_de_mouse_sin_hook_reinstala() {
+    fn mouse_raw_input_without_hook_reinstalls() {
         let t0 = Instant::now();
         let mut w = Watchdog::new(cfg());
         w.real_activity(HookKind::Mouse, t0);
@@ -190,13 +190,13 @@ mod tests {
     }
 
     #[test]
-    fn el_hook_puede_llegar_antes_o_despues_que_raw_input() {
+    fn the_hook_may_arrive_before_or_after_raw_input() {
         let t0 = Instant::now();
         let mut w = Watchdog::new(cfg());
-        // Hook primero.
+        // Hook first.
         w.hook_activity(HookKind::Keyboard, t0);
         w.real_activity(HookKind::Keyboard, t0 + 2 * MS);
-        // Raw primero.
+        // Raw first.
         w.real_activity(HookKind::Mouse, t0);
         w.hook_activity(HookKind::Mouse, t0 + 2 * MS);
         for i in 0..50u32 {
@@ -205,12 +205,12 @@ mod tests {
     }
 
     #[test]
-    fn hook_que_murio_tras_su_ultimo_evento_se_detecta() {
+    fn a_hook_that_died_after_its_last_event_is_detected() {
         let t0 = Instant::now();
         let mut w = Watchdog::new(cfg());
         w.hook_activity(HookKind::Keyboard, t0);
         w.real_activity(HookKind::Keyboard, t0);
-        // El hook se pierde; la entrada real sigue un rato después.
+        // The hook is lost; real input continues for a while afterwards.
         let later = t0 + 5 * S;
         w.real_activity(HookKind::Keyboard, later);
         assert_eq!(w.tick(later + 500 * MS), WatchdogAction::Idle);
@@ -218,10 +218,10 @@ mod tests {
     }
 
     proptest! {
-        /// Con hooks vivos (cada entrada real también llega al hook, antes o después
-        /// y con un desfase menor que el plazo), nunca se reinstala.
+        /// With live hooks (every real input also reaches the hook, before or after
+        /// and with an offset smaller than the deadline), it is never reinstalled.
         #[test]
-        fn con_hooks_vivos_nunca_reinstala(
+        fn with_live_hooks_it_never_reinstalls(
             steps in prop::collection::vec(
                 (0u64..5000, any::<bool>(), any::<bool>(), 0u64..900, 0u64..1200),
                 1..80,
@@ -237,7 +237,7 @@ mod tests {
                 let second = now + Duration::from_millis(skew);
                 if raw_first {
                     w.real_activity(kind, first);
-                    // Un tick entre los dos todavía está dentro del plazo.
+                    // A tick between the two is still within the deadline.
                     prop_assert_eq!(w.tick(first + Duration::from_millis(skew / 2)), WatchdogAction::Idle);
                     w.hook_activity(kind, second);
                 } else {
@@ -250,9 +250,9 @@ mod tests {
             prop_assert_eq!(w.reinstalls(), 0);
         }
 
-        /// Sin ningún evento, por largo que sea, nunca se actúa.
+        /// Without any event, however long, it never acts.
         #[test]
-        fn sin_eventos_nunca_actua(ticks in prop::collection::vec(0u64..600_000, 1..50)) {
+        fn without_events_it_never_acts(ticks in prop::collection::vec(0u64..600_000, 1..50)) {
             let t0 = Instant::now();
             let mut w = Watchdog::new(cfg());
             for ms in ticks {
@@ -260,10 +260,10 @@ mod tests {
             }
         }
 
-        /// Un hook muerto se detecta a más tardar un plazo después de que empiece
-        /// la entrada real.
+        /// A dead hook is detected at most one deadline after real input
+        /// starts.
         #[test]
-        fn hook_muerto_se_detecta_a_tiempo(tick_ms in 10u64..500) {
+        fn a_dead_hook_is_detected_in_time(tick_ms in 10u64..500) {
             let t0 = Instant::now();
             let c = cfg();
             let mut w = Watchdog::new(c);
@@ -271,7 +271,7 @@ mod tests {
             let mut now = t0;
             loop {
                 now += Duration::from_millis(tick_ms);
-                // El mouse sigue vivo; el hook de teclado ya no ve nada.
+                // The mouse is still alive; the keyboard hook no longer sees anything.
                 w.hook_activity(HookKind::Mouse, now);
                 w.real_activity(HookKind::Mouse, now);
                 w.real_activity(HookKind::Keyboard, now);

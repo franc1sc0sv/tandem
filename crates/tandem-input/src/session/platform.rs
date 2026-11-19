@@ -1,7 +1,7 @@
-//! [`Capture`] e [`Injector`] sobre los backends de cada plataforma (T-022 a T-025).
+//! [`Capture`] and [`Injector`] over each platform's backends (T-022 to T-025).
 //!
-//! Los emuladores son portables (genéricos sobre su sink), así que su adaptación se
-//! prueba en Linux con los sinks que registran; las capturas solo existen en su sistema.
+//! The emulators are portable (generic over their sink), so their adaptation is
+//! tested on Linux with the sinks that record; the captures only exist on their system.
 
 #[cfg(any(windows, target_os = "macos"))]
 use super::Capture;
@@ -68,7 +68,7 @@ mod tests {
     use crate::macos::emulate::RecordingSink;
 
     #[test]
-    fn el_emulador_de_mac_inyecta_como_injector() {
+    fn the_mac_emulator_injects_as_injector() {
         let mut e = MacEmulator::new(RecordingSink::new()).unwrap();
         let key = InputEvent::Key {
             usage: HidUsage::key(0x04),

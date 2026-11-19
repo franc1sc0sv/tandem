@@ -1,5 +1,5 @@
-//! El puesto completo: dos `tandemd` reales en el mismo proceso, unidos por la red
-//! simulada, con los backends simulados y los fallos de un [`FaultPlan`].
+//! The whole desk: two real `tandemd` in the same process, joined by the simulated
+//! network, with simulated backends and the faults of a [`FaultPlan`].
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -21,35 +21,35 @@ use crate::scenes::SceneScreens;
 use crate::steps::{HardwareTimes, SimSteps};
 use crate::world::{Power, World};
 
-/// La tarjeta de red a la que va el Wake-on-LAN (simulado) de cada agente.
+/// The network card the (simulated) Wake-on-LAN of each agent goes to.
 const WOL_MAC: &str = "aa:bb:cc:dd:ee:ff";
 
-/// Tope de espera para cualquier cosa de la simulación, en tiempo de tokio (pausado).
+/// Wait cap for anything in the simulation, in (paused) tokio time.
 pub const SIM_LIMIT: Duration = Duration::from_secs(3600);
 
-/// Tiempo para que lo que queda en el aire termine (apagado, cambio de enlace, avisos).
+/// Time for whatever is left in the air to finish (shutdown, link switch, notices).
 pub const SETTLE: Duration = Duration::from_secs(10);
 
 #[derive(Debug, thiserror::Error)]
 pub enum SimError {
-    #[error("no se pudo armar la simulación: {0}")]
+    #[error("the simulation could not be set up: {0}")]
     Setup(String),
-    #[error("el agente rechazó el pedido: {0}")]
+    #[error("the agent rejected the request: {0}")]
     Rejected(String),
-    #[error("se superó el tiempo máximo esperando {0}")]
+    #[error("the maximum time was exceeded waiting for {0}")]
     Timeout(&'static str),
-    #[error("el puesto no coincide con lo esperado:\n  {}", .0.join("\n  "))]
+    #[error("the desk does not match what was expected:\n  {}", .0.join("\n  "))]
     Mismatch(Vec<String>),
 }
 
-/// Cómo terminó una transacción.
+/// How a transaction ended.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Outcome {
     Committed,
     Failed,
 }
 
-/// Los avisos de una transacción, de `Started` al desenlace.
+/// The notices of a transaction, from `Started` to the outcome.
 #[derive(Debug, Clone)]
 pub struct TxnRun {
     pub events: Vec<TxnEvent>,
@@ -64,7 +64,7 @@ impl TxnRun {
         }
     }
 
-    /// Índice y motivo del paso que falló, si alguno.
+    /// Index and reason of the step that failed, if any.
     pub fn failure(&self) -> Option<(u32, &str)> {
         self.events.iter().find_map(|e| match e {
             TxnEvent::StepFailed { index, error, .. } => Some((*index, error.as_str())),
@@ -80,15 +80,15 @@ fn is_end(e: &TxnEvent) -> Option<u64> {
     }
 }
 
-/// Opciones del puesto.
+/// Desk options.
 #[derive(Debug, Clone)]
 pub struct DeskBuilder {
     links: Vec<LinkKind>,
     times: HardwareTimes,
-    principal: Machine,
-    /// El sistema de A y el de B. Cualquier combinación vale (DECISIONS D2).
+    primary: Machine,
+    /// A's system and B's. Any combination works (DECISIONS D2).
     os: [Os; 2],
-    /// Los monitores del puesto y quién tiene cable a cada uno (T-110).
+    /// The desk's monitors and who has a cable to each one (T-110).
     monitors: Vec<MonitorSpec>,
     scene_screens: SceneScreens,
 }
@@ -98,7 +98,7 @@ impl Default for DeskBuilder {
         DeskBuilder {
             links: LinkKind::ALL.to_vec(),
             times: HardwareTimes::default(),
-            principal: Machine::A,
+            primary: Machine::A,
             os: [Os::MacOs, Os::Windows],
             monitors: Vec::new(),
             scene_screens: SceneScreens::default(),
@@ -106,14 +106,14 @@ impl Default for DeskBuilder {
     }
 }
 
-/// Cada cuánto miran el bus los agentes de la simulación.
+/// How often the simulation's agents look at the bus.
 pub const SIM_MONITOR_TIMES: MonitorTimes = MonitorTimes {
     scan_every: Duration::from_secs(2),
     poll_every: Duration::from_millis(500),
 };
 
 impl DeskBuilder {
-    /// Los enlaces cableados (por omisión los tres).
+    /// The wired links (all three by default).
     pub fn links(mut self, links: &[LinkKind]) -> Self {
         self.links = links.to_vec();
         self
@@ -124,22 +124,22 @@ impl DeskBuilder {
         self
     }
 
-    /// La máquina que el usuario está usando al empezar: la otra está apagada (por
-    /// omisión la Mac; con la PC, los escenarios espejo de DESIGN §3.7).
-    pub fn principal(mut self, principal: Machine) -> Self {
-        self.principal = principal;
+    /// The machine the user is using at the start: the other one is off (by
+    /// default the Mac; with the PC, the mirror scenarios of DESIGN §3.7).
+    pub fn primary(mut self, primary: Machine) -> Self {
+        self.primary = primary;
         self
     }
 
-    /// El sistema de cada lado (por omisión A con macOS y B con Windows).
+    /// Each side's system (by default A with macOS and B with Windows).
     pub fn os(mut self, a: Os, b: Os) -> Self {
         self.os = [a, b];
         self
     }
 
-    /// Monitores conectados a las máquinas (por omisión, ninguno: el módulo queda sin canal).
-    /// Los monitores de escena (el doble del paso abstracto de T-100) y qué muestra cada uno
-    /// al empezar.
+    /// Monitors connected to the machines (by default none: the module is left without a channel).
+    /// The scene monitors (the stand-in for T-100's abstract step) and what each one shows
+    /// at the start.
     pub fn scene_monitors(mut self, monitors: &[(&str, Machine)]) -> Self {
         self.scene_screens = SceneScreens::new(monitors);
         self
@@ -150,11 +150,11 @@ impl DeskBuilder {
         self
     }
 
-    /// Arranca los dos agentes con la principal prendida y la otra apagada. Llamar dentro
-    /// de un runtime de tokio de un hilo, idealmente con el reloj pausado.
+    /// Starts the two agents with the main one on and the other off. Call inside
+    /// a single-threaded tokio runtime, ideally with the clock paused.
     pub async fn build(self) -> Result<Desk, SimError> {
         let dir = tempfile::tempdir().map_err(|e| SimError::Setup(e.to_string()))?;
-        // Las dos con `[power.wol]` para despertar a la otra: el Wake-on-LAN es simulado.
+        // Both with `[power.wol]` to wake the other: Wake-on-LAN is simulated.
         let os = self.os;
         let agent_cfg = |machine: Machine| {
             let mut cfg = AgentConfig::from_toml(&format!(
@@ -169,7 +169,7 @@ impl DeskBuilder {
             Ok::<_, SimError>(cfg)
         };
         let (mac_cfg, pc_cfg) = (agent_cfg(Machine::A)?, agent_cfg(Machine::B)?);
-        let world = World::with_principal(self.principal);
+        let world = World::with_primary(self.primary);
         let net = SimNet::new(world.clone(), &self.links);
         let faults = Faults::default();
 
@@ -190,9 +190,9 @@ impl DeskBuilder {
         };
         let mac = agent(mac_cfg, mac_up);
         let pc = agent(pc_cfg, pc_up);
-        // Cada agente con su gestor de enlaces real, que pinguea al otro por cada cable.
-        // Como la red real: cada vez que aparece un enlace, el agente vuelve a presentarse
-        // (su puesto y sus capacidades) por él.
+        // Each agent with its real link manager, which pings the other over each cable.
+        // Like the real network: every time a link appears, the agent introduces itself
+        // again (its desk and its capabilities) over it.
         let links =
             |near: &Arc<Agent>, far: &Arc<Agent>, up: watch::Sender<bool>| -> Result<_, SimError> {
                 let (manager, events) = LinkManager::spawn(
@@ -201,7 +201,7 @@ impl DeskBuilder {
                     HealthConfig::default(),
                 )
                 .map_err(|e| SimError::Setup(e.to_string()))?;
-                // Las métricas de la pantalla Red, como en `tandemd::network` (T-102).
+                // The Network screen metrics, as in `tandemd::network` (T-102).
                 tokio::spawn(metrics::follow(
                     near.net_metrics().clone(),
                     manager.watch(),
@@ -228,14 +228,14 @@ impl DeskBuilder {
                 });
                 Ok(peer)
             };
-        // Cada una concilia el encendido de la otra con lo que ve su gestor de enlaces.
+        // Each one reconciles the other's power with what its link manager sees.
         let (mac_reach, pc_reach) = (mac_up_tx.subscribe(), pc_up_tx.subscribe());
         let mac_links = links(&mac, &pc, mac_up_tx)?;
         let pc_links = links(&pc, &mac, pc_up_tx)?;
         mac.set_peer(mac_links.clone());
         pc.set_peer(pc_links.clone());
-        // Las interfaces de cada máquina: los cables que se enchufan después (T-094) las
-        // cambian y el gestor de enlaces las sigue, como en el agente de verdad.
+        // Each machine's interfaces: cables plugged in later (T-094) change them
+        // and the link manager follows them, as in the real agent.
         let cables = [FakeInterfaces::new(vec![]), FakeInterfaces::new(vec![])];
         let follow = |ifaces: &FakeInterfaces, links: &ManagedPeer| {
             follow_wired(ifaces, links.manager().control(), |i: &NetInterface| {
@@ -248,7 +248,7 @@ impl DeskBuilder {
             tokio::spawn(watch_while_on(world.clone(), mac.clone(), mac_reach)),
             tokio::spawn(watch_while_on(world.clone(), pc.clone(), pc_reach)),
         ];
-        // Con monitores de verdad (los dobles de `monitor-ddc`), las escenas van a ellos.
+        // With real monitors (the `monitor-ddc` doubles), scenes go to them.
         if self.monitors.is_empty() {
             for agent in [&mac, &pc] {
                 let backend = self.scene_screens.backend(agent.machine(), faults.clone());
@@ -263,14 +263,14 @@ impl DeskBuilder {
                 let core = LocalMonitors::new(
                     Arc::new(sim.bus_of(agent.machine(), world.clone())),
                     Arc::new(clock),
-                    // Una hora fija más el reloj del doble: las horas de los eventos son exactas.
+                    // A fixed time plus the double's clock: event times are exact.
                     Arc::new(move || {
                         use monitor_ddc::Clock;
                         1_763_000_000_000 + u64::try_from(wall.now().as_millis()).unwrap_or(0)
                     }),
                     LocalConfig::default(),
                 );
-                // El bus falso no bloquea: se llama en el lugar, con el reloj pausado quieto.
+                // The fake bus does not block: it is called in place, with the paused clock standing still.
                 watches.push(agent.start_monitors(core, SIM_MONITOR_TIMES, true));
             }
         }
@@ -285,7 +285,7 @@ impl DeskBuilder {
             pc_links,
             faults,
             times: self.times,
-            principal: self.principal,
+            primary: self.primary,
             watches,
             monitors,
             scene_screens: self.scene_screens,
@@ -294,7 +294,7 @@ impl DeskBuilder {
     }
 }
 
-/// Dos agentes en el mismo proceso sobre el puesto simulado.
+/// Two agents in the same process over the simulated desk.
 pub struct Desk {
     pub mac: Arc<Agent>,
     pub pc: Arc<Agent>,
@@ -305,7 +305,7 @@ pub struct Desk {
     pc_links: Arc<ManagedPeer>,
     faults: Faults,
     times: HardwareTimes,
-    principal: Machine,
+    primary: Machine,
     watches: Vec<tokio::task::JoinHandle<()>>,
     monitors: Option<SimMonitors>,
     scene_screens: SceneScreens,
@@ -317,14 +317,14 @@ impl Drop for Desk {
         for w in &self.watches {
             w.abort();
         }
-        // Rompe el ciclo agente → gestor de enlaces → agente del otro lado.
+        // Breaks the cycle agent → link manager → the other side's agent.
         self.mac.set_peer(Arc::new(NoPeer));
         self.pc.set_peer(Arc::new(NoPeer));
     }
 }
 
-/// La vigilancia del par de `agent` mientras su máquina está prendida: una apagada no
-/// corre nada, y al volver arranca de nuevo con lo que tenía guardado.
+/// The watch over `agent`'s pair while its machine is on: an off one does not
+/// run anything, and on coming back it starts again with what it had saved.
 async fn watch_while_on(world: World, agent: Arc<Agent>, reach: watch::Receiver<bool>) {
     let me = agent.machine();
     let mut power = world.subscribe_power();
@@ -351,7 +351,7 @@ async fn within<F: Future>(what: &'static str, f: F) -> Result<F::Output, SimErr
         .map_err(|_| SimError::Timeout(what))
 }
 
-/// La interfaz que ve cada máquina cuando el cable de `kind` está puesto.
+/// The interface each machine sees when the `kind` cable is plugged in.
 fn cable_interface(kind: LinkKind) -> NetInterface {
     let (name, iface_kind) = match kind {
         LinkKind::Usb4 => ("USB4 P2P Network Adapter", InterfaceKind::Usb4),
@@ -370,13 +370,13 @@ fn cable_interface(kind: LinkKind) -> NetInterface {
 }
 
 impl Desk {
-    /// Las interfaces simuladas de una máquina, para enchufar y desenchufar a mano.
+    /// The simulated interfaces of a machine, to plug and unplug by hand.
     pub fn interfaces(&self, machine: Machine) -> &FakeInterfaces {
         &self.cables[usize::from(machine == Machine::B)]
     }
 
-    /// Enchufa el cable de `kind` entre las dos máquinas: el enlace existe y la interfaz
-    /// aparece en las dos, que se enteran solas.
+    /// Plugs the `kind` cable between the two machines: the link exists and the interface
+    /// appears on both, which notice by themselves.
     pub fn plug_cable(&self, kind: LinkKind) {
         self.net.plug(kind);
         for ifaces in &self.cables {
@@ -384,7 +384,7 @@ impl Desk {
         }
     }
 
-    /// Desconecta el cable de `kind`: la interfaz baja en las dos máquinas y nada pasa por él.
+    /// Unplugs the `kind` cable: the interface goes down on both machines and nothing passes through it.
     pub fn unplug_cable(&self, kind: LinkKind) {
         let index = cable_interface(kind).index;
         for ifaces in &self.cables {
@@ -397,7 +397,7 @@ impl Desk {
         DeskBuilder::default()
     }
 
-    /// El puesto con las opciones por omisión: tres enlaces, la Mac prendida, la PC apagada.
+    /// The desk with the default options: three links, the Mac on, the PC off.
     pub async fn new() -> Result<Desk, SimError> {
         DeskBuilder::default().build().await
     }
@@ -409,7 +409,7 @@ impl Desk {
         }
     }
 
-    /// El enlace por el que `machine` habla ahora con el otro agente.
+    /// The link `machine` now uses to talk to the other agent.
     pub fn active_link(&self, machine: Machine) -> Option<LinkKind> {
         match machine {
             Machine::A => self.mac_links.active_link(),
@@ -417,7 +417,7 @@ impl Desk {
         }
     }
 
-    /// Reemplaza los fallos pendientes y programa las caídas de enlace del plan.
+    /// Replaces the pending faults and schedules the plan's link drops.
     pub fn arm(&self, plan: FaultPlan) {
         self.faults.arm(plan.faults);
         for (after, kind) in plan.cuts {
@@ -429,8 +429,8 @@ impl Desk {
         }
     }
 
-    /// Encender (o apagar) `machine` desde la UI de `on`, por la misma vía que la UI, y
-    /// esperar el desenlace.
+    /// Power `machine` on (or off) from the UI of `on`, through the same path as the UI, and
+    /// wait for the outcome.
     pub async fn set_power(
         &self,
         on: Machine,
@@ -441,23 +441,23 @@ impl Desk {
             .await
     }
 
-    /// Aplicar la escena `id` desde la UI de `on` y esperar el desenlace.
+    /// Apply scene `id` from the UI of `on` and wait for the outcome.
     pub async fn apply_scene(&self, on: Machine, id: &str) -> Result<TxnRun, SimError> {
         self.request(on, UiCommand::ApplyScene { id: id.to_owned() })
             .await
     }
 
-    /// Los monitores de escena ([`DeskBuilder::scene_monitors`]).
+    /// The scene monitors ([`DeskBuilder::scene_monitors`]).
     pub fn scene_screens(&self) -> &SceneScreens {
         &self.scene_screens
     }
 
-    /// Encender `machine` desde la otra.
+    /// Power `machine` on from the other one.
     pub async fn power_on(&self, machine: Machine) -> Result<TxnRun, SimError> {
         self.set_power(machine.other(), machine, true).await
     }
 
-    /// Un pedido de la UI que arranca una transacción; espera su desenlace.
+    /// A UI request that starts a transaction; waits for its outcome.
     async fn request(&self, on: Machine, cmd: UiCommand) -> Result<TxnRun, SimError> {
         let agent = self.agent(on);
         let mut rx = agent.subscribe_txns();
@@ -468,13 +468,13 @@ impl Desk {
         };
         let mut events = Vec::new();
         loop {
-            let e = match within("el desenlace de la transacción", rx.recv()).await? {
+            let e = match within("the transaction outcome", rx.recv()).await? {
                 Ok(e) => e,
                 Err(broadcast::error::RecvError::Lagged(n)) => {
-                    return Err(SimError::Setup(format!("se perdieron {n} avisos")));
+                    return Err(SimError::Setup(format!("{n} notices were lost")));
                 }
                 Err(broadcast::error::RecvError::Closed) => {
-                    return Err(SimError::Setup("el orquestador se cerró".into()));
+                    return Err(SimError::Setup("the orchestrator closed".into()));
                 }
             };
             let end = is_end(&e) == Some(txn);
@@ -485,17 +485,17 @@ impl Desk {
         }
     }
 
-    /// La máquina que el usuario usaba al empezar.
-    pub fn principal(&self) -> Machine {
-        self.principal
+    /// The machine the user was using at the start.
+    pub fn primary(&self) -> Machine {
+        self.primary
     }
 
-    /// Los monitores físicos, si el puesto tiene ([`DeskBuilder::monitors`]).
+    /// The physical monitors, if the desk has any ([`DeskBuilder::monitors`]).
     pub fn monitors(&self) -> Option<&SimMonitors> {
         self.monitors.as_ref()
     }
 
-    /// Cambiar la entrada de un monitor desde la UI de `on` y esperar el desenlace.
+    /// Change a monitor's input from the UI of `on` and wait for the outcome.
     pub async fn switch_monitor(
         &self,
         on: Machine,
@@ -509,7 +509,7 @@ impl Desk {
         self.request(on, cmd).await
     }
 
-    /// Espera a que los monitores que ve `machine` cumplan `ok`; devuelve esa vista.
+    /// Waits for the monitors `machine` sees to satisfy `ok`; returns that view.
     pub async fn wait_monitors(
         &self,
         machine: Machine,
@@ -519,21 +519,21 @@ impl Desk {
         let mut rx = self.agent(machine).subscribe_monitors();
         let views = within(what, rx.wait_for(|v| ok(v)))
             .await?
-            .map_err(|_| SimError::Setup("el agente se cerró".into()))?
+            .map_err(|_| SimError::Setup("the agent closed".into()))?
             .clone();
         Ok(views)
     }
 
-    /// Apagado de la PC orquestado por la Mac (DESIGN §5).
+    /// PC shutdown orchestrated by the Mac (DESIGN §5).
     pub async fn shutdown_pc(&self) -> Result<TxnRun, SimError> {
         self.shutdown(Machine::A, Machine::B).await
     }
 
-    /// Apagado limpio de `machine` orquestado por `on`.
+    /// Clean shutdown of `machine` orchestrated by `on`.
     ///
-    /// Se arma el plan y se corre en el orquestador como lo haría el agente con
-    /// [`UiCommand::SetPower`], para tener los avisos de la transacción aunque la máquina
-    /// que orquesta sea la que se apaga.
+    /// The plan is built and run in the orchestrator the way the agent would with
+    /// [`UiCommand::SetPower`], to get the transaction's notices even if the machine
+    /// doing the orchestrating is the one shutting down.
     pub async fn shutdown(&self, on: Machine, machine: Machine) -> Result<TxnRun, SimError> {
         let agent = self.agent(on);
         let orch = agent.orchestrator();
@@ -543,7 +543,7 @@ impl Desk {
             .ok_or_else(|| SimError::Rejected(tandemd::agent::BUSY.into()))?;
         let mut state = agent.state();
         let plan = Plan::power_off(&state, machine);
-        let outcome = within("el apagado", orch.run(txn, &mut state, &plan)).await;
+        let outcome = within("the shutdown", orch.run(txn, &mut state, &plan)).await;
         let outcome = match outcome {
             Ok(o) => o,
             Err(e) => {
@@ -560,24 +560,24 @@ impl Desk {
         Ok(TxnRun { events })
     }
 
-    /// La PC se queda sin corriente de golpe.
+    /// The PC suddenly loses power.
     pub fn pull_pc_plug(&self) {
         self.pull_plug(Machine::B);
     }
 
-    /// `machine` se queda sin corriente (o se suspende) de golpe, sin que ningún agente
-    /// lo pida: su agente deja de contestar.
+    /// `machine` suddenly loses power (or suspends), with no agent
+    /// asking for it: its agent stops answering.
     pub fn pull_plug(&self, machine: Machine) {
         self.world.lock().power_off(machine);
         self.net.drop_all();
     }
 
-    /// Alguien enciende la PC con su botón, sin Wake-on-LAN.
+    /// Someone powers the PC on with its button, without Wake-on-LAN.
     pub fn press_pc_power_button(&self) {
         self.press_power_button(Machine::B);
     }
 
-    /// Alguien enciende (o despierta) `machine` con su botón, sin Wake-on-LAN.
+    /// Someone powers `machine` on (or wakes it) with its button, without Wake-on-LAN.
     pub fn press_power_button(&self, machine: Machine) {
         {
             let mut w = self.world.lock();
@@ -593,17 +593,17 @@ impl Desk {
         });
     }
 
-    /// Deja pasar el tiempo para que termine lo que quedó en el aire.
+    /// Lets time pass so that whatever was left in the air finishes.
     pub async fn settle(&self) {
         tokio::time::sleep(SETTLE).await;
     }
 
-    /// La energía coincide con lo que cree la principal, y nada imposible ocurrió.
+    /// Power matches what the main machine believes, and nothing impossible happened.
     pub async fn check(&self) -> Result<(), SimError> {
-        self.check_from(self.principal).await
+        self.check_from(self.primary).await
     }
 
-    /// La energía coincide con lo que cree `machine`.
+    /// Power matches what `machine` believes.
     pub async fn check_from(&self, machine: Machine) -> Result<(), SimError> {
         self.settle().await;
         self.world
@@ -611,37 +611,37 @@ impl Desk {
             .map_err(SimError::Mismatch)
     }
 
-    /// Espera a que el agente de la PC tenga el mismo estado que el de la Mac.
+    /// Waits for the PC's agent to have the same state as the Mac's.
     pub async fn pc_agrees(&self) -> Result<State, SimError> {
         self.agrees(Machine::B).await
     }
 
-    /// Espera a que el agente de `machine` tenga el mismo estado que el de la otra.
+    /// Waits for `machine`'s agent to have the same state as the other's.
     pub async fn agrees(&self, machine: Machine) -> Result<State, SimError> {
         let want = self.agent(machine.other()).state();
         let mut rx = self.agent(machine).subscribe();
         within(
-            "que la otra máquina reciba el estado",
+            "the other machine to receive the state",
             rx.wait_for(|s| *s == want),
         )
         .await?
-        .map_err(|_| SimError::Setup("el agente se cerró".into()))?;
+        .map_err(|_| SimError::Setup("the agent closed".into()))?;
         Ok(want)
     }
 
-    /// Espera a que la principal vea al agente de la otra por algún enlace.
+    /// Waits for the main machine to see the other's agent over some link.
     pub async fn wait_link(&self, kind: LinkKind) -> Result<(), SimError> {
-        let links = match self.principal {
+        let links = match self.primary {
             Machine::A => &self.mac_links,
             Machine::B => &self.pc_links,
         };
         let mut rx = links.manager().watch();
         within(
-            "el enlace",
+            "the link",
             rx.wait_for(|s| s.active.as_ref().is_some_and(|a| a.kind == kind)),
         )
         .await?
         .map(|_| ())
-        .map_err(|_| SimError::Setup("el gestor de enlaces se cerró".into()))
+        .map_err(|_| SimError::Setup("the link manager closed".into()))
     }
 }

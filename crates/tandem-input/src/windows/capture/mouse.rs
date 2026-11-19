@@ -1,11 +1,11 @@
-//! Mouse: botones y rueda del hook, deltas de Raw Input.
+//! Mouse: hook buttons and wheel, Raw Input deltas.
 
 use super::consts::*;
 use super::{MouseHook, RawMouse};
 use crate::event::{Button, InputEvent, KeyState, Scroll};
 
-/// Botón de un mensaje del hook: índice (izquierdo, derecho, medio, X1, X2) y si
-/// es presión.
+/// Button of a hook message: index (left, right, middle, X1, X2) and whether
+/// it is a press.
 pub(super) fn button_bit(m: &MouseHook) -> Option<(u8, bool)> {
     let x = || match m.high_word() {
         XBUTTON1 => Some(3),
@@ -25,9 +25,9 @@ pub(super) fn button_bit(m: &MouseHook) -> Option<(u8, bool)> {
     }
 }
 
-/// Evento de un mensaje del hook de mouse. El movimiento solo sale como posición
-/// absoluta y solo si no se tragó: con la entrada tragada el cursor no se mueve y
-/// el delta lo da Raw Input.
+/// Event from a mouse hook message. Movement only comes out as an absolute
+/// position and only if it was not swallowed: with input swallowed the cursor does not move and
+/// the delta comes from Raw Input.
 pub fn mouse_event(m: &MouseHook, swallowed: bool) -> Option<InputEvent> {
     if let Some((index, down)) = button_bit(m) {
         let button = match index {
@@ -44,8 +44,8 @@ pub fn mouse_event(m: &MouseHook, swallowed: bool) -> Option<InputEvent> {
         };
         return Some(InputEvent::Button { button, state });
     }
-    // La palabra alta es un delta con signo en unidades de 120 (o fracciones,
-    // con ruedas de alta resolución y touchpads de precisión).
+    // The high word is a signed delta in units of 120 (or fractions,
+    // with high-resolution wheels and precision touchpads).
     let delta = i32::from(m.high_word() as i16);
     match m.message {
         WM_MOUSEMOVE if !swallowed => Some(InputEvent::MotionAbsolute {
@@ -56,7 +56,7 @@ pub fn mouse_event(m: &MouseHook, swallowed: bool) -> Option<InputEvent> {
             dx_v120: 0,
             dy_v120: delta,
         })),
-        // Positivo hacia la derecha, como en `Scroll`.
+        // Positive to the right, as in `Scroll`.
         WM_MOUSEHWHEEL if delta != 0 => Some(InputEvent::Scroll(Scroll::Wheel {
             dx_v120: delta,
             dy_v120: 0,
@@ -65,15 +65,15 @@ pub fn mouse_event(m: &MouseHook, swallowed: bool) -> Option<InputEvent> {
     }
 }
 
-/// Deltas de Raw Input. Los dispositivos que reportan posición absoluta
-/// (escritorio remoto, máquinas virtuales, tabletas) se convierten a delta
-/// restando la muestra anterior del mismo dispositivo.
+/// Raw Input deltas. Devices that report absolute position
+/// (remote desktop, virtual machines, tablets) are converted to a delta
+/// by subtracting the previous sample of the same device.
 #[derive(Debug, Default)]
 pub struct RawMotion {
     last_absolute: Option<(usize, i32, i32)>,
 }
 
-/// Tope del rango de las coordenadas absolutas de Raw Input.
+/// Upper bound of the range of Raw Input's absolute coordinates.
 const ABSOLUTE_MAX: f64 = 65535.0;
 
 impl RawMotion {
@@ -82,7 +82,7 @@ impl RawMotion {
     }
 
     pub fn push(&mut self, raw: &RawMouse) -> Option<(f64, f64)> {
-        // Lo inyectado con SendInput llega sin dispositivo; ya lo vio el hook.
+        // What is injected with SendInput arrives without a device; the hook already saw it.
         if raw.device == 0 {
             return None;
         }
@@ -127,7 +127,7 @@ mod tests {
     }
 
     #[test]
-    fn botones() {
+    fn buttons() {
         use KeyState::*;
         let cases = [
             (WM_LBUTTONDOWN, 0, Button::Left, Pressed),
@@ -150,7 +150,7 @@ mod tests {
     }
 
     #[test]
-    fn rueda_con_signo_y_fracciones() {
+    fn wheel_with_sign_and_fractions() {
         let wheel = |msg, d: i16| mouse_event(&hook(msg, d as u16), true);
         assert_eq!(
             wheel(WM_MOUSEWHEEL, -120),
@@ -177,7 +177,7 @@ mod tests {
     }
 
     #[test]
-    fn la_posicion_solo_sale_sin_grab() {
+    fn the_position_only_comes_out_without_grab() {
         assert_eq!(
             mouse_event(&hook(WM_MOUSEMOVE, 0), false),
             Some(InputEvent::MotionAbsolute {
@@ -200,7 +200,7 @@ mod tests {
     }
 
     #[test]
-    fn raw_relativo_tal_cual_y_sin_ceros_ni_inyectados() {
+    fn relative_raw_as_is_and_without_zeros_or_injected() {
         let mut m = RawMotion::new();
         assert_eq!(m.push(&raw(1, 0, 5, -7)), Some((5.0, -7.0)));
         assert_eq!(m.push(&raw(1, 0, 0, 0)), None);
@@ -208,18 +208,18 @@ mod tests {
     }
 
     #[test]
-    fn raw_absoluto_se_convierte_a_delta_por_dispositivo() {
+    fn absolute_raw_is_converted_to_delta_per_device() {
         let mut m = RawMotion::new();
         let abs = MOUSE_MOVE_ABSOLUTE | MOUSE_VIRTUAL_DESKTOP;
-        // La primera muestra solo fija el origen.
+        // The first sample only sets the origin.
         assert_eq!(m.push(&raw(1, abs, 0, 0)), None);
         assert_eq!(
             m.push(&raw(1, abs, 65535, 32767)),
             Some((3440.0, 1440.0 * 32767.0 / 65535.0))
         );
-        // Otro dispositivo: vuelve a empezar.
+        // Another device: start over.
         assert_eq!(m.push(&raw(2, abs, 100, 100)), None);
-        // Un relativo en medio también corta la serie.
+        // A relative one in between also breaks the series.
         assert_eq!(m.push(&raw(2, 0, 1, 0)), Some((1.0, 0.0)));
         assert_eq!(m.push(&raw(2, abs, 200, 100)), None);
         assert_eq!(m.push(&raw(2, abs, 200, 100)), None);

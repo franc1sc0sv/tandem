@@ -1,4 +1,4 @@
-//! Lo que toca Win32: hilo de hooks, Raw Input y DPI.
+//! What touches Win32: hook thread, Raw Input and DPI.
 
 use std::cell::{OnceCell, RefCell};
 use std::sync::Arc;
@@ -37,7 +37,7 @@ use super::{
 use crate::event::InputEvent;
 use crate::geometry::Point;
 
-// Las constantes portables tienen que ser las de Windows.
+// The portable constants have to be those of Windows.
 const _: () = {
     use ::windows::Win32::UI::Input::KeyboardAndMouse as km;
     use ::windows::Win32::UI::Input::{MOUSE_MOVE_ABSOLUTE, MOUSE_VIRTUAL_DESKTOP};
@@ -71,7 +71,7 @@ const _: () = {
     assert!(consts::VK_MEDIA_PLAY_PAUSE == km::VK_MEDIA_PLAY_PAUSE.0 as u32);
 };
 
-/// Mensaje al hilo de hooks: reinstalarlos.
+/// Message to the hook thread: reinstall them.
 const WM_REINSTALL: u32 = WM_APP + 1;
 
 fn os_error(op: &'static str, e: ::windows::core::Error) -> CaptureError {
@@ -82,13 +82,13 @@ fn os_error(op: &'static str, e: ::windows::core::Error) -> CaptureError {
     }
 }
 
-/// Declara el proceso Per-Monitor-V2 DPI aware: así las posiciones del hook,
-/// `SetCursorPos` y la inyección absoluta usan píxeles físicos en todos los
-/// monitores. Si ya lo estaba (por manifiesto o una llamada anterior), no hace nada.
+/// Declares the process Per-Monitor-V2 DPI aware: that way the hook's positions,
+/// `SetCursorPos` and absolute injection use physical pixels on all
+/// monitors. If it already was (by manifest or an earlier call), it does nothing.
 pub fn ensure_per_monitor_v2() -> Result<(), CaptureError> {
-    // SAFETY: solo cambia el modo de DPI del proceso; falla si ya estaba fijado.
+    // SAFETY: it only changes the process's DPI mode; it fails if it was already set.
     let set = unsafe { SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
-    // SAFETY: consultas sin efectos sobre el contexto del hilo actual.
+    // SAFETY: queries without effects on the current thread's context.
     let is_v2 = unsafe {
         AreDpiAwarenessContextsEqual(
             GetThreadDpiAwarenessContext(),
@@ -103,7 +103,7 @@ pub fn ensure_per_monitor_v2() -> Result<(), CaptureError> {
     }
 }
 
-/// Estado del hilo de hooks, accesible desde los callbacks.
+/// State of the hook thread, accessible from the callbacks.
 struct HookCtx {
     tx: Sender<HookEvent>,
     grab: Arc<AtomicBool>,
@@ -111,11 +111,11 @@ struct HookCtx {
 }
 
 impl HookCtx {
-    /// Decide y encola. Devuelve `true` si hay que tragar el evento.
+    /// Decides and queues. Returns `true` if the event has to be swallowed.
     fn handle(&self, decide: impl FnOnce(&mut HookFilter, bool) -> (Verdict, HookEvent)) -> bool {
         let grab = self.grab.load(Ordering::Relaxed);
-        // Los callbacks no se reentran (no bombeamos mensajes dentro), pero un
-        // pánico aquí abortaría el proceso: ante la duda, dejar pasar.
+        // The callbacks are not reentered (we do not pump messages inside), but a
+        // panic here would abort the process: when in doubt, let it pass.
         let Ok(mut filter) = self.filter.try_borrow_mut() else {
             return false;
         };
@@ -131,12 +131,12 @@ fn with_ctx(f: impl FnOnce(&HookCtx) -> bool) -> bool {
     CTX.try_with(|c| c.get().is_some_and(f)).unwrap_or(false)
 }
 
-// SAFETY: la firma coincide con `HOOKPROC`; solo la invoca Windows en el hilo que instaló
-// el gancho, con `lparam` válido cuando `code` es HC_ACTION.
+// SAFETY: the signature matches `HOOKPROC`; it is only invoked by Windows on the thread that installed
+// the hook, with a valid `lparam` when `code` is HC_ACTION.
 unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     if code == HC_ACTION as i32 {
-        // SAFETY: con HC_ACTION, `lparam` apunta a un KBDLLHOOKSTRUCT válido
-        // durante la llamada; se copia enseguida.
+        // SAFETY: with HC_ACTION, `lparam` points to a valid KBDLLHOOKSTRUCT
+        // during the call; it is copied right away.
         let k = unsafe { *(lparam.0 as *const KBDLLHOOKSTRUCT) };
         let hook = KeyboardHook {
             vk: k.vkCode,
@@ -159,14 +159,14 @@ unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARA
             return LRESULT(1);
         }
     }
-    // SAFETY: se pasan los parámetros recibidos tal cual al siguiente hook.
+    // SAFETY: the received parameters are passed as is to the next hook.
     unsafe { CallNextHookEx(None, code, wparam, lparam) }
 }
 
 unsafe extern "system" fn mouse_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     if code == HC_ACTION as i32 {
-        // SAFETY: con HC_ACTION, `lparam` apunta a un MSLLHOOKSTRUCT válido
-        // durante la llamada; se copia enseguida.
+        // SAFETY: with HC_ACTION, `lparam` points to a valid MSLLHOOKSTRUCT
+        // during the call; it is copied right away.
         let m = unsafe { *(lparam.0 as *const MSLLHOOKSTRUCT) };
         let hook = MouseHook {
             message: wparam.0 as u32,
@@ -191,34 +191,34 @@ unsafe extern "system" fn mouse_proc(code: i32, wparam: WPARAM, lparam: LPARAM) 
             return LRESULT(1);
         }
     }
-    // SAFETY: se pasan los parámetros recibidos tal cual al siguiente hook.
+    // SAFETY: the received parameters are passed as is to the next hook.
     unsafe { CallNextHookEx(None, code, wparam, lparam) }
 }
 
-/// Los dos hooks instalados; se quitan al soltar el valor.
+/// The two installed hooks; they are removed when the value is dropped.
 struct Hooks {
     keyboard: HHOOK,
     mouse: HHOOK,
 }
 
 fn unhook(hook: HHOOK) {
-    // SAFETY: handle devuelto por SetWindowsHookExW en este hilo. Si Windows ya
-    // lo quitó, la llamada falla sin efecto.
+    // SAFETY: handle returned by SetWindowsHookExW on this thread. If Windows already
+    // removed it, the call fails without effect.
     let _ = unsafe { UnhookWindowsHookEx(hook) };
 }
 
 impl Hooks {
     fn install() -> Result<Self, CaptureError> {
-        // SAFETY: consulta el módulo del ejecutable, sin efectos.
+        // SAFETY: queries the executable's module, without effects.
         let module = unsafe { GetModuleHandleW(PCWSTR::null()) }
             .map_err(|e| os_error("GetModuleHandleW", e))?;
         let instance = HINSTANCE::from(module);
-        // SAFETY: `keyboard_proc` y `mouse_proc` tienen la firma de HOOKPROC y
-        // existen mientras viva el programa.
+        // SAFETY: `keyboard_proc` and `mouse_proc` have the signature of HOOKPROC and
+        // exist as long as the program lives.
         let keyboard =
             unsafe { SetWindowsHookExW(WH_KEYBOARD_LL, Some(keyboard_proc), Some(instance), 0) }
                 .map_err(|e| os_error("SetWindowsHookExW(WH_KEYBOARD_LL)", e))?;
-        // SAFETY: igual que el de teclado.
+        // SAFETY: the same as the keyboard one.
         match unsafe { SetWindowsHookExW(WH_MOUSE_LL, Some(mouse_proc), Some(instance), 0) } {
             Ok(mouse) => Ok(Self { keyboard, mouse }),
             Err(e) => {
@@ -236,7 +236,7 @@ impl Drop for Hooks {
     }
 }
 
-/// Generic Desktop / Mouse (deltas y watchdog) y Keyboard (solo watchdog).
+/// Generic Desktop / Mouse (deltas and watchdog) and Keyboard (watchdog only).
 fn raw_devices(flags: RAWINPUTDEVICE_FLAGS, hwnd: HWND) -> [RAWINPUTDEVICE; 2] {
     [0x02, 0x06].map(|usage| RAWINPUTDEVICE {
         usUsagePage: 0x01,
@@ -246,14 +246,14 @@ fn raw_devices(flags: RAWINPUTDEVICE_FLAGS, hwnd: HWND) -> [RAWINPUTDEVICE; 2] {
     })
 }
 
-/// Ventana solo de mensajes que recibe Raw Input del mouse y del teclado aunque no
-/// tenga el foco.
+/// Message-only window that receives mouse and keyboard Raw Input even if it does not
+/// have focus.
 struct SinkWindow(HWND);
 
 impl SinkWindow {
     fn create() -> Result<Self, CaptureError> {
-        // SAFETY: "STATIC" es una clase del sistema; con padre HWND_MESSAGE la
-        // ventana no se muestra ni recibe difusiones.
+        // SAFETY: "STATIC" is a system class; with parent HWND_MESSAGE the
+        // window is neither shown nor receives broadcasts.
         let hwnd = unsafe {
             CreateWindowExW(
                 WINDOW_EX_STYLE(0),
@@ -273,7 +273,7 @@ impl SinkWindow {
         .map_err(|e| os_error("CreateWindowExW", e))?;
         let window = SinkWindow(hwnd);
         let devices = raw_devices(RIDEV_INPUTSINK, hwnd);
-        // SAFETY: arreglo de estructuras con el tamaño de cada una.
+        // SAFETY: array of structures with the size of each.
         unsafe { RegisterRawInputDevices(&devices, size_of::<RAWINPUTDEVICE>() as u32) }
             .map_err(|e| os_error("RegisterRawInputDevices", e))?;
         Ok(window)
@@ -283,9 +283,9 @@ impl SinkWindow {
 impl Drop for SinkWindow {
     fn drop(&mut self) {
         let devices = raw_devices(RIDEV_REMOVE, HWND::default());
-        // SAFETY: igual que al registrar; RIDEV_REMOVE exige hwndTarget nulo.
+        // SAFETY: the same as when registering; RIDEV_REMOVE requires a null hwndTarget.
         let _ = unsafe { RegisterRawInputDevices(&devices, size_of::<RAWINPUTDEVICE>() as u32) };
-        // SAFETY: ventana creada por este hilo.
+        // SAFETY: window created by this thread.
         let _ = unsafe { DestroyWindow(self.0) };
     }
 }
@@ -294,17 +294,17 @@ fn metric_span(
     cx: ::windows::Win32::UI::WindowsAndMessaging::SYSTEM_METRICS_INDEX,
     cy: ::windows::Win32::UI::WindowsAndMessaging::SYSTEM_METRICS_INDEX,
 ) -> (f64, f64) {
-    // SAFETY: consultas sin efectos.
+    // SAFETY: queries without effects.
     let (w, h) = unsafe { (GetSystemMetrics(cx), GetSystemMetrics(cy)) };
     (f64::from(w), f64::from(h))
 }
 
-/// Lee un WM_INPUT. Del teclado solo interesa de qué dispositivo vino.
+/// Reads a WM_INPUT. For the keyboard only which device it came from matters.
 fn read_raw(lparam: LPARAM) -> Option<HookEvent> {
     let mut raw = RAWINPUT::default();
     let mut size = size_of::<RAWINPUT>() as u32;
-    // SAFETY: el búfer es un RAWINPUT completo y `size` dice su tamaño; un
-    // RAWINPUT de mouse o de teclado siempre cabe.
+    // SAFETY: the buffer is a complete RAWINPUT and `size` says its size; a
+    // mouse or keyboard RAWINPUT always fits.
     let n = unsafe {
         GetRawInputData(
             HRAWINPUT(lparam.0 as *mut _),
@@ -324,7 +324,7 @@ fn read_raw(lparam: LPARAM) -> Option<HookEvent> {
     if raw.header.dwType != RIM_TYPEMOUSE.0 {
         return None;
     }
-    // SAFETY: dwType == RIM_TYPEMOUSE: la variante válida de la unión es `mouse`.
+    // SAFETY: dwType == RIM_TYPEMOUSE: the valid variant of the union is `mouse`.
     let mouse = unsafe { raw.data.mouse };
     let flags = mouse.usFlags.0;
     let span = if flags & consts::MOUSE_MOVE_ABSOLUTE == 0 {
@@ -350,11 +350,11 @@ fn hook_thread(
     ready: SyncSender<Result<u32, CaptureError>>,
 ) {
     let mut msg = MSG::default();
-    // SAFETY: crea la cola de mensajes del hilo para que PostThreadMessageW no
-    // falle antes del primer GetMessageW.
+    // SAFETY: creates the thread's message queue so that PostThreadMessageW does not
+    // fail before the first GetMessageW.
     let _ = unsafe { PeekMessageW(&mut msg, None, WM_USER, WM_USER, PM_NOREMOVE) };
-    // Este hilo casi siempre espera; cuando despierta, tiene que contestar ya.
-    // SAFETY: seudo-handle del hilo actual.
+    // This thread almost always waits; when it wakes up, it has to answer at once.
+    // SAFETY: pseudo-handle of the current thread.
     let _ = unsafe { SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL) };
     CTX.with(|c| {
         let _ = c.set(HookCtx {
@@ -373,17 +373,17 @@ fn hook_thread(
         }
     };
     let mut hooks = Some(hooks);
-    // SAFETY: sin parámetros.
+    // SAFETY: no parameters.
     let _ = ready.send(Ok(unsafe { GetCurrentThreadId() }));
 
     loop {
-        // SAFETY: `msg` es un MSG propio y válido.
+        // SAFETY: `msg` is an own, valid MSG.
         let r = unsafe { GetMessageW(&mut msg, None, 0, 0) };
         if r.0 == 0 || r.0 == -1 {
             break;
         }
         if msg.hwnd.is_invalid() && msg.message == WM_REINSTALL {
-            // Primero se quitan los viejos para no recibir cada evento dos veces.
+            // The old ones are removed first so as not to receive each event twice.
             drop(hooks.take());
             hooks = Hooks::install().ok();
             reinstalls.fetch_add(1, Ordering::Relaxed);
@@ -397,32 +397,32 @@ fn hook_thread(
                 false
             });
         }
-        // WM_INPUT también pasa por DefWindowProc, que libera sus datos.
-        // SAFETY: mensaje recién sacado de la cola de este hilo.
+        // WM_INPUT also goes through DefWindowProc, which frees its data.
+        // SAFETY: message just taken from this thread's queue.
         unsafe { DispatchMessageW(&msg) };
     }
     drop(hooks);
     drop(window);
-    // El Sender de CTX se suelta al terminar el hilo y el de proceso sale.
+    // CTX's Sender is dropped when the thread ends and the process one exits.
 }
 
-/// Reinstalación de los hooks, desde el hilo de proceso.
+/// Reinstalling the hooks, from the process thread.
 struct SysControl {
     hook_thread: u32,
 }
 
 impl HookControl for SysControl {
     fn reinstall(&mut self) {
-        // SAFETY: mensaje sin punteros a un hilo con cola.
+        // SAFETY: message without pointers to a thread with a queue.
         let _ = unsafe { PostThreadMessageW(self.hook_thread, WM_REINSTALL, WPARAM(0), LPARAM(0)) };
     }
 }
 
-/// Captura de teclado y mouse de Windows.
+/// Windows keyboard and mouse capture.
 ///
-/// Mientras no hay grab, todo pasa al sistema local y se informa igual (para
-/// atajos, lo presionado y la posición del cursor). Con grab, la entrada local se
-/// traga y el cursor queda quieto; los eventos siguen llegando a `sink`.
+/// While there is no grab, everything passes to the local system and is reported anyway (for
+/// shortcuts, what is pressed and the cursor position). With a grab, local input is
+/// swallowed and the cursor stays still; events keep reaching `sink`.
 pub struct WindowsCapture {
     grab: Arc<AtomicBool>,
     reinstalls: Arc<AtomicU32>,
@@ -432,8 +432,8 @@ pub struct WindowsCapture {
 }
 
 impl WindowsCapture {
-    /// Arranca los dos hilos. `sink` corre en el hilo de proceso, nunca en el de
-    /// los hooks: puede tardar sin poner en riesgo los hooks.
+    /// Starts the two threads. `sink` runs on the process thread, never on the hooks one:
+    /// it can take long without putting the hooks at risk.
     pub fn start<F>(config: CaptureConfig, mut sink: F) -> Result<Self, CaptureError>
     where
         F: FnMut(InputEvent) + Send + 'static,
@@ -468,7 +468,7 @@ impl WindowsCapture {
             hook_thread: Some(hook_thread),
             pipeline: None,
         };
-        // Si esto falla, el Drop de `capture` detiene el hilo de hooks.
+        // If this fails, `capture`'s Drop stops the hook thread.
         let pipeline = std::thread::Builder::new()
             .name("tandem-capture".into())
             .spawn(move || {
@@ -481,7 +481,7 @@ impl WindowsCapture {
         Ok(capture)
     }
 
-    /// `true`: tragar la entrada local (el foco está en la otra máquina).
+    /// `true`: swallow local input (the focus is on the other machine).
     pub fn set_grab(&self, grab: bool) {
         self.grab.store(grab, Ordering::Relaxed);
     }
@@ -490,14 +490,14 @@ impl WindowsCapture {
         self.grab.load(Ordering::Relaxed)
     }
 
-    /// Pone el cursor en `pos`, en píxeles físicos del escritorio virtual.
+    /// Puts the cursor at `pos`, in physical pixels of the virtual desktop.
     pub fn warp(&self, pos: Point) -> Result<(), CaptureError> {
-        // SAFETY: sin punteros; las coordenadas fuera de pantalla se recortan.
+        // SAFETY: no pointers; coordinates outside the screen are clipped.
         unsafe { SetCursorPos(pos.x.round() as i32, pos.y.round() as i32) }
             .map_err(|e| os_error("SetCursorPos", e))
     }
 
-    /// Cuántas veces el watchdog tuvo que reinstalar los hooks.
+    /// How many times the watchdog had to reinstall the hooks.
     pub fn reinstalls(&self) -> u32 {
         self.reinstalls.load(Ordering::Relaxed)
     }
@@ -506,12 +506,12 @@ impl WindowsCapture {
 impl Drop for WindowsCapture {
     fn drop(&mut self) {
         self.grab.store(false, Ordering::Relaxed);
-        // SAFETY: mensaje sin punteros a un hilo con cola.
+        // SAFETY: message without pointers to a thread with a queue.
         let _ = unsafe { PostThreadMessageW(self.hook_thread_id, WM_QUIT, WPARAM(0), LPARAM(0)) };
         if let Some(t) = self.hook_thread.take() {
             let _ = t.join();
         }
-        // Sin el hilo de hooks el canal se cierra y el de proceso termina.
+        // Without the hook thread the channel closes and the process one ends.
         if let Some(t) = self.pipeline.take() {
             let _ = t.join();
         }

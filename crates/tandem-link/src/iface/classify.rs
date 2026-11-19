@@ -3,11 +3,11 @@ use std::net::{IpAddr, SocketAddr};
 use super::{InterfaceKind, NetInterface};
 use crate::manager::{LinkCandidate, LinkKind};
 
-/// Tipo de una interfaz por su nombre (en Windows, el amigable del adaptador).
+/// Type of an interface by its name (on Windows, the adapter's friendly one).
 ///
-/// Solo se acepta como cable lo que se reconoce con seguridad. En macOS `en0` puede ser
-/// Wi-Fi o Ethernet según el equipo: no se adivina y queda `Other`, que cuenta como Wi-Fi.
-/// `bridge*` es el Thunderbolt Bridge (ahí se agrupan los `en*` de Thunderbolt).
+/// Only what is recognized with certainty is accepted as a cable. On macOS `en0` can be
+/// Wi-Fi or Ethernet depending on the machine: it is not guessed and stays `Other`, which counts as Wi-Fi.
+/// `bridge*` is the Thunderbolt Bridge (that is where the Thunderbolt `en*` are grouped).
 pub fn classify(name: &str) -> InterfaceKind {
     let n = name.to_lowercase();
     let has = |words: &[&str]| words.iter().any(|w| n.contains(w));
@@ -23,9 +23,9 @@ pub fn classify(name: &str) -> InterfaceKind {
     }
 }
 
-/// La peor de dos clasificaciones (`Wifi` < `Ethernet` < `Usb4` en calidad): un camino con
-/// un tramo de Wi-Fi no es un cable. El orden de [`LinkKind`] pone primero al mejor, así que
-/// la peor es la mayor.
+/// The worse of two classifications (`Wifi` < `Ethernet` < `Usb4` in quality): a path with
+/// a Wi-Fi stretch is not a cable. The order of [`LinkKind`] puts the best first, so
+/// the worst is the greatest.
 pub fn worst(a: LinkKind, b: LinkKind) -> LinkKind {
     a.max(b)
 }
@@ -75,8 +75,8 @@ fn unmapped(ip: IpAddr) -> IpAddr {
     }
 }
 
-/// Reetiqueta los candidatos con el tipo de su interfaz. Los que no caen en ninguna
-/// interfaz conocida se quedan como están.
+/// Relabels the candidates with the type of their interface. Those that fall on no
+/// known interface stay as they are.
 pub fn relabel(candidates: &[LinkCandidate], interfaces: &[NetInterface]) -> Vec<LinkCandidate> {
     candidates
         .iter()

@@ -4,24 +4,24 @@ use zeroize::Zeroizing;
 
 use super::{Identity, IdentityError};
 
-/// Certificado X.509 autofirmado con la llave de la identidad, para TLS/QUIC.
+/// Self-signed X.509 certificate with the identity's key, for TLS/QUIC.
 ///
-/// No hay CA: el par verifica fijando la llave pública (pinning) contra su
-/// [`TrustStore`](super::TrustStore), así que nombre y vigencia no se usan
-/// para decidir confianza.
+/// There is no CA: the peer verifies by pinning the public key against its
+/// [`TrustStore`](super::TrustStore), so name and validity are not used
+/// to decide trust.
 pub struct TlsIdentity {
-    /// Certificado en DER.
+    /// Certificate in DER.
     pub cert_der: Vec<u8>,
-    /// Llave privada en PKCS#8 DER; se borra de memoria al soltarla.
+    /// Private key in PKCS#8 DER; wiped from memory on drop.
     pub key_pkcs8_der: Zeroizing<Vec<u8>>,
 }
 
-/// Nombre fijo del sujeto y SAN; con pinning no aporta seguridad, pero rustls
-/// exige un nombre de servidor válido al conectar.
+/// Fixed subject name and SAN; with pinning it adds no security, but rustls
+/// requires a valid server name on connect.
 pub const TLS_SERVER_NAME: &str = "tandem";
 
 impl Identity {
-    /// Genera el certificado autofirmado derivado de esta identidad.
+    /// Generates the self-signed certificate derived from this identity.
     pub fn tls_certificate(&self) -> Result<TlsIdentity, IdentityError> {
         let pkcs8 = self
             .signing_key()
@@ -53,7 +53,7 @@ mod tests {
     }
 
     #[test]
-    fn el_certificado_lleva_la_llave_publica_de_la_identidad() {
+    fn the_certificate_carries_the_identitys_public_key() {
         let id = Identity::from_seed([3; 32]);
         let tls = id.tls_certificate().unwrap();
         let spki = id
@@ -73,7 +73,7 @@ mod tests {
     }
 
     #[test]
-    fn la_llave_privada_es_utilizable_por_rcgen() {
+    fn the_private_key_is_usable_by_rcgen() {
         let id = Identity::from_seed([5; 32]);
         let tls = id.tls_certificate().unwrap();
         let kp = KeyPair::try_from(tls.key_pkcs8_der.as_slice()).unwrap();

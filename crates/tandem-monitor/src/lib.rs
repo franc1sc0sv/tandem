@@ -1,18 +1,18 @@
-//! Monitores en Tandem (DESIGN §10, DECISIONS D11–D13, T-110).
+//! Monitors in Tandem (DESIGN §10, DECISIONS D11–D13, T-110).
 //!
-//! Todo el DDC pasa por `monitor-ddc` (repo `monitor-firmware`, A5): un solo estándar, el del
-//! firmware propio; lo demás es «no compatible» y nunca recibe un Set.
+//! All DDC goes through `monitor-ddc` (repo `monitor-firmware`, A5): a single standard, the
+//! own firmware's; anything else is "not compatible" and never receives a Set.
 //!
-//! - [`election`]: quién es el dueño de cada monitor, igual en las dos máquinas.
-//! - [`directory`]: lo que se sabe de cada monitor (canales de las dos, dueño, lo que leyó el
-//!   dueño) y las vistas para la UI.
-//! - [`local`]: los monitores que ve esta máquina: sondeo, eventos y estado de los que le toca
-//!   leer, y el cambio de entrada con veredicto.
-//! - [`ring`]: el reloj del monitor (`0xEF`), que da la vuelta, y la hora de cada evento.
-//! - [`guard`]: vuelta automática de la entrada para las pruebas de hardware, en el proceso y
-//!   con un vigilante aparte.
+//! - [`election`]: who owns each monitor, the same on both machines.
+//! - [`directory`]: what is known about each monitor (channels of both, owner, what the
+//!   owner read) and the views for the UI.
+//! - [`local`]: the monitors this machine sees: probing, events and state of the ones it has
+//!   to read, and the input switch with a verdict.
+//! - [`ring`]: the monitor's clock (`0xEF`), which wraps around, and the time of each event.
+//! - [`guard`]: automatic input rollback for hardware tests, in the process and
+//!   with a separate watchdog.
 //!
-//! Todo es síncrono (el DDC bloquea): el agente lo llama fuera del runtime de tokio.
+//! Everything is synchronous (DDC blocks): the agent calls it outside the tokio runtime.
 
 pub mod directory;
 pub mod election;
@@ -27,7 +27,7 @@ pub use local::{LocalConfig, LocalMonitors, NO_VERDICT, NOT_OWNER, edid_input, s
 use monitor_ddc::Input;
 use tandem_core::MonitorInput;
 
-/// La entrada de `monitor-ddc` como la nombra Tandem.
+/// The `monitor-ddc` input as Tandem names it.
 pub fn to_core(input: Input) -> MonitorInput {
     match input {
         Input::DisplayPort => MonitorInput::DisplayPort,
@@ -35,7 +35,7 @@ pub fn to_core(input: Input) -> MonitorInput {
     }
 }
 
-/// Lo inverso de [`to_core`].
+/// The inverse of [`to_core`].
 pub fn to_ddc(input: MonitorInput) -> Input {
     match input {
         MonitorInput::DisplayPort => Input::DisplayPort,
