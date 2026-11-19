@@ -1,0 +1,12 @@
+{"name":"mac-win-b","remoteExecution":false,"tunnelsSwitch":0,"switches":["Keyboard and mouse: true -> click false -> Space true readonly=- ok","Clipboard: true -> click false -> Space true readonly=- ok"],"errors":[]}
+{"name":"mac-win-a","remoteExecution":false,"tunnelsSwitch":0,"switches":["Keyboard and mouse: true -> click false -> Space true readonly=- ok","Clipboard: true -> click false -> Space true readonly=- ok"],"errors":[]}
+{"name":"mac-win-here-b-a","remoteExecution":false,"tunnelsSwitch":0,"switches":["Keyboard and mouse: true -> click false -> Space true readonly=- ok","Clipboard: true -> click false -> Space true readonly=- ok"],"errors":[]}
+{"name":"mac-win-here-b-b","remoteExecution":false,"tunnelsSwitch":0,"switches":["Keyboard and mouse: true -> click false -> Space true readonly=- ok","Clipboard: true -> click false -> Space true readonly=- ok"],"errors":[]}
+{"name":"win-win-a","remoteExecution":false,"tunnelsSwitch":0,"switches":["Keyboard and mouse: true -> click false -> Space true readonly=- ok","Clipboard: true -> click false -> Space true readonly=- ok"],"errors":[]}
+{"name":"win-win-b","remoteExecution":false,"tunnelsSwitch":0,"switches":["Keyboard and mouse: true -> click false -> Space true readonly=- ok","Clipboard: true -> click false -> Space true readonly=- ok"],"errors":[]}
+{"name":"mac-mac-a","remoteExecution":false,"tunnelsSwitch":0,"switches":["Keyboard and mouse: true -> click false -> Space true readonly=- ok","Clipboard: true -> click false -> Space true readonly=- ok"],"errors":[]}
+{"name":"mac-mac-b","remoteExecution":false,"tunnelsSwitch":0,"switches":["Keyboard and mouse: true -> click false -> Space true readonly=- ok","Clipboard: true -> click false -> Space true readonly=- ok"],"errors":[]}
+{"name":"peer-off-b","remoteExecution":false,"tunnelsSwitch":0,"switches":["Keyboard and mouse: true -> click false -> Space true readonly=- ok","Clipboard: true -> click false -> Space true readonly=- ok"],"errors":[]}
+{"name":"link-down-b","remoteExecution":false,"tunnelsSwitch":0,"switches":["Keyboard and mouse: true -> click false -> Space true readonly=- ok","Clipboard: true -> click false -> Space true readonly=- ok"],"errors":[]}
+{"name":"no-agent-b","remoteExecution":false,"tunnelsSwitch":0,"switches":["Keyboard and mouse: true -> click false -> Space true readonly=- ok","Clipboard: true -> click false -> Space true readonly=- ok"],"errors":[]}
+switch: no findings
