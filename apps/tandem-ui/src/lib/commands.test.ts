@@ -47,7 +47,7 @@ describe("commands", () => {
   });
 
   it("the active scene says so and carries its shortcut", () => {
-    const work = buildCommands(desk, ctx(), true).find((c) => c.id === "scene:trabajo");
+    const work = buildCommands(desk, ctx(), true).find((c) => c.id === "scene:work");
     expect(work).toMatchObject({ detail: "active", key: "⌃⌥1" });
   });
 

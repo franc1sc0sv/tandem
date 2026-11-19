@@ -41,15 +41,15 @@ pub fn from_spec(s: &ScreenSpec) -> Screen {
     )
 }
 
-/// The ones a machine reads, with an id per screen (`pantalla-1`, `pantalla-2`...; the Spanish ids
-/// are kept: saved `[[cables]]` refer to them). The id only has to be unique on its machine, so it
+/// The ones a machine reads, with an id per screen (`screen-1`, `screen-2`...; saved `[[cables]]`
+/// refer to them, and `Desk::migrate_legacy_ids` renames the old `pantalla-N`). The id only has to be unique on its machine, so it
 /// does not depend on the side.
 pub fn detected(bounds: &[Rect]) -> Vec<Screen> {
     bounds
         .iter()
         .filter(|r| r.width > 0 && r.height > 0)
         .enumerate()
-        .map(|(i, r)| Screen::new(format!("pantalla-{}", i + 1).as_str().into(), *r, 1.0))
+        .map(|(i, r)| Screen::new(format!("screen-{}", i + 1).as_str().into(), *r, 1.0))
         .collect()
 }
 
@@ -141,7 +141,7 @@ mod tests {
             Rect::new(0, 0, 1512, 982),
         ]);
         let ids: Vec<_> = got.iter().map(|s| s.id.0.as_str()).collect();
-        assert_eq!(ids, ["pantalla-1", "pantalla-2"]);
+        assert_eq!(ids, ["screen-1", "screen-2"]);
         assert_eq!(got[0].rect, Rect::new(-3440, 0, 3440, 1440));
         assert_eq!(got[1].scale, 1.0);
     }

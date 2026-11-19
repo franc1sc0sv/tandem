@@ -5,6 +5,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use tandem_core::legacy::LegacyRenames;
 use tandem_core::{Machine, State};
 
 #[derive(Debug, thiserror::Error)]
@@ -80,8 +81,22 @@ impl StateStore {
     /// If nothing is saved, the safe starting state. If the file is damaged,
     /// it is set aside as `*.corrupt` (so it can be looked at) and it also starts from the safe state.
     pub fn load_or_initial(&self, me: Machine) -> State {
+        self.load_following(me, &LegacyRenames::default())
+    }
+
+    /// Like [`StateStore::load_or_initial`], following the scenes the desk renamed when it was
+    /// read (T-209): the stored scene changes only if the desk renamed that one, and only then
+    /// is the file written back.
+    pub fn load_following(&self, me: Machine, desk: &LegacyRenames) -> State {
         match self.load() {
-            Ok(Some(s)) => s,
+            Ok(Some(mut s)) => {
+                if s.migrate_legacy_ids(desk)
+                    && let Err(e) = self.save(&s)
+                {
+                    tracing::warn!("{e}; the migrated state was not written back");
+                }
+                s
+            }
             Ok(None) => State::initial(me),
             Err(e) => {
                 tracing::warn!("{e}; starting from the initial state");
@@ -157,6 +172,83 @@ mod tests {
         let store = StateStore::new(dir.path().join("a/b/state.json"));
         store.save(&sample()).unwrap();
         assert_eq!(store.load().unwrap(), Some(sample()));
+    }
+
+    /// The renames of a desk with the three default scenes in Spanish.
+    fn renamed_defaults() -> LegacyRenames {
+        let mut desk = tandem_core::Desk {
+            scenes: ["trabajo", "solo-a", "solo-b"]
+                .into_iter()
+                .map(|id| tandem_core::Scene::new(id, id))
+                .collect(),
+            ..Default::default()
+        };
+        desk.migrate_legacy_ids()
+    }
+
+    /// T-209: the scene id saved by an earlier release follows the desk's rename and is written
+    /// back once.
+    #[test]
+    fn an_old_scene_id_is_migrated_and_written_back() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = StateStore::new(dir.path().join("state.json"));
+        std::fs::write(
+            store.path(),
+            r#"{"on":{"a":true,"b":true},"scene":"solo-b"}"#,
+        )
+        .unwrap();
+        let renames = renamed_defaults();
+        let loaded = store.load_following(Machine::A, &renames);
+        assert_eq!(loaded.scene.as_deref(), Some("only-b"));
+        // Written back: the file already says the new one.
+        assert_eq!(
+            store.load().unwrap().unwrap().scene.as_deref(),
+            Some("only-b")
+        );
+        let text = std::fs::read_to_string(store.path()).unwrap();
+        assert!(!text.contains("solo"), "{text}");
+        // Idempotent.
+        assert_eq!(store.load_following(Machine::A, &renames), loaded);
+        assert_eq!(std::fs::read_to_string(store.path()).unwrap(), text);
+    }
+
+    /// Review of #152: the desk kept `trabajo` (its new id was taken by another scene), so the
+    /// state keeps it too, and the file is not touched.
+    #[test]
+    fn an_old_scene_id_the_desk_kept_is_left_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = StateStore::new(dir.path().join("state.json"));
+        let saved = r#"{"on":{"a":true,"b":true},"scene":"trabajo"}"#;
+        std::fs::write(store.path(), saved).unwrap();
+        let mut desk = tandem_core::Desk {
+            scenes: vec![
+                tandem_core::Scene::new("trabajo", "Trabajo"),
+                tandem_core::Scene::new("work", "My work"),
+            ],
+            ..Default::default()
+        };
+        let renames = desk.migrate_legacy_ids();
+        let loaded = store.load_following(Machine::A, &renames);
+        assert_eq!(loaded.scene.as_deref(), Some("trabajo"));
+        assert_eq!(std::fs::read_to_string(store.path()).unwrap(), saved);
+    }
+
+    /// Review of #152: a state already in the new format, one with a scene nobody renamed and
+    /// one without a scene are not written (the compact JSON would come back pretty-printed).
+    #[test]
+    fn a_new_or_unknown_scene_is_not_written_back() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = StateStore::new(dir.path().join("state.json"));
+        for scene in [r#","scene":"work""#, r#","scene":"game""#, ""] {
+            let saved = format!(r#"{{"on":{{"a":true,"b":true}}{scene}}}"#);
+            std::fs::write(store.path(), &saved).unwrap();
+            for renames in [renamed_defaults(), LegacyRenames::default()] {
+                store.load_following(Machine::A, &renames);
+                assert_eq!(std::fs::read_to_string(store.path()).unwrap(), saved);
+            }
+            store.load_or_initial(Machine::A);
+            assert_eq!(std::fs::read_to_string(store.path()).unwrap(), saved);
+        }
     }
 
     #[test]

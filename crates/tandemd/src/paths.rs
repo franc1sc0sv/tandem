@@ -23,6 +23,11 @@ pub struct Paths {
 #[error("the system does not report a {0} directory; pass it with the corresponding option")]
 pub struct NoDefaultDir(&'static str);
 
+/// Absolute path without requiring it to exist; if the cwd cannot be read, it is left as is.
+pub fn absolute(path: PathBuf) -> PathBuf {
+    std::path::absolute(&path).unwrap_or(path)
+}
+
 impl Paths {
     /// What does not come on the command line comes from the standard directories.
     pub fn resolve(
@@ -41,7 +46,11 @@ impl Paths {
                 .map(|d| d.join(APP_DIR).join(CONFIG_FILE))
                 .ok_or(NoDefaultDir("configuration"))?,
         };
-        Ok(Paths { config, data_dir })
+        // Made absolute once: git and other children run in another cwd (T-197).
+        Ok(Paths {
+            config: absolute(config),
+            data_dir: absolute(data_dir),
+        })
     }
 
     pub fn state_file(&self) -> PathBuf {
@@ -83,13 +92,23 @@ mod tests {
     use super::*;
 
     #[test]
+    fn relative_paths_become_absolute() {
+        let p = Paths::resolve(Some("c.toml".into()), Some("agent/data".into())).unwrap();
+        assert!(p.data_dir.is_absolute() && p.data_dir.ends_with("agent/data"));
+        assert!(p.config.is_absolute());
+    }
+
+    #[test]
     fn explicit_paths_win() {
-        let p = Paths::resolve(Some("/x/t.toml".into()), Some("/d".into())).unwrap();
-        assert_eq!(p.config, PathBuf::from("/x/t.toml"));
-        assert_eq!(p.state_file(), Path::new("/d").join("state.json"));
-        assert_eq!(p.log_dir(), Path::new("/d").join("logs"));
-        assert_eq!(p.identity_file(), Path::new("/d").join("identity.key"));
-        assert_eq!(p.trust_file(), Path::new("/d").join("trust.toml"));
+        // Already absolute on every platform (on Windows `/x` would gain the current drive).
+        let base = std::env::temp_dir();
+        let (config, data) = (base.join("x").join("t.toml"), base.join("d"));
+        let p = Paths::resolve(Some(config.clone()), Some(data.clone())).unwrap();
+        assert_eq!(p.config, config);
+        assert_eq!(p.state_file(), data.join("state.json"));
+        assert_eq!(p.log_dir(), data.join("logs"));
+        assert_eq!(p.identity_file(), data.join("identity.key"));
+        assert_eq!(p.trust_file(), data.join("trust.toml"));
     }
 
     #[test]

@@ -109,7 +109,7 @@ describe("editing shortcuts in demo mode", () => {
     const combo = await comboOf("Scene “Work”");
     await userEvent.click(combo);
     await fireEvent.keyDown(combo, { key: "7", code: "Digit7", ...chord });
-    await vi.waitFor(() => expect(store.desk.scenes.find((s) => s.id === "trabajo")?.shortcut).toEqual(["ControlLeft", "AltLeft", "Digit7"]));
+    await vi.waitFor(() => expect(store.desk.scenes.find((s) => s.id === "work")?.shortcut).toEqual(["ControlLeft", "AltLeft", "Digit7"]));
   });
 
   it("rejects another row's shortcut and saves nothing", async () => {
@@ -145,7 +145,7 @@ function connected(): Snapshot {
       screens: [],
       arrangement: { a_side: "up", align: "end" },
       scenes: [
-        { id: "trabajo", name: "Work", monitors: [], shortcut: ["ControlLeft", "AltLeft", "Digit1"] },
+        { id: "work", name: "Work", monitors: [], shortcut: ["ControlLeft", "AltLeft", "Digit1"] },
         { id: "game", name: "Game", monitors: [], shortcut: [] },
       ],
       shortcuts: { lock: ["ScrollLock"] },

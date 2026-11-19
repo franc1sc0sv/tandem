@@ -10,8 +10,7 @@ export interface IconDef {
 }
 
 export const ICONS = {
-  // `puesto` is the desk icon id the agent stores in scenes (`DEFAULT_ICON`); T-209 renames it.
-  puesto: {
+  desk: {
     body: '<rect x="3" y="3" width="7" height="7" rx="1.5"></rect><rect x="14" y="3" width="7" height="7" rx="1.5"></rect><rect x="3" y="14" width="7" height="7" rx="1.5"></rect><rect x="14" y="14" width="7" height="7" rx="1.5"></rect>',
   },
   tunnels: { body: '<path d="M3 12h4M17 12h4"></path><rect x="7" y="8" width="10" height="8" rx="4"></rect>', linecap: "round" },

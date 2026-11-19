@@ -10,7 +10,7 @@
   const store = useStore();
 
   const MAIN: { route: Route; label: string; icon: IconName }[] = [
-    { route: { screen: "desk" }, label: "Desk", icon: "puesto" },
+    { route: { screen: "desk" }, label: "Desk", icon: "desk" },
     { route: { screen: "tunnels" }, label: "Tunnels", icon: "tunnels" },
     { route: { screen: "monitors" }, label: "Monitors", icon: "monitors" },
     { route: { screen: "arrangement" }, label: "Arrangement", icon: "arrangement" },

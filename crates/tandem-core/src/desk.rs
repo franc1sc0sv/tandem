@@ -878,7 +878,7 @@ mod tests {
         d.apply(DeskPatch::AddScene(Scene::new("", "Game")))
             .unwrap();
         let ids: Vec<&str> = d.scenes.iter().map(|s| s.id.as_str()).collect();
-        assert_eq!(ids, ["trabajo", "solo-a", "solo-b", "game", "game-2"]);
+        assert_eq!(ids, ["work", "only-a", "only-b", "game", "game-2"]);
         // An id that already exists is not added twice.
         assert!(
             d.apply(DeskPatch::AddScene(Scene::new("game", "Other")))

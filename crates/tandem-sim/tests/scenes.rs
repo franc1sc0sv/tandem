@@ -28,7 +28,7 @@ async fn has_defaults(d: &Desk, m: Machine) {
         LIMIT,
         desk.wait_for(|d| {
             let ids: Vec<&str> = d.scenes.iter().map(|s| s.id.as_str()).collect();
-            ids == ["trabajo", "solo-a", "solo-b"]
+            ids == ["work", "only-a", "only-b"]
         }),
     )
     .await
@@ -61,8 +61,8 @@ fn add(d: &Desk, on: Machine, scene: Scene) {
     assert!(matches!(reply, Reply::Desk(_)), "{reply:?}");
 }
 
-/// On pairing, "Trabajo", "Solo A" and "Solo B" appear. With the other off, applying
-/// "Trabajo" (both, with arrangement) powers it on first and then arranges: it stays as the
+/// On pairing, "Work", "Only A" and "Only B" appear. With the other off, applying
+/// "Work" (both, with arrangement) powers it on first and then arranges: it stays as the
 /// active scene on both.
 #[tokio::test(start_paused = true)]
 async fn work_with_the_other_off_powers_it_on_first() {
@@ -84,7 +84,7 @@ async fn work_with_the_other_off_powers_it_on_first() {
     d.settle().await;
     assert_eq!(d.world.power_of(Machine::B), Power::Off);
 
-    let run = d.apply_scene(Machine::A, "trabajo").await.unwrap();
+    let run = d.apply_scene(Machine::A, "work").await.unwrap();
     assert_eq!(run.outcome(), Some(Outcome::Committed), "{:#?}", run.events);
     assert_eq!(
         steps(&run),
@@ -101,23 +101,23 @@ async fn work_with_the_other_off_powers_it_on_first() {
     assert_eq!(d.world.power_of(Machine::B), Power::On);
     assert_eq!(d.mac.desk().arrangement, Some(Arrangement::default()));
     assert_eq!(d.scene_screens().geometry_of(Machine::A), 1);
-    assert_eq!(d.mac.state().scene.as_deref(), Some("trabajo"));
+    assert_eq!(d.mac.state().scene.as_deref(), Some("work"));
     let pc = d.pc_agrees().await.unwrap();
-    assert_eq!(pc.scene.as_deref(), Some("trabajo"));
+    assert_eq!(pc.scene.as_deref(), Some("work"));
     d.check().await.unwrap();
 
     // Applying it again has nothing to do, and it stays active.
-    let again = d.apply_scene(Machine::A, "trabajo").await.unwrap();
+    let again = d.apply_scene(Machine::A, "work").await.unwrap();
     assert_eq!(again.outcome(), Some(Outcome::Committed));
     assert!(steps(&again).is_empty(), "{:?}", steps(&again));
 
-    // The one "Trabajo" needs is powered off: it stops being the active one.
+    // The one "Work" needs is powered off: it stops being the active one.
     d.shutdown_pc().await.unwrap();
     d.settle().await;
     assert_eq!(d.mac.state().scene, None);
 }
 
-/// "Solo B" requested from B with A off: it is also powered on first (the mirror).
+/// "Only B" requested from B with A off: it is also powered on first (the mirror).
 #[tokio::test(start_paused = true)]
 async fn only_the_other_from_the_pc() {
     let d = Desk::builder().primary(Machine::B).build().await.unwrap();
@@ -126,10 +126,10 @@ async fn only_the_other_from_the_pc() {
         Machine::B,
         Scene {
             require_on: Some(Machine::A),
-            ..Scene::new("solo-mac", "Solo Mac")
+            ..Scene::new("only-mac", "Only Mac")
         },
     );
-    let run = d.apply_scene(Machine::B, "solo-mac").await.unwrap();
+    let run = d.apply_scene(Machine::B, "only-mac").await.unwrap();
     assert_eq!(run.outcome(), Some(Outcome::Committed), "{:#?}", run.events);
     assert_eq!(
         steps(&run),
@@ -138,7 +138,7 @@ async fn only_the_other_from_the_pc() {
         }]
     );
     assert_eq!(d.world.power_of(Machine::A), Power::On);
-    assert_eq!(d.pc.state().scene.as_deref(), Some("solo-mac"));
+    assert_eq!(d.pc.state().scene.as_deref(), Some("only-mac"));
 }
 
 /// A scene with two monitors and arrangement: the second monitor fails → the first goes back to
@@ -166,7 +166,7 @@ async fn a_monitor_fails_and_the_whole_scene_rolls_back() {
             ..Scene::new("", "Game")
         },
     );
-    let only_a = d.apply_scene(Machine::A, "solo-a").await.unwrap();
+    let only_a = d.apply_scene(Machine::A, "only-a").await.unwrap();
     assert_eq!(only_a.outcome(), Some(Outcome::Committed));
     let before = d.scene_screens().shows();
     let desk_before = d.mac.desk().arrangement;
@@ -198,7 +198,7 @@ async fn a_monitor_fails_and_the_whole_scene_rolls_back() {
     );
     assert_eq!(d.mac.desk().arrangement, desk_before);
     assert_eq!(d.scene_screens().geometry_of(Machine::A), 0);
-    assert_eq!(d.mac.state().scene.as_deref(), Some("solo-a"));
+    assert_eq!(d.mac.state().scene.as_deref(), Some("only-a"));
     d.check().await.unwrap();
 
     // Without the fault, the same scene is applied whole and it reaches the other side.
@@ -350,8 +350,8 @@ async fn scenes_are_created_edited_and_deleted_on_both() {
 async fn shortcuts_are_edited_on_one_and_reach_the_other() {
     let d = Desk::new().await.unwrap();
     paired(&d).await;
-    let trabajo = d.mac.desk().scenes[0].clone();
-    assert_eq!(trabajo.id, "trabajo");
+    let work = d.mac.desk().scenes[0].clone();
+    assert_eq!(work.id, "work");
 
     // A scene's shortcut, edited on A, reaches B.
     let new_keys = vec![
@@ -361,7 +361,7 @@ async fn shortcuts_are_edited_on_one_and_reach_the_other() {
     ];
     let edited = Scene {
         shortcut: new_keys.clone(),
-        ..trabajo.clone()
+        ..work.clone()
     };
     let reply = d.mac.handle(UiCommand::EditDesk {
         patch: DeskPatch::EditScene(edited.clone()),
