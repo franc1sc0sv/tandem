@@ -74,6 +74,12 @@ impl FakeInputBackends {
         self.lock().sink.as_ref().is_some_and(|s| s.send(event))
     }
 
+    /// The capture dies (the hook's thread, the tap): drops the sink the backend held, so the
+    /// engine sees the channel close if nobody else keeps it open.
+    pub fn close_capture(&self) {
+        self.lock().sink = None;
+    }
+
     /// Whether the capture is running.
     pub fn capturing(&self) -> bool {
         self.lock().sink.is_some()

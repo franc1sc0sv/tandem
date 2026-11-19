@@ -138,9 +138,11 @@ pub struct Agent {
     /// "Lock here" requests (T-129): the counter goes up with each one and the input
     /// engine applies the last requested value.
     lock_requests: watch::Sender<(u64, bool)>,
-    /// Where `UiCommand::SyntheticMotion` goes (T-239): the running capture's sink, set by the
-    /// input engine only when `[input] synthetic_motion` is on.
-    synthetic: Mutex<Option<crate::input::CaptureSink>>,
+    /// Where `UiCommand::SyntheticMotion` goes (T-239): a weak handle to the running capture's
+    /// sink, set by the input engine only when `[input] synthetic_motion` is on. It is weak so
+    /// the agent never keeps the capture channel open: when the capture dies the channel closes
+    /// and the engine rebuilds it; the handle then fails to upgrade and the command is refused.
+    synthetic: Mutex<Option<crate::input::WeakCaptureSink>>,
     /// This process, to announce it in the capabilities.
     process: tandem_proto::ProcessInfo,
     /// The desk's monitors: channels, owners and what each owner read (T-110).
@@ -917,9 +919,10 @@ impl Agent {
         Reply::Done
     }
 
-    /// The capture that `UiCommand::SyntheticMotion` feeds; `None` when it stops. The input
-    /// engine calls it only when `[input] synthetic_motion` is on.
-    pub fn set_synthetic_sink(&self, sink: Option<crate::input::CaptureSink>) {
+    /// The capture that `UiCommand::SyntheticMotion` feeds. The handle is weak: it stops
+    /// working by itself when the capture stops, so nothing has to clear it. The input engine
+    /// calls it only when `[input] synthetic_motion` is on.
+    pub fn set_synthetic_sink(&self, sink: Option<crate::input::WeakCaptureSink>) {
         *self
             .synthetic
             .lock()
@@ -940,7 +943,10 @@ impl Agent {
             .synthetic
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
-        let Some(sink) = slot.as_ref() else {
+        let Some(sink) = slot
+            .as_ref()
+            .and_then(crate::input::WeakCaptureSink::upgrade)
+        else {
             return Reply::Rejected("the input engine is not capturing on this machine".into());
         };
         let event = tandem_input::InputEvent::MotionRelative {

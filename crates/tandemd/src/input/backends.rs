@@ -172,6 +172,33 @@ impl std::fmt::Debug for CaptureSink {
     }
 }
 
+/// A [`CaptureSink`] that does not keep the capture channel open: whoever holds it (the agent,
+/// for `UiCommand::SyntheticMotion`) must not stop the channel from closing when the real
+/// capture dies, or the engine would never notice and rebuild it.
+#[derive(Clone)]
+pub struct WeakCaptureSink {
+    tx: mpsc::WeakUnboundedSender<Captured>,
+    remap: ModifierRemap,
+    scenes: Option<crate::agent::SceneShortcuts>,
+}
+
+impl std::fmt::Debug for WeakCaptureSink {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WeakCaptureSink").finish_non_exhaustive()
+    }
+}
+
+impl WeakCaptureSink {
+    /// `None` once every strong sink is gone (the capture stopped or died).
+    pub fn upgrade(&self) -> Option<CaptureSink> {
+        Some(CaptureSink {
+            tx: self.tx.upgrade()?,
+            remap: self.remap,
+            scenes: self.scenes.clone(),
+        })
+    }
+}
+
 /// The modifier remapping between two systems: Cmd<->Ctrl between macOS and Windows;
 /// between two identical ones (or without yet knowing the other machine's), none.
 pub fn direction(from: Os, to: Option<Os>) -> Option<Direction> {
@@ -208,6 +235,15 @@ impl CaptureSink {
         }
         // The mark is set here, on the capture thread (the hook's or the tap's).
         self.tx.send(Captured::now(self.remap.apply(event))).is_ok()
+    }
+
+    /// A handle that does not keep the channel open.
+    pub fn downgrade(&self) -> WeakCaptureSink {
+        WeakCaptureSink {
+            tx: self.tx.downgrade(),
+            remap: self.remap,
+            scenes: self.scenes.clone(),
+        }
     }
 
     /// With the scenes' shortcuts (they work on any machine of the desk: the keyboard
@@ -493,6 +529,23 @@ mod tests {
             usage: m.usage(),
             state: KeyState::Pressed,
         }
+    }
+
+    #[test]
+    fn a_weak_sink_does_not_keep_the_channel_open() {
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let sink = CaptureSink::new(tx, &RemapPolicy::default(), Os::MacOs, None);
+        let weak = sink.downgrade();
+        assert!(
+            weak.upgrade()
+                .is_some_and(|s| s.send(key(ModifierKey::MetaLeft)))
+        );
+        assert!(rx.try_recv().is_ok());
+        drop(sink);
+        assert!(weak.upgrade().is_none());
+        assert!(rx.try_recv().is_err());
+        // Closed: `recv` ends instead of waiting for the weak handle.
+        assert!(rx.is_closed() || rx.try_recv() == Err(mpsc::error::TryRecvError::Disconnected));
     }
 
     #[test]

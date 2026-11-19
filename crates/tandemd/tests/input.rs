@@ -1156,6 +1156,85 @@ async fn synthetic_motion_through_the_agent_crosses_only_on_a_test_agent() {
     pc.stop().await;
 }
 
+/// T-239 review: the agent's handle for synthetic motion must not keep the capture channel
+/// open. When the capture dies on a test agent the engine notices (`CaptureClosed`) and rebuilds
+/// it; while it cannot, `SyntheticMotion` is refused instead of feeding a dead capture.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn synthetic_motion_does_not_keep_a_dead_capture_alive() {
+    let (mac_id, pc_id) = sides(Identity::from_seed([73; 32]), Identity::from_seed([74; 32]));
+    let mac_fake = FakeInputBackends::new(vec![screen("m32", 1920, 1080)]);
+    let pc_fake = FakeInputBackends::new(vec![screen("m34", 3440, 1440)]);
+    pc_fake.devices().set(vec![KEYBOARD, MOUSE]);
+    let (mac, mut pc) = tandemd::start_pair!(
+        |mac_port, pc_port| start(
+            Machine::A,
+            &mac_id,
+            mac_port,
+            (pc_id.public_key(), pc_port),
+            mac_fake.clone(),
+        ),
+        start_with(
+            Machine::B,
+            &pc_id,
+            pc_port,
+            (mac_id.public_key(), mac_port),
+            pc_fake.clone(),
+            "synthetic_motion = true\n",
+        )
+    );
+    let pc_serving = |s: &InputStatus| s.server == Machine::B && s.session;
+    mac.until_input(pc_serving).await;
+    pc.until_input(pc_serving).await;
+    both_on(&mac, &pc).await;
+    assert!(pc_fake.capturing());
+
+    // Rebuilding the capture fails, so the engine's state after the death is observable.
+    pc_fake.fail_capture(Some("the hook died".into()));
+    pc_fake.close_capture();
+    within(async {
+        loop {
+            match pc
+                .ui
+                .request(UiCommand::SyntheticMotion { dx: 1, dy: 0 })
+                .await
+                .unwrap()
+            {
+                Reply::Rejected(why) => {
+                    assert!(why.contains("not capturing"), "{why}");
+                    break;
+                }
+                _ => tokio::time::sleep(Duration::from_millis(10)).await,
+            }
+        }
+    })
+    .await;
+
+    // Once the capture can be built again, the engine did rebuild it: the channel had closed.
+    pc_fake.fail_capture(None);
+    within(async {
+        while !pc_fake.capturing() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await;
+    within(async {
+        loop {
+            match pc
+                .ui
+                .request(UiCommand::SyntheticMotion { dx: 1, dy: 0 })
+                .await
+                .unwrap()
+            {
+                Reply::Done => break,
+                _ => tokio::time::sleep(Duration::from_millis(10)).await,
+            }
+        }
+    })
+    .await;
+    mac.stop().await;
+    pc.stop().await;
+}
+
 /// The live cursor (T-128) between two agents: without a subscription nothing is emitted; with the PC's
 /// UI watching, the Mac's samples arrive (it has focus, over the control
 /// channel) and the crossing, at 30 Hz at most; when it stops watching, the Mac stops sampling.
