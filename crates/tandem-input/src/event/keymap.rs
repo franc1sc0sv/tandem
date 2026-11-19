@@ -191,7 +191,8 @@ mod tests {
         assert_eq!(from_code_name("DoesNotExist"), None);
     }
 
-    /// The 105 keys of a Spanish ISO PC keyboard, by physical HID code.
+    /// The 105 keys of a Spanish ISO PC keyboard, by physical HID code. The labels stay Spanish
+    /// on purpose: they are the data of a real layout.
     /// The `ç` is on Backslash (0x31): that is how Windows and macOS report it.
     const ISO_ES: &[(u16, &str)] = &[
         (0x29, "Esc"),
@@ -351,7 +352,7 @@ mod tests {
     }
 
     #[test]
-    fn valores_conocidos() {
+    fn known_values() {
         // Checked against Chromium's table and each system's documentation.
         let a = HidUsage::key(0x04);
         assert_eq!(to_mac(a), Some(MacKeycode(0x00)));
@@ -415,7 +416,7 @@ mod tests {
     }
 
     #[test]
-    fn scancode_extendido() {
+    fn extended_scancode() {
         let s = WinScancode(0xE048);
         assert!(s.is_extended());
         assert_eq!(s.code(), 0x48);

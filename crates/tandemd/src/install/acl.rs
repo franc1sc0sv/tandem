@@ -227,8 +227,8 @@ mod tests {
                 .contains(AUTH)
         );
         // Creating subfolders is not enough as an ancestor, but deleting children is.
-        let borra = [ace(AUTH, FILE_DELETE_CHILD)];
-        assert!(verdict(ADMINS, &borra, Rigor::Ancestor).is_err());
+        let deletes = [ace(AUTH, FILE_DELETE_CHILD)];
+        assert!(verdict(ADMINS, &deletes, Rigor::Ancestor).is_err());
     }
 
     proptest! {
@@ -242,10 +242,10 @@ mod tests {
             let aces: Vec<Ace> = raw.iter().map(|&(i, mask, inherit_only)| Ace {
                 sid: sids[i].into(), mask, inherit_only,
             }).collect();
-            let peligroso = aces.iter().any(|a| {
+            let dangerous = aces.iter().any(|a| {
                 !a.inherit_only && a.mask & Rigor::Full.mask() != 0 && !TRUSTED_SIDS.contains(&a.sid.as_str())
             });
-            prop_assert_eq!(verdict(ADMINS, &aces, Rigor::Full).is_err(), peligroso);
+            prop_assert_eq!(verdict(ADMINS, &aces, Rigor::Full).is_err(), dangerous);
         }
     }
 }

@@ -221,7 +221,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn modificadores_ocupan_e0_a_e7_en_orden_hid() {
+    fn modifiers_occupy_e0_to_e7_in_hid_order() {
         for (i, k) in ModifierKey::ALL.into_iter().enumerate() {
             assert_eq!(k.usage(), HidUsage::key(0xE0 + i as u16));
             assert_eq!(usize::from(k.bit()), i);
@@ -238,7 +238,7 @@ mod tests {
     }
 
     #[test]
-    fn modifiers_inserta_quita_e_itera() {
+    fn modifiers_insert_remove_and_iterate() {
         let mut m = Modifiers::EMPTY;
         assert!(m.is_empty());
         m.insert(ModifierKey::MetaLeft);

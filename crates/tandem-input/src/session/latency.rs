@@ -290,7 +290,7 @@ mod tests {
     }
 
     #[test]
-    fn valores_enormes_no_rompen_nada() {
+    fn huge_values_break_nothing() {
         let mut h = Histogram::new();
         h.record(u64::MAX);
         h.record(0);
@@ -416,7 +416,7 @@ mod tests {
         /// With symmetric round trips the offset is recovered exactly (within ±1 µs of
         /// rounding), whatever the real offset and what was held.
         #[test]
-        fn desfase_simetrico_exacto(
+        fn symmetric_offset_exact(
             t0 in 0u64..1_000_000_000,
             skew in -1_000_000_000i64..1_000_000_000,
             one_way in 0u64..50_000,

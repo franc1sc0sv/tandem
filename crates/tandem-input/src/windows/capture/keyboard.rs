@@ -235,7 +235,7 @@ mod tests {
     }
 
     #[test]
-    fn ctrl_real_mantenido_sobrevive_a_altgr() {
+    fn held_real_ctrl_survives_altgr() {
         // Real Ctrl (t=1), AltGr with its fake Ctrl (t=9), release AltGr, release Ctrl.
         let ctrl = key(SCAN_CONTROL, 0, 1);
         let fake = key(SCAN_CONTROL, 0, 9);

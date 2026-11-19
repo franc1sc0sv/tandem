@@ -133,7 +133,7 @@ mod tests {
         /// The result is always acceptable to the manager: no repeated
         /// types, with all the fixed ones and in priority order.
         #[test]
-        fn candidatos_validos(
+        fn valid_candidates(
             kinds in prop::sample::subsequence(LinkKind::ALL.to_vec(), 0..=3),
             found in prop::collection::vec((0u8..3, 1u8..4), 0..6),
         ) {

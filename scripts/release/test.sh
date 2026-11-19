@@ -66,8 +66,8 @@ task T-070 F5 1; commit "T-070: macOS installer (#4)"
 commit "T-070: fix the signature (#5)"
 task T-099 F9 0; commit "T-099: task in an odd phase (#6)"
 commit "T-098: task without a file"
-git switch -q -c otra && commit "Separate branch" && git switch -q develop
-git merge -q --no-ff -m "Merge branch 'otra'" otra
+git switch -q -c other && commit "Separate branch" && git switch -q develop
+git merge -q --no-ff -m "Merge branch 'other'" other
 commit "Backlog: more tasks (#7)"
 git tag v0.2.0
 

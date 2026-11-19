@@ -23,10 +23,10 @@ try {
   await p2.getByRole("button", { name: "Renombrar" }).first().click(); await L.sleep(500);
   const nm = p2.locator("main input:visible, [role=dialog] input:visible").first();
   console.log("inputs:", await p2.locator("input:visible").count());
-  await nm.fill("Desk Prueba"); await nm.press("Enter"); await L.sleep(1500);
+  await nm.fill("Desk Test"); await nm.press("Enter"); await L.sleep(1500);
   const body = await L.text(p2);
   const toml = [m1, m2].map((m) => (m.toml().match(/name = "[^"]*"/g) ?? []));
-  L.record(F, "the desk name is edited from Settings and reaches the other machine", /Desk Prueba/.test(body) && toml.every((t) => t.some((x) => /Desk Prueba/.test(x))), `toml m1 ${JSON.stringify(toml[0])}; m2 ${JSON.stringify(toml[1])}`);
+  L.record(F, "the desk name is edited from Settings and reaches the other machine", /Desk Test/.test(body) && toml.every((t) => t.some((x) => /Desk Test/.test(x))), `toml m1 ${JSON.stringify(toml[0])}; m2 ${JSON.stringify(toml[1])}`);
   await L.shot(p2, F, "02-desk-name");
   await L.closeBrowser();
 } catch (e) { console.log("ERROR", e); await L.closeBrowser(); }

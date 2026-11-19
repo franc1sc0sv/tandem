@@ -552,6 +552,7 @@ mod tests {
     fn the_log_is_read_even_if_the_summary_has_odd_characters() {
         let git = FakeGit::default();
         git.push(Ok("abc"));
+        // The "ü" is a non-ASCII summary (Unicode test data).
         git.push(Ok("h1\x1fAna\x1fone | two\x1eh2\x1fLuis\x1fü\x1e"));
         let dir = tempfile::tempdir().unwrap();
         let back = pack_back(&git, dir.path(), None, &dir.path().join("b")).unwrap();

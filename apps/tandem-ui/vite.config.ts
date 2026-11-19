@@ -1,12 +1,12 @@
 import { svelte } from "@sveltejs/vite-plugin-svelte";
 import { defineConfig } from "vitest/config";
 
-// Puerto fijo: `tauri.conf.json` apunta `devUrl` aquí. Dos páginas (relativas a esta
-// carpeta): la ventana principal y la de la barra de menú / bandeja.
+// Fixed port: `tauri.conf.json` points `devUrl` here. Two pages (relative to this
+// folder): the main window and the menu bar / tray one.
 //
-// `--mode demo` (`pnpm build:demo`) deja el modo demo dentro del build: lo usa el arnés de
-// capturas (`pnpm shots`), y también la galería de componentes (`gallery.html`), con la que el
-// arnés compara estilos con los mockups. El build normal (el de Tauri) no incluye ninguno.
+// `--mode demo` (`pnpm build:demo`) keeps demo mode inside the build: the screenshot
+// harness (`pnpm shots`) uses it, and so does the component gallery (`gallery.html`), which
+// the harness compares against the mockups for styles. The normal build (Tauri's) includes neither.
 export default defineConfig(({ mode }) => ({
   plugins: [svelte()],
   clearScreen: false,

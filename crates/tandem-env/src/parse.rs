@@ -397,6 +397,7 @@ mod tests {
 
     #[test]
     fn the_wsl_list_skips_the_translated_header_and_docker() {
+        // A Spanish-localized `wsl -l -v` header: the Spanish words are the parser's input.
         let text = "  NOMBRE            ESTADO          VERSIÓN\n\
                     * Ubuntu-24.04      Running         2\n  \
                       Debian            Stopped         1\n  \
