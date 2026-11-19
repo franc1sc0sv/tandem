@@ -455,22 +455,23 @@ impl Agent {
             return;
         }
         tracing::info!(side = %side, "by the keys, this machine is the other side");
-        let synced = {
+        // Stamp and desk change under the same lock that `desk_sync` reads with.
+        {
             let mut clock = self.sync.lock().unwrap_or_else(PoisonError::into_inner);
             clock.stamp = clock.stamp.swapped();
             clock.history = std::mem::take(&mut clock.history).swapped();
-            clock.stamp.rev > 0
-        };
-        self.desk.send_modify(|d| {
-            let arrangement = d.arrangement;
-            *d = std::mem::take(d).swap_sides();
-            // An arrangement that never synced is not a physical place to preserve: it is the
-            // one there was with the new sides. Flipping it would leave both new installations
-            // with A on the right. Without a declared arrangement there is nothing to flip.
-            if !synced {
-                d.arrangement = arrangement;
-            }
-        });
+            let synced = clock.stamp.rev > 0;
+            self.desk.send_modify(|d| {
+                let arrangement = d.arrangement;
+                *d = std::mem::take(d).swap_sides();
+                // An arrangement that never synced is not a physical place to preserve: it is the
+                // one there was with the new sides. Flipping it would leave both new installations
+                // with A on the right. Without a declared arrangement there is nothing to flip.
+                if !synced {
+                    d.arrangement = arrangement;
+                }
+            });
+        }
         self.record_current();
         self.keyboard.send_modify(|k| *k = k.map(Machine::other));
         self.key_probe.send_modify(|p| {
@@ -670,19 +671,14 @@ impl Agent {
         self.desk_changes.subscribe()
     }
 
-    /// The shared desk with its stamp, as it is sent to the other machine.
+    /// The shared desk with its stamp, as it is sent to the other machine. Both come from one
+    /// consistent snapshot: writers update them under the `sync` lock, held here while reading.
     pub fn desk_sync(&self) -> DeskVersion {
+        let clock = self.sync.lock().unwrap_or_else(PoisonError::into_inner);
         DeskVersion {
-            stamp: self.stamp(),
-            desk: self.desk(),
+            stamp: clock.stamp,
+            desk: self.desk.borrow().clone(),
         }
-    }
-
-    fn stamp(&self) -> DeskStamp {
-        self.sync
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .stamp
     }
 
     /// Records in the history the version that holds now.
@@ -729,17 +725,20 @@ impl Agent {
     /// A new version made here: it stays in memory, in the history, in `tandem.toml`, in
     /// the UI and on the other machine. It is called with the change taken ([`Agent::edit`]).
     fn commit_local(&self, next: DeskVersion) {
+        // The file goes first (the desk in memory is never ahead of it). Writers are already
+        // serialized by the change being taken ([`Agent::edit`]), so the file I/O stays out of
+        // `sync`, which only keeps stamp and desk consistent for `desk_sync`.
+        self.save_desk(&next);
         {
             let mut clock = self.sync.lock().unwrap_or_else(PoisonError::into_inner);
             clock.stamp = next.stamp;
             clock.history.record(next.clone());
+            self.desk.send_if_modified(|d| {
+                let changed = *d != next.desk;
+                d.clone_from(&next.desk);
+                changed
+            });
         }
-        self.save_desk(&next);
-        self.desk.send_if_modified(|d| {
-            let changed = *d != next.desk;
-            d.clone_from(&next.desk);
-            changed
-        });
         self.orch.peer().send(ControlMsg::Desk(Box::new(next)));
         self.sync_switches();
         // This machine's name and color (or its modules) may have changed.
@@ -770,20 +769,23 @@ impl Agent {
             screens = next.desk.screens.len(),
             "desk updated from the other machine"
         );
+        // The file goes first (the desk in memory is never ahead of it). Writers are already
+        // serialized by the change being taken ([`Agent::edit`]), so the file I/O stays out of
+        // `sync`, which only keeps stamp and desk consistent for `desk_sync`.
+        self.save_desk(&next);
         {
             let mut clock = self.sync.lock().unwrap_or_else(PoisonError::into_inner);
             clock.stamp = next.stamp;
             clock.history.record(next.clone());
+            self.desk.send_if_modified(|d| {
+                let changed = *d != next.desk;
+                d.clone_from(&next.desk);
+                changed
+            });
         }
-        self.save_desk(&next);
         let summary = mine.desk.summary_of_changes(&next.desk);
         let by = next.stamp.by;
         let rev = next.stamp.rev;
-        self.desk.send_if_modified(|d| {
-            let changed = *d != next.desk;
-            *d = next.desk;
-            changed
-        });
         drop(editing);
         self.sync_switches();
         if let Some(summary) = summary
@@ -1370,6 +1372,54 @@ pub(crate) mod tests {
             fixtures::desk_with_wol(),
             StateStore::new(dir.join("state.json")),
         )
+    }
+
+    #[test]
+    fn desk_sync_never_mixes_a_stamp_with_another_desk() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        let dir = tempfile::tempdir().unwrap();
+        let a = Arc::new(agent(dir.path()));
+        let done = Arc::new(AtomicBool::new(false));
+        // Each version carries its own rev as the desk name, so a snapshot is consistent
+        // only if stamp and name agree.
+        let readers: Vec<_> = (0..3)
+            .map(|_| {
+                let (a, done) = (a.clone(), done.clone());
+                std::thread::spawn(move || {
+                    let mut seen = 0u32;
+                    // Read at least once even if the writer already finished: on a busy
+                    // runner a reader may not be scheduled until then.
+                    loop {
+                        let finished = done.load(Ordering::Relaxed);
+                        let v = a.desk_sync();
+                        if v.stamp.rev > 0 {
+                            assert_eq!(
+                                v.desk.name.as_deref(),
+                                Some(v.stamp.rev.to_string().as_str()),
+                                "stamp and desk come from different versions"
+                            );
+                        }
+                        seen += 1;
+                        if finished {
+                            break;
+                        }
+                    }
+                    seen
+                })
+            })
+            .collect();
+        for _ in 0..3000 {
+            let _editing = a.edit();
+            let current = a.desk_sync();
+            let mut desk = current.desk;
+            desk.name = Some((current.stamp.rev + 1).to_string());
+            a.commit_desk(desk);
+        }
+        done.store(true, Ordering::Relaxed);
+        for r in readers {
+            assert!(r.join().unwrap() > 0);
+        }
     }
 
     #[test]
