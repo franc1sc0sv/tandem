@@ -1,0 +1,121 @@
+== desk (V3-Desk): mockup 15, app 21, missing 2, duration 2
+  MISSING anim|7000|inf|left,top
+  MISSING anim|7000|inf|opacity
+  DURATION anim|1000|inf|stroke-dashoffset (app 1800/2340 ms)
+  DURATION anim|1300|inf|stroke-dashoffset (app 1800/2340 ms)
+== desk-scene-macbook-only (V3-Desk--scene-macbook-only): mockup 15, app 22, missing 2, duration 2
+  MISSING anim|7000|inf|left,top
+  MISSING anim|7000|inf|opacity
+  DURATION anim|1000|inf|stroke-dashoffset (app 1800/2340 ms)
+  DURATION anim|1300|inf|stroke-dashoffset (app 1800/2340 ms)
+== desk-scene-game (V3-Desk--scene-game): mockup 15, app 22, missing 2, duration 2
+  MISSING anim|7000|inf|left,top
+  MISSING anim|7000|inf|opacity
+  DURATION anim|1000|inf|stroke-dashoffset (app 1800/2340 ms)
+  DURATION anim|1300|inf|stroke-dashoffset (app 1800/2340 ms)
+== desk-win-win (V3-Desk): mockup 15, app 21, missing 2, duration 2
+  MISSING anim|7000|inf|left,top
+  MISSING anim|7000|inf|opacity
+  DURATION anim|1000|inf|stroke-dashoffset (app 1800/2340 ms)
+  DURATION anim|1300|inf|stroke-dashoffset (app 1800/2340 ms)
+== desk-mac-mac (V3-Desk): mockup 15, app 21, missing 2, duration 2
+  MISSING anim|7000|inf|left,top
+  MISSING anim|7000|inf|opacity
+  DURATION anim|1000|inf|stroke-dashoffset (app 1800/2340 ms)
+  DURATION anim|1300|inf|stroke-dashoffset (app 1800/2340 ms)
+== tunnels (V3-Compute): mockup 17, app 18, missing 0, duration 0
+== tunnels-process-two (V3-Compute--process-2): mockup 17, app 18, missing 0, duration 0
+== tunnels-two-processes (V3-Compute--tunnel-2-processes): mockup 19, app 18, missing 0, duration 0
+== tunnels-no-processes (V3-Compute--tunnel-no-processes): mockup 19, app 20, missing 0, duration 0
+== tunnels-lora (V3-Compute--tunnel-lora): mockup 19, app 18, missing 0, duration 0
+== tunnels-closed (V3-Compute--tunnel-closed): mockup 17, app 18, missing 0, duration 0
+== tunnels-project-collapsed (V3-Compute--project-collapsed): mockup 17, app 18, missing 0, duration 0
+== tunnels-empty (V3-Compute): mockup 17, app 7, missing 8, duration 3
+  MISSING anim|1000|inf|opacity
+  MISSING anim|1200|inf|stroke-dashoffset
+  MISSING anim|2400|inf|opacity,transform
+  MISSING anim|250|1|transform
+  MISSING anim|3000|inf|transform
+  MISSING anim|700|inf|stroke-dashoffset
+  MISSING anim|700|inf|transform
+  MISSING anim|900|inf|transform
+  DURATION anim|300|1|opacity,transform (app 450 ms)
+  DURATION anim|350|1|opacity,transform (app 450 ms)
+  DURATION trans|transform|300 (app 200 ms)
+== tunnels-twelve-processes (V3-Compute): mockup 17, app 18, missing 0, duration 0
+== monitors (V3-Monitors): mockup 17, app 18, missing 0, duration 0
+== monitors-input-mac (V3-Monitors--input-mac): mockup 17, app 18, missing 0, duration 0
+== scene-new (F-NewScene): mockup 12, app 13, missing 0, duration 0
+== scene-shows-mac (F-NewScene--shows-mac): mockup 12, app 13, missing 0, duration 0
+== scene-unchanged (F-NewScene--unchanged): mockup 12, app 13, missing 0, duration 0
+== progress-in-progress (F-Transactions): mockup 12, app 12, missing 0, duration 0
+== progress-success (F-Transactions--success): mockup 12, app 12, missing 0, duration 0
+== progress-rollback (F-Transactions--rollback): mockup 12, app 12, missing 0, duration 0
+== arrangement (V3-Arrangement): mockup 22, app 23, missing 0, duration 0
+== arrangement-top-start (V3-Arrangement--side-top-start): mockup 22, app 23, missing 0, duration 0
+== arrangement-top-center (V3-Arrangement--side-top-center): mockup 22, app 23, missing 0, duration 0
+== arrangement-top-end (V3-Arrangement--side-top-end): mockup 22, app 23, missing 0, duration 0
+== arrangement-bottom-start (V3-Arrangement--side-bottom-start): mockup 22, app 23, missing 0, duration 0
+== arrangement-bottom-center (V3-Arrangement--side-bottom-center): mockup 22, app 23, missing 0, duration 0
+== arrangement-bottom-end (V3-Arrangement--side-bottom-end): mockup 22, app 23, missing 0, duration 0
+== arrangement-left-start (V3-Arrangement--side-left-start): mockup 22, app 23, missing 0, duration 0
+== arrangement-left-center (V3-Arrangement--side-left-center): mockup 22, app 23, missing 0, duration 0
+== arrangement-left-end (V3-Arrangement--side-left-end): mockup 22, app 23, missing 0, duration 0
+== arrangement-right-start (V3-Arrangement--side-right-start): mockup 22, app 23, missing 0, duration 0
+== arrangement-right-center (V3-Arrangement--side-right-center): mockup 22, app 23, missing 0, duration 0
+== arrangement-right-end (V3-Arrangement--side-right-end): mockup 22, app 23, missing 0, duration 0
+== arrangement-screen-mac (V3-Arrangement--screen-mac): mockup 22, app 23, missing 0, duration 0
+== arrangement-unsupported (V3-Arrangement--screen-unsupported): mockup 22, app 23, missing 0, duration 0
+== crossing (F-CrossingTest): mockup 8, app 5, missing 4, duration 0
+  MISSING trans|border-color|180
+  MISSING trans|box-shadow|180
+  MISSING trans|transform|180
+  MISSING trans|transform|300
+== crossing-crossed (F-CrossingTest--crossed): mockup 10, app 8, missing 3, duration 0
+  MISSING anim|1200|inf|transform
+  MISSING anim|1400|inf|opacity
+  MISSING anim|20000|1|stroke-dashoffset
+== crossing-no-cross (F-CrossingTest--no-cross): mockup 9, app 7, missing 3, duration 0
+  MISSING anim|1200|inf|transform
+  MISSING anim|1400|inf|opacity
+  MISSING anim|20000|1|stroke-dashoffset
+== crossing-other-edge (F-CrossingTest--no-cross): mockup 9, app 7, missing 3, duration 0
+  MISSING anim|1200|inf|transform
+  MISSING anim|1400|inf|opacity
+  MISSING anim|20000|1|stroke-dashoffset
+== setup-machine (F-Setup1): mockup 11, app 25, missing 0, duration 0
+== setup-machine-violet (F-Setup1--violet): mockup 11, app 26, missing 0, duration 0
+== setup-machine-teal (F-Setup1--teal): mockup 11, app 25, missing 0, duration 0
+== setup-machine-amber (F-Setup1--amber): mockup 11, app 25, missing 0, duration 0
+== setup-desk (V3-Setup): mockup 12, app 25, missing 0, duration 0
+== setup-desk-new (V3-Setup--new): mockup 12, app 26, missing 0, duration 0
+== setup-permissions (F-Setup3): mockup 12, app 27, missing 0, duration 0
+== setup-permissions-one (F-Setup3--one-granted): mockup 12, app 27, missing 0, duration 0
+== setup-permissions-all (F-Setup3--all-granted): mockup 12, app 27, missing 0, duration 0
+== setup-keyboard (F-Setup4): mockup 10, app 25, missing 0, duration 0
+== setup-arrangement (F-Setup5): mockup 12, app 26, missing 1, duration 0
+  MISSING anim|2200|inf|left,opacity
+== setup-arrangement-waiting (F-Setup5--waiting): mockup 13, app 28, missing 0, duration 0
+== setup-arrangement-crossed (F-Setup5--crossed): mockup 15, app 28, missing 1, duration 0
+  MISSING anim|2200|inf|left,opacity
+== setup-arrangement-other-edge (F-Setup5--other-edge): mockup 14, app 27, missing 1, duration 0
+  MISSING anim|2200|inf|left,opacity
+== setup-done (F-Setup6): mockup 13, app 25, missing 0, duration 0
+== network (V3-Network): mockup 18, app 20, missing 0, duration 0
+== machine-b (V3-Machine): mockup 13, app 18, missing 0, duration 0
+== machine-a (F-MachineMac): mockup 11, app 17, missing 0, duration 0
+== settings (F-Settings): mockup 8, app 9, missing 0, duration 0
+== settings-shortcuts (F-Settings--shortcuts): mockup 8, app 10, missing 0, duration 0
+== settings-keyboard (F-Settings--keyboard): mockup 10, app 11, missing 0, duration 0
+== settings-updates (F-Settings--updates): mockup 10, app 11, missing 0, duration 0
+== settings-updates-checked (F-Settings--updates-checked): mockup 10, app 11, missing 0, duration 0
+== settings-advanced (F-Settings--advanced): mockup 8, app 9, missing 0, duration 0
+== palette (F-Palette): mockup 2, app 23, missing 0, duration 0
+== palette-filter (F-Palette--filter): mockup 2, app 25, missing 0, duration 0
+== palette-no-results (F-Palette--no-results): mockup 2, app 23, missing 0, duration 0
+== states (V3-States): mockup 9, app 12, missing 0, duration 0
+== notices (F-Notices): mockup 11, app 21, missing 0, duration 1
+  DURATION anim|6000|1|width (app 1100 ms)
+== notices-closed (F-Notices--closed): mockup 11, app 23, missing 0, duration 1
+  DURATION anim|6000|1|width (app 1100 ms)
+== tray (V3-Tray): mockup 5, app 6, missing 0, duration 0
