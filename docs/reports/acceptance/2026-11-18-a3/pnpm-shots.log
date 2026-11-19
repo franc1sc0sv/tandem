@@ -1,0 +1,146 @@
+
+> tandem-ui@0.1.0 shots /home/francisco/projects/personal-projects/apps/tandem/.claude/worktrees/agent-ad53b8ba58c617a95/apps/tandem-ui
+> node scripts/shots.ts --check
+
+
+Component styles (gallery ↔ mockups):
+✓ button 38 px
+✓ primary button 38 px
+✓ primary shine
+✓ button sm
+✓ primary button sm
+✓ ghost icon button sm
+✓ danger button
+✓ segmented md
+✓ segmented md · indicator
+✓ segmented md · selected option
+✓ segmented md · option
+✓ segmented lg
+✓ segmented lg · indicator
+✓ segmented lg · selected option
+✓ segmented lg · option
+✓ switch on
+✓ switch on · knob
+✓ switch off
+✓ switch off · knob
+✓ count chip
+✓ card
+✓ link card
+desk       V3-Desk       99.99 % (worst tile 98.4 %) ✓
+           · sidebar     100.00 % (worst tile 100.0 %) ✓
+desk-scene-macbook-only V3-Desk--scene-macbook-only 99.99 % (worst tile 98.4 %) ✓
+desk-scene-game V3-Desk--scene-game 99.99 % (worst tile 98.4 %) ✓
+desk-win-win V3-Desk       96.79 % (worst tile 32.6 %)
+           · sidebar     99.56 % (worst tile 83.3 %)
+desk-mac-mac V3-Desk       98.28 % (worst tile 60.3 %)
+           · sidebar     99.79 % (worst tile 93.3 %)
+tunnels    V3-Compute    100.00 % (worst tile 100.0 %) ✓
+           · sidebar     100.00 % (worst tile 100.0 %)
+tunnels-process-two V3-Compute--process-2 100.00 % (worst tile 100.0 %) ✓
+           · sidebar     100.00 % (worst tile 100.0 %)
+tunnels-two-processes V3-Compute--tunnel-2-processes 100.00 % (worst tile 100.0 %) ✓
+           · sidebar     100.00 % (worst tile 100.0 %)
+tunnels-no-processes V3-Compute--tunnel-no-processes 100.00 % (worst tile 100.0 %) ✓
+           · sidebar     100.00 % (worst tile 100.0 %)
+tunnels-lora V3-Compute--tunnel-lora 100.00 % (worst tile 100.0 %) ✓
+           · sidebar     100.00 % (worst tile 100.0 %)
+tunnels-closed V3-Compute--tunnel-closed 100.00 % (worst tile 100.0 %) ✓
+           · sidebar     100.00 % (worst tile 100.0 %)
+tunnels-project-collapsed V3-Compute--project-collapsed 100.00 % (worst tile 100.0 %) ✓
+           · sidebar     100.00 % (worst tile 100.0 %)
+tunnels-empty V3-Compute    98.26 % (worst tile 82.4 %)
+           · sidebar     99.99 % (worst tile 99.4 %)
+tunnels-twelve-processes V3-Compute    99.24 % (worst tile 81.1 %)
+           · sidebar     100.00 % (worst tile 100.0 %)
+monitors   V3-Monitors   100.00 % (worst tile 98.9 %) ✓
+           · sidebar     99.98 % (worst tile 98.9 %)
+monitors-input-mac V3-Monitors--input-mac 100.00 % (worst tile 98.9 %) ✓
+           · sidebar     99.98 % (worst tile 98.9 %)
+scene-new  F-NewScene    100.00 % (worst tile 99.7 %) ✓
+scene-shows-mac F-NewScene--shows-mac 100.00 % (worst tile 99.7 %) ✓
+scene-unchanged F-NewScene--unchanged 100.00 % (worst tile 99.7 %) ✓
+progress-in-progress F-Transactions 99.88 % (worst tile 97.9 %) ✓
+progress-success F-Transactions--success 99.88 % (worst tile 97.9 %) ✓
+progress-rollback F-Transactions--rollback 99.88 % (worst tile 97.9 %) ✓
+arrangement V3-Arrangement 100.00 % (worst tile 99.7 %) ✓
+           · sidebar     100.00 % (worst tile 99.9 %)
+arrangement-top-start V3-Arrangement--side-top-start 100.00 % (worst tile 99.7 %) ✓
+           · sidebar     100.00 % (worst tile 99.9 %)
+arrangement-top-center V3-Arrangement--side-top-center 100.00 % (worst tile 99.7 %) ✓
+           · sidebar     100.00 % (worst tile 99.9 %)
+arrangement-top-end V3-Arrangement--side-top-end 100.00 % (worst tile 99.7 %) ✓
+           · sidebar     100.00 % (worst tile 99.9 %)
+arrangement-bottom-start V3-Arrangement--side-bottom-start 100.00 % (worst tile 99.7 %) ✓
+           · sidebar     100.00 % (worst tile 99.9 %)
+arrangement-bottom-center V3-Arrangement--side-bottom-center 100.00 % (worst tile 99.7 %) ✓
+           · sidebar     100.00 % (worst tile 99.9 %)
+arrangement-bottom-end V3-Arrangement--side-bottom-end 100.00 % (worst tile 99.7 %) ✓
+           · sidebar     100.00 % (worst tile 99.9 %)
+arrangement-left-start V3-Arrangement--side-left-start 100.00 % (worst tile 99.7 %) ✓
+           · sidebar     100.00 % (worst tile 99.9 %)
+arrangement-left-center V3-Arrangement--side-left-center 100.00 % (worst tile 99.7 %) ✓
+           · sidebar     100.00 % (worst tile 99.9 %)
+arrangement-left-end V3-Arrangement--side-left-end 100.00 % (worst tile 99.7 %) ✓
+           · sidebar     100.00 % (worst tile 99.9 %)
+arrangement-right-start V3-Arrangement--side-right-start 100.00 % (worst tile 99.7 %) ✓
+           · sidebar     100.00 % (worst tile 99.9 %)
+arrangement-right-center V3-Arrangement--side-right-center 100.00 % (worst tile 99.7 %) ✓
+           · sidebar     100.00 % (worst tile 99.9 %)
+arrangement-right-end V3-Arrangement--side-right-end 100.00 % (worst tile 99.7 %) ✓
+           · sidebar     100.00 % (worst tile 99.9 %)
+arrangement-screen-mac V3-Arrangement--screen-mac 100.00 % (worst tile 99.7 %) ✓
+           · sidebar     100.00 % (worst tile 99.9 %)
+arrangement-unsupported V3-Arrangement--screen-unsupported 100.00 % (worst tile 99.7 %) ✓
+           · sidebar     100.00 % (worst tile 99.9 %)
+crossing   F-CrossingTest 100.00 % (worst tile 100.0 %) ✓
+crossing-crossed F-CrossingTest--crossed 100.00 % (worst tile 99.7 %) ✓
+crossing-no-cross F-CrossingTest--no-cross 100.00 % (worst tile 99.7 %) ✓
+crossing-other-edge F-CrossingTest--no-cross 99.65 % (worst tile 84.7 %)
+setup-machine F-Setup1      99.99 % (worst tile 98.2 %) ✓
+setup-machine-violet F-Setup1--violet 99.98 % (worst tile 97.4 %) ✓
+setup-machine-teal F-Setup1--teal 99.99 % (worst tile 98.2 %) ✓
+setup-machine-amber F-Setup1--amber 99.99 % (worst tile 98.2 %) ✓
+setup-desk V3-Setup      100.00 % (worst tile 99.6 %) ✓
+setup-desk-new V3-Setup--new 100.00 % (worst tile 99.6 %) ✓
+setup-permissions F-Setup3      100.00 % (worst tile 99.6 %) ✓
+setup-permissions-one F-Setup3--one-granted 100.00 % (worst tile 99.6 %) ✓
+setup-permissions-all F-Setup3--all-granted 100.00 % (worst tile 99.6 %) ✓
+setup-keyboard F-Setup4      100.00 % (worst tile 99.6 %) ✓
+setup-arrangement F-Setup5      100.00 % (worst tile 99.6 %) ✓
+setup-arrangement-waiting F-Setup5--waiting 100.00 % (worst tile 99.6 %) ✓
+setup-arrangement-crossed F-Setup5--crossed 100.00 % (worst tile 99.6 %) ✓
+setup-arrangement-other-edge F-Setup5--other-edge 100.00 % (worst tile 99.6 %) ✓
+setup-done F-Setup6      100.00 % (worst tile 99.6 %) ✓
+network    V3-Network    99.98 % (worst tile 97.9 %) ✓
+           · sidebar     100.00 % (worst tile 99.9 %)
+machine-b  V3-Machine    99.99 % (worst tile 98.6 %)
+           · sidebar     100.00 % (worst tile 99.9 %) ✓
+           · content     99.99 % (worst tile 98.6 %) ✓
+machine-a  F-MachineMac  99.99 % (worst tile 98.4 %) ✓
+           · content     99.99 % (worst tile 98.4 %) ✓
+settings   F-Settings    100.00 % (worst tile 99.7 %) ✓
+           · content     100.00 % (worst tile 99.7 %) ✓
+settings-shortcuts F-Settings--shortcuts 100.00 % (worst tile 99.8 %) ✓
+           · content     100.00 % (worst tile 99.8 %) ✓
+settings-keyboard F-Settings--keyboard 100.00 % (worst tile 99.8 %) ✓
+           · content     100.00 % (worst tile 99.8 %) ✓
+settings-updates F-Settings--updates 100.00 % (worst tile 99.8 %) ✓
+           · content     100.00 % (worst tile 99.8 %) ✓
+settings-updates-checked F-Settings--updates-checked 100.00 % (worst tile 99.8 %) ✓
+           · content     100.00 % (worst tile 99.8 %) ✓
+settings-advanced F-Settings--advanced 99.99 % (worst tile 99.2 %) ✓
+           · content     99.99 % (worst tile 99.2 %) ✓
+palette    F-Palette     99.96 % (worst tile 97.8 %) ✓
+           · dialog      99.88 % (worst tile 97.9 %) ✓
+palette-filter F-Palette--filter 99.97 % (worst tile 97.8 %) ✓
+           · dialog      99.75 % (worst tile 97.9 %) ✓
+palette-no-results F-Palette--no-results 99.96 % (worst tile 97.0 %) ✓
+           · dialog      99.59 % (worst tile 97.0 %) ✓
+states     V3-States     100.00 % (worst tile 99.9 %) ✓
+           · content     100.00 % (worst tile 99.9 %) ✓
+notices    F-Notices     99.97 % (worst tile 99.4 %) ✓
+           · content     99.97 % (worst tile 99.4 %) ✓
+notices-closed F-Notices--closed 99.98 % (worst tile 99.4 %) ✓
+           · content     99.98 % (worst tile 99.4 %) ✓
+tray       V3-Tray       99.93 % (worst tile 98.0 %) ✓
+           · content     99.93 % (worst tile 98.0 %) ✓
