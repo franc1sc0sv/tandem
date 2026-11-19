@@ -116,7 +116,8 @@ describe("V3-Machine (the other machine)", () => {
     const names = envs.getAllByText(/WSL · Ubuntu|PowerShell 7|Docker Desktop/).map((e) => e.textContent);
     expect(names).toEqual(["WSL · Ubuntu 24.04", "PowerShell 7", "Docker Desktop"]);
     expect(envs.getByText("default")).toBeInTheDocument();
-    expect(envs.getByRole("switch", { name: "Allow remote execution" })).toHaveAttribute("aria-checked", "true");
+    // T-270: the page has no "Allow remote execution" row; Tunnels is a plain chip in the Modules list.
+    expect(envs.queryByText("Allow remote execution")).toBeNull();
     // G9: no broken texts.
     expect(document.body.textContent).not.toMatch(/undefined|NaN|\{\{/);
   });
@@ -169,17 +170,15 @@ describe("V3-Machine (the other machine)", () => {
     expect(mods.getByText("Power").parentElement).toHaveTextContent("active");
   });
 
-  it("\"Allow remote execution\" shows the tunnels module, which the agent cannot turn off (T-098, T-244)", async () => {
-    const { store } = await mount();
-    const sw = screen.getByRole("switch", { name: "Allow remote execution" });
-    expect(sw).toHaveAttribute("aria-checked", "true");
-    // Locked, not disabled: it stays focusable and says why (T-098: the agent cannot turn Tunnels off).
-    expect(sw).not.toBeDisabled();
-    expect(sw).toHaveAttribute("aria-readonly", "true");
-    expect(sw).toHaveAccessibleDescription("Always on: remote execution can't be turned off from here.");
-    await userEvent.click(sw);
-    expect(store.desk.machines.b?.modules.find((m) => m.id === "tunnels")?.state).toBe("active");
-    expect(within(screen.getByRole("region", { name: "Modules" })).queryByRole("switch", { name: "Tunnels" })).toBeNull();
+  it("has no \"Allow remote execution\" row: Tunnels is a plain chip without a switch (T-098, T-270)", async () => {
+    await mount();
+    expect(screen.queryByText("Allow remote execution")).toBeNull();
+    expect(screen.queryByRole("switch", { name: "Allow remote execution" })).toBeNull();
+    const mods = within(screen.getByRole("region", { name: "Modules" }));
+    expect(mods.queryByRole("switch", { name: "Tunnels" })).toBeNull();
+    expect(mods.getByText("Tunnels").parentElement).toHaveTextContent("active");
+    // Every switch on the page does something: only Keyboard and mouse and Clipboard are switchable.
+    for (const sw of screen.queryAllByRole("switch")) expect(sw).not.toHaveAttribute("aria-readonly");
   });
 
   it("rescan shows that it works until it returns", async () => {
@@ -224,7 +223,6 @@ describe("F-MachineMac (this machine)", () => {
     const envs = within(screen.getByRole("region", { name: "Environments" }));
     expect(envs.getByText("zsh")).toBeInTheDocument();
     expect(envs.getByText("default")).not.toHaveClass("chip");
-    // This machine's tunnels module is turned off from its row: without the switch below.
     expect(envs.queryByRole("switch", { name: "Allow remote execution" })).toBeNull();
     // Remote compute has no switch: the agent cannot turn it off (T-098); it is a plain chip.
     expect(screen.queryByRole("switch", { name: "Remote compute" })).toBeNull();
@@ -376,8 +374,6 @@ describe("against the agent (IPC)", () => {
     await userEvent.click(screen.getByRole("button", { name: /Workshop/ }));
     await userEvent.type(screen.getByRole("textbox", { name: "Machine name" }), "{Control>}a{/Control}New{Enter}");
     expect(act).toHaveBeenCalledWith({ kind: "set_machine", machine: "b", name: "New" });
-    await userEvent.click(screen.getByRole("switch", { name: "Allow remote execution" }));
-    expect(act).toHaveBeenCalledWith({ kind: "set_module", machine: "b", module: "tunnels", on: false });
     await userEvent.click(screen.getByRole("button", { name: "Power off" }));
     expect(act).toHaveBeenCalledWith({ kind: "set_power", machine: "b", on: false });
   });
