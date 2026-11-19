@@ -1,6 +1,6 @@
 [package]
 name = "tandem-link"
-description = "Descubrimiento, enlaces, salud, prioridad, política de planos"
+description = "Link layer: discovery, links, health, priority, plane policy"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

@@ -1,5 +1,5 @@
-//! Los pasos de cada máquina sobre el puesto simulado: el [`LocalSteps`] que usan
-//! los agentes de la simulación en lugar de los backends de plataforma.
+//! Each machine's steps over the simulated desk: the [`LocalSteps`] the simulation's
+//! agents use instead of the platform backends.
 
 use std::time::Duration;
 
@@ -12,14 +12,14 @@ use crate::fault::{FaultAction, Faults};
 use crate::net::SimNet;
 use crate::world::{Power, World};
 
-/// Tiempos del hardware simulado.
+/// Simulated hardware timings.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct HardwareTimes {
-    /// Desde el Wake-on-LAN hasta que Windows terminó de arrancar.
+    /// From the Wake-on-LAN until Windows finished starting.
     pub boot: Duration,
-    /// Desde el Wake-on-LAN hasta que la Mac salió del reposo.
+    /// From the Wake-on-LAN until the Mac came out of sleep.
     pub wake_mac: Duration,
-    /// Desde la orden de apagado hasta que la máquina se apaga.
+    /// From the shutdown order until the machine turns off.
     pub shutdown: Duration,
 }
 
@@ -34,7 +34,7 @@ impl Default for HardwareTimes {
 }
 
 impl HardwareTimes {
-    /// Lo que tarda `machine` en estar lista tras el Wake-on-LAN (o el botón).
+    /// How long `machine` takes to be ready after the Wake-on-LAN (or the button).
     pub fn boot_of(&self, machine: Machine) -> Duration {
         match machine {
             Machine::B => self.boot,
@@ -43,14 +43,14 @@ impl HardwareTimes {
     }
 }
 
-/// Los backends simulados de una máquina (energía).
+/// The simulated backends of a machine (power).
 pub struct SimSteps {
     machine: Machine,
     world: World,
     net: SimNet,
     faults: Faults,
     times: HardwareTimes,
-    /// Si su gestor de enlaces ve al agente de la otra máquina.
+    /// Whether its link manager sees the other machine's agent.
     peer_up: watch::Receiver<bool>,
 }
 
@@ -83,7 +83,7 @@ impl SimSteps {
                     self.times.shutdown,
                     *machine,
                 );
-                // Contesta antes de apagarse, como `shutdown /s /t 0` tras responder.
+                // It answers before shutting down, like `shutdown /s /t 0` after replying.
                 tokio::spawn(async move {
                     tokio::time::sleep(after).await;
                     world.lock().power_off(machine);
@@ -91,19 +91,19 @@ impl SimSteps {
                 });
                 Ok(())
             }
-            // Los monitores van por el bus DDC simulado (`crate::monitors`) y los pasos de
-            // escena por su doble (`crate::scenes`), no por aquí.
+            // Monitors go through the simulated DDC bus (`crate::monitors`) and scene steps
+            // through their double (`crate::scenes`), not through here.
             Step::SwitchMonitor { .. }
             | Step::ShowMachine { .. }
             | Step::Arrange { .. }
-            | Step::Geometry => Err(format!("{}: no es de energía", describe(step))),
+            | Step::Geometry => Err(format!("{}: not a power step", describe(step))),
         }
     }
 
-    /// Wake-on-LAN y esperar a que el agente de `machine` conteste por algún enlace.
+    /// Wake-on-LAN and wait for `machine`'s agent to answer over some link.
     ///
-    /// El paquete mágico solo sale por Ethernet (DESIGN §6): sin ese cable la otra no
-    /// se entera y el paso vence por tiempo.
+    /// The magic packet only goes out over Ethernet (DESIGN §6): without that cable the other
+    /// does not find out and the step times out.
     async fn power_on(&self, machine: Machine) -> Result<(), String> {
         let ethernet = self.net.is_up(LinkKind::Ethernet);
         let send_wol = {
@@ -125,7 +125,7 @@ impl SimSteps {
         up.wait_for(|up| *up)
             .await
             .map(|_| ())
-            .map_err(|_| "la simulación terminó".to_owned())
+            .map_err(|_| "the simulation ended".to_owned())
     }
 }
 
@@ -137,7 +137,7 @@ impl LocalSteps for SimSteps {
                 w.calls.push((self.machine, step.clone()));
                 if w.power_of(self.machine) != Power::On {
                     let v = format!(
-                        "la {} recibió «{}» estando {:?}",
+                        "{} received «{}» while {:?}",
                         self.machine,
                         describe(step),
                         w.power_of(self.machine)

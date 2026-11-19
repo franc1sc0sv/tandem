@@ -1,5 +1,5 @@
-//! Sesión de entrada entre dos agentes del mismo proceso, por loopback con QUIC
-//! real, con captura e inyección simuladas.
+//! Input session between two agents in the same process, over loopback with real
+//! QUIC, with simulated capture and injection.
 
 use std::collections::BTreeSet;
 use std::net::{Ipv4Addr, SocketAddr};
@@ -24,7 +24,7 @@ use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
 
 const LOOPBACK: SocketAddr = SocketAddr::new(std::net::IpAddr::V4(Ipv4Addr::LOCALHOST), 0);
-/// Tope para que una prueba rota falle en vez de colgarse.
+/// Cap so that a broken test fails instead of hanging.
 const TIMEOUT: Duration = Duration::from_secs(10);
 
 struct Only(PublicKey);
@@ -53,7 +53,7 @@ fn mac_screens() -> Vec<Screen> {
     )]
 }
 
-/// 34" en la PC (servidor, izquierda); 32" en la Mac (cliente, derecha).
+/// 34" on the PC (server, left); 32" on the Mac (client, right).
 fn layout() -> Layout {
     let pc = vec![Screen::new("m34".into(), Rect::new(0, 0, 3440, 1440), 1.0)];
     let arr = Arrangement {
@@ -76,11 +76,11 @@ fn server_session() -> ServerSession {
 async fn within<F: Future>(f: F) -> F::Output {
     tokio::time::timeout(TIMEOUT, f)
         .await
-        .expect("la prueba superó el tiempo máximo")
+        .expect("the test exceeded the maximum time")
 }
 
-/// Relé UDP delante del cliente: "desconectar el cable" es que tire los
-/// paquetes en los dos sentidos, sin avisar a nadie.
+/// UDP relay in front of the client: "disconnecting the cable" is it dropping the
+/// packets in both directions, without telling anyone.
 struct Relay {
     addr: SocketAddr,
     plugged: Arc<AtomicBool>,
@@ -132,8 +132,8 @@ impl Drop for Relay {
     }
 }
 
-/// Las dos puntas de una conexión QUIC real, a través de un relé: la del
-/// servidor (PC) y la del cliente (Mac).
+/// The two ends of a real QUIC connection, through a relay: the
+/// server's (PC) and the client's (Mac).
 struct Link {
     server_ep: Endpoint,
     client_ep: Endpoint,
@@ -200,8 +200,8 @@ fn spawn_server(
     (Running { stop, task }, calls, active)
 }
 
-/// Espera a que la sesión del servidor esté establecida: lo que se capture
-/// antes se descarta.
+/// Waits for the server's session to be established: what is captured
+/// before it is discarded.
 async fn up(active: &mut watch::Receiver<bool>) {
     within(active.wait_for(|a| *a)).await.unwrap();
 }
@@ -247,7 +247,7 @@ fn is_discrete(e: &InputEvent) -> bool {
     matches!(e, InputEvent::Key { .. } | InputEvent::Button { .. })
 }
 
-/// Scroll vertical de rueda inyectado en total.
+/// Vertical wheel scroll injected in total.
 fn wheel(events: &[InputEvent]) -> i32 {
     events
         .iter()
@@ -266,15 +266,15 @@ fn last_position(events: &[InputEvent]) -> Option<Point> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn una_secuencia_de_eventos_llega_integra_y_en_orden() {
+async fn a_sequence_of_events_arrives_whole_and_in_order() {
     let l = link().await;
     let (tx, rx) = mpsc::unbounded_channel();
     let (server, mut calls, mut active) = spawn_server(l.server.clone(), rx);
     let (client, mut injected) = spawn_client(l.client.clone());
     up(&mut active).await;
 
-    // Lo que "captura" la PC: cruza a la Mac con Shift apretado, escribe, arrastra
-    // con el botón, hace scroll y sigue moviéndose.
+    // What the PC "captures": it crosses to the Mac with Shift held, types, drags
+    // with the button, scrolls and keeps moving.
     let mut script = vec![key(0xE1, KeyState::Pressed), rel(60.0, 0.0)];
     script.extend([
         key(0x04, KeyState::Pressed),
@@ -299,8 +299,8 @@ async fn una_secuencia_de_eventos_llega_integra_y_en_orden() {
     script.push(key(0x2C, KeyState::Pressed));
     script.push(key(0x2C, KeyState::Released));
 
-    // Lo que tiene que inyectar la Mac, calculado con la misma máquina de estados
-    // sin red: el Shift entra con el Enter y las teclas y botones, en orden.
+    // What the Mac has to inject, computed with the same state machine
+    // without a network: the Shift enters with the Enter and the keys and buttons, in order.
     let mut offline = server_session();
     let mut expected_discrete = Vec::new();
     for e in &script {
@@ -317,10 +317,10 @@ async fn una_secuencia_de_eventos_llega_integra_y_en_orden() {
             }
         }
     }
-    let final_pos = offline.remote_cursor().expect("el guion termina en la Mac");
+    let final_pos = offline.remote_cursor().expect("the script ends on the Mac");
     assert_eq!(expected_discrete.len(), 12, "{expected_discrete:?}");
 
-    // En tandas, como llegarían de la captura.
+    // In batches, as they would arrive from the capture.
     for chunk in script.chunks(7) {
         for e in chunk {
             tx.send(Captured::now(*e)).unwrap();
@@ -339,21 +339,21 @@ async fn una_secuencia_de_eventos_llega_integra_y_en_orden() {
 
     let discrete: Vec<_> = events.iter().copied().filter(is_discrete).collect();
     assert_eq!(discrete, expected_discrete);
-    // El primer movimiento es el de entrada, en el borde de la Mac.
+    // The first movement is the entry one, at the Mac's edge.
     assert!(matches!(events[0], InputEvent::MotionAbsolute { x, .. } if x == 3440.0));
-    // Nunca sale un movimiento fuera de la pantalla de la Mac.
+    // A movement never comes out outside the Mac's screen.
     let mac = mac_screens()[0].rect;
     for e in &events {
         if let InputEvent::MotionAbsolute { x, y } = *e {
-            assert!(mac.contains(Point::new(x, y)), "({x}, {y}) fuera de la Mac");
+            assert!(mac.contains(Point::new(x, y)), "({x}, {y}) outside the Mac");
         }
     }
     assert_eq!(calls.borrow_and_update()[0], CaptureCall::Grab(true));
 
-    // Al detener la sesión (cambio de enlace), la PC recupera su entrada.
+    // On stopping the session (link change), the PC recovers its input.
     let (server, end) = server.stop().await;
     assert!(matches!(end, SessionEnd::Stopped), "{end}");
-    assert!(!*active.borrow(), "la sesión ya no está activa");
+    assert!(!*active.borrow(), "the session is no longer active");
     assert!(!server.session().is_remote());
     assert!(!server.capture().grabbed());
     let (client, end) = client.ended().await;
@@ -364,8 +364,8 @@ async fn una_secuencia_de_eventos_llega_integra_y_en_orden() {
     l.client_ep.close();
 }
 
-/// Cruza a la Mac y deja la tecla `S` presionada; espera a que el cliente la
-/// inyecte.
+/// Crosses to the Mac and leaves the `S` key pressed; waits for the client to
+/// inject it.
 async fn hold_s(
     tx: &mpsc::UnboundedSender<Captured>,
     injected: &mut watch::Receiver<Vec<InputEvent>>,
@@ -382,7 +382,7 @@ async fn hold_s(
         .unwrap();
 }
 
-/// Lo que quedó presionado en el cliente según lo inyectado.
+/// What was left pressed on the client according to what was injected.
 fn held(events: &[InputEvent]) -> BTreeSet<HidUsage> {
     let mut held = BTreeSet::new();
     for e in events {
@@ -397,7 +397,7 @@ fn held(events: &[InputEvent]) -> BTreeSet<HidUsage> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn caida_del_enlace_con_una_tecla_presionada_la_suelta() {
+async fn link_drop_with_a_pressed_key_releases_it() {
     let l = link().await;
     let (tx, rx) = mpsc::unbounded_channel();
     let (server, calls, mut active) = spawn_server(l.server.clone(), rx);
@@ -406,14 +406,14 @@ async fn caida_del_enlace_con_una_tecla_presionada_la_suelta() {
     hold_s(&tx, &mut injected).await;
     assert_eq!(held(&injected.borrow()).len(), 2);
 
-    // Se corta la conexión a mitad de la tecla.
-    l.server.close("cable desconectado");
+    // The connection is cut in the middle of the key.
+    l.server.close("cable disconnected");
 
     let (client, end) = client.ended().await;
     assert!(matches!(end, SessionEnd::Link(_)), "{end}");
     let events = injected.borrow().clone();
-    assert!(held(&events).is_empty(), "quedó presionado: {events:?}");
-    // Primero la tecla normal, después el Ctrl: soltar no dispara un atajo.
+    assert!(held(&events).is_empty(), "left pressed: {events:?}");
+    // First the normal key, then the Ctrl: releasing does not trigger a shortcut.
     let n = events.len();
     assert_eq!(
         events[n - 2..],
@@ -421,7 +421,7 @@ async fn caida_del_enlace_con_una_tecla_presionada_la_suelta() {
     );
     assert!(!client.session().is_active());
 
-    // Y la PC deja de tragarse la entrada.
+    // And the PC stops swallowing input.
     let (server, end) = server.ended().await;
     assert!(matches!(end, SessionEnd::Link(_)), "{end}");
     assert!(!server.capture().grabbed());
@@ -432,7 +432,7 @@ async fn caida_del_enlace_con_una_tecla_presionada_la_suelta() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn cable_desconectado_sin_aviso_suelta_la_tecla_y_devuelve_el_foco() {
+async fn cable_disconnected_without_notice_releases_the_key_and_returns_the_focus() {
     let l = link().await;
     let (tx, rx) = mpsc::unbounded_channel();
     let (server, calls, mut active) = spawn_server(l.server.clone(), rx);
@@ -440,7 +440,7 @@ async fn cable_desconectado_sin_aviso_suelta_la_tecla_y_devuelve_el_foco() {
     up(&mut active).await;
     hold_s(&tx, &mut injected).await;
 
-    // Nadie avisa: solo dejan de llegar paquetes, y con ellos los latidos.
+    // Nobody notifies: packets just stop arriving, and with them the heartbeats.
     l.relay.unplug();
 
     let (client, end) = client.ended().await;
@@ -458,7 +458,7 @@ async fn cable_desconectado_sin_aviso_suelta_la_tecla_y_devuelve_el_foco() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn cambio_de_enlace_suelta_las_teclas_del_cliente() {
+async fn link_change_releases_the_clients_keys() {
     let l = link().await;
     let (tx, rx) = mpsc::unbounded_channel();
     let (server, _calls, mut active) = spawn_server(l.server.clone(), rx);
@@ -466,13 +466,13 @@ async fn cambio_de_enlace_suelta_las_teclas_del_cliente() {
     up(&mut active).await;
     hold_s(&tx, &mut injected).await;
 
-    // El gestor de enlaces avisa de un cambio: la sesión de este enlace termina.
+    // The link manager announces a change: this link's session ends.
     let (client, end) = client.stop().await;
     assert!(matches!(end, SessionEnd::Stopped), "{end}");
     assert!(held(&injected.borrow()).is_empty());
     assert!(client.session().pressed().is_empty());
 
-    // El servidor ve el stream cerrado y recupera la entrada local.
+    // The server sees the stream closed and recovers local input.
     let (server, end) = server.ended().await;
     assert!(matches!(end, SessionEnd::Link(_)), "{end}");
     assert!(!server.capture().grabbed());
@@ -482,11 +482,11 @@ async fn cambio_de_enlace_suelta_las_teclas_del_cliente() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn lo_capturado_sin_enlace_no_cruza_al_empezar_la_sesion() {
+async fn what_was_captured_without_a_link_does_not_cross_when_the_session_starts() {
     let l = link().await;
     let (tx, rx) = mpsc::unbounded_channel();
-    // Sin enlace (la PC apagada) el usuario aprieta Shift y empuja
-    // el mouse contra el borde: eso no puede cruzar cuando el enlace vuelva.
+    // Without a link (the PC off) the user presses Shift and pushes
+    // the mouse against the edge: that cannot cross when the link comes back.
     for e in [
         key(0xE1, KeyState::Pressed),
         rel(60.0, 0.0),
@@ -502,8 +502,8 @@ async fn lo_capturado_sin_enlace_no_cruza_al_empezar_la_sesion() {
     let (client, mut injected) = spawn_client(l.client.clone());
     up(&mut active).await;
 
-    // Ya con enlace: una tecla con el foco todavía local (no viaja), después el
-    // cruce de verdad y otra tecla.
+    // Now with a link: a key with the focus still local (it does not travel), then the
+    // real crossing and another key.
     tx.send(Captured::now(key(0x04, KeyState::Pressed)))
         .unwrap();
     tx.send(Captured::now(rel(60.0, 0.0))).unwrap();
@@ -514,14 +514,14 @@ async fn lo_capturado_sin_enlace_no_cruza_al_empezar_la_sesion() {
         .unwrap()
         .clone();
 
-    // Cruza una sola vez, desde donde estaba el cursor y con el Shift que el
-    // usuario sigue apretando; el movimiento y el scroll viejos no llegan.
+    // It crosses only once, from where the cursor was and with the Shift the
+    // user is still holding; the old movement and scroll do not arrive.
     let mut offline = server_session();
     offline.handle(key(0xE1, KeyState::Pressed));
     offline.handle(rel(60.0, 0.0));
     let entry = offline
         .remote_cursor()
-        .expect("el cruce en vivo entra a la Mac");
+        .expect("the live crossing enters the Mac");
     assert_eq!(
         events,
         [
@@ -548,7 +548,7 @@ async fn lo_capturado_sin_enlace_no_cruza_al_empezar_la_sesion() {
 }
 
 #[tokio::test]
-async fn sin_enlace_lo_capturado_se_consume_sin_cruzar() {
+async fn without_a_link_what_is_captured_is_consumed_without_crossing() {
     let (tx, rx) = mpsc::unbounded_channel();
     let mut driver = ServerDriver::new(server_session(), FakeCapture::new(), rx, cfg());
     let edge = Point::new(3439.0, 720.0);
@@ -561,25 +561,25 @@ async fn sin_enlace_lo_capturado_se_consume_sin_cruzar() {
     ] {
         tx.send(Captured::now(e)).unwrap();
     }
-    // Lo que ya estaba en el canal se consume antes de que `until` se cumpla.
+    // What was already in the channel is consumed before `until` is met.
     let r = within(driver.idle(tokio::time::sleep(Duration::from_millis(50)))).await;
     assert!(r.is_ok());
     assert!(!driver.session().is_remote());
     assert_eq!(driver.session().local_cursor(), edge);
     assert!(driver.capture().calls().borrow().is_empty());
 
-    // Si la captura se cierra, `idle` lo dice.
+    // If the capture closes, `idle` says so.
     drop(tx);
     let r = within(driver.idle(std::future::pending())).await;
     assert!(matches!(r, Err(SessionEnd::CaptureClosed)));
 }
 
-/// T-093: el cliente mide la latencia con las marcas del servidor y el desfase de los
-/// latidos, la publica cada ventana y se la manda al servidor, que también la publica.
-/// Cada movimiento sale en cuanto llega (sin esperar a un tick): con eventos espaciados,
-/// casi cada uno es su propio datagrama.
+/// T-093: the client measures latency with the server's stamps and the heartbeat
+/// offset, publishes it every window and sends it to the server, which also publishes it.
+/// Every movement goes out as soon as it arrives (without waiting for a tick): with spaced events,
+/// almost every one is its own datagram.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn la_latencia_se_mide_en_el_cliente_y_llega_al_servidor() {
+async fn latency_is_measured_on_the_client_and_reaches_the_server() {
     let l = link().await;
     let (tx, rx) = mpsc::unbounded_channel();
     let capture = FakeCapture::new();
@@ -614,7 +614,7 @@ async fn la_latencia_se_mide_en_el_cliente_y_llega_al_servidor() {
             .await
     });
     up(&mut active).await;
-    // Dos latidos con eco antes de medir: sin desfase estimado no se mide nada.
+    // Two heartbeats with echo before measuring: without an estimated offset nothing is measured.
     tokio::time::sleep(cfg().heartbeat_interval * 3).await;
 
     tx.send(Captured::now(rel(60.0, 0.0))).unwrap();
@@ -630,8 +630,8 @@ async fn la_latencia_se_mide_en_el_cliente_y_llega_al_servidor() {
     within(injected.wait_for(|e| e.iter().filter(|e| is_discrete(e)).count() == 2))
         .await
         .unwrap();
-    // Cada movimiento, su datagrama: los inyectados son casi tantos como los movimientos
-    // (solo se junta lo que llega mientras se manda lo anterior).
+    // Every movement, its datagram: the injected ones are almost as many as the movements
+    // (only what arrives while the previous one is being sent is gathered).
     let positions = injected
         .borrow()
         .iter()
@@ -639,11 +639,11 @@ async fn la_latencia_se_mide_en_el_cliente_y_llega_al_servidor() {
         .count();
     assert!(
         positions >= moves / 2,
-        "solo {positions} posiciones para {moves} movimientos"
+        "only {positions} positions for {moves} movements"
     );
 
-    // La ventana con lo último se publica aquí y llega igual al servidor (puede haber
-    // otra antes con la primera parte).
+    // The window with the latest is published here and reaches the server too (there may be
+    // another before it with the first part).
     let mine = within(client_latency.wait_for(Option::is_some))
         .await
         .unwrap()
@@ -653,9 +653,9 @@ async fn la_latencia_se_mide_en_el_cliente_y_llega_al_servidor() {
         .unwrap();
     assert!(mine.count >= 1 && mine.p50_us <= mine.p99_us && mine.p99_us <= mine.max_us);
     let mut all = samples.lock().unwrap().clone();
-    assert!(all.len() > moves / 2, "solo {} muestras", all.len());
+    assert!(all.len() > moves / 2, "only {} samples", all.len());
     all.sort_unstable();
-    // Loopback: holgado para un runner cargado.
+    // Loopback: generous for a loaded runner.
     let p99 = all[all.len() * 99 / 100];
     assert!(p99 < Duration::from_millis(50), "p99 {p99:?}");
 
@@ -667,9 +667,9 @@ async fn la_latencia_se_mide_en_el_cliente_y_llega_al_servidor() {
     l.client_ep.close();
 }
 
-/// Captura que tarda en tomar la entrada: mientras tanto el driver está ocupado y lo que
-/// se captura espera en el canal. No dura un plazo fijo: avisa que ya está ocupada y
-/// espera a que la prueba la suelte, así la prueba decide cuánto tiempo pasó dentro.
+/// Capture that takes a while to take the input: meanwhile the driver is busy and what
+/// is captured waits in the channel. It does not last a fixed time: it signals it is already busy and
+/// waits for the test to release it, so the test decides how much time passed inside.
 struct SlowCapture {
     entered: std::sync::mpsc::Sender<()>,
     release: std::sync::mpsc::Receiver<()>,
@@ -680,7 +680,7 @@ impl tandem_input::session::Capture for SlowCapture {
 
     fn set_grab(&mut self, _grab: bool) -> Result<(), Self::Error> {
         let _ = self.entered.send(());
-        // Con el emisor soltado (al cerrar) no espera a nadie.
+        // With the sender dropped (on closing) it waits for nobody.
         let _ = self.release.recv();
         Ok(())
     }
@@ -690,13 +690,13 @@ impl tandem_input::session::Capture for SlowCapture {
     }
 }
 
-/// T-093 (revisión): la latencia cuenta desde la captura, no desde que el driver saca el
-/// evento del canal. Con el driver ocupado (tomar la entrada al cruzar), lo que se capturó
-/// mientras tanto llega con esa espera en la muestra. La prueba sabe cuándo el driver está
-/// ocupado (aviso de la captura) y lo suelta después de `busy` desde que capturó, así que
-/// no depende de qué tan rápido corran los hilos.
+/// T-093 (review): latency counts from the capture, not from when the driver takes the
+/// event out of the channel. With the driver busy (taking the input on crossing), what was captured
+/// in the meantime arrives with that wait in the sample. The test knows when the driver is
+/// busy (the capture's notice) and releases it after `busy` from when it captured, so
+/// it does not depend on how fast the threads run.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn la_latencia_incluye_la_espera_con_el_driver_ocupado() {
+async fn latency_includes_the_wait_with_the_driver_busy() {
     let busy = Duration::from_millis(60);
     let l = link().await;
     let (tx, rx) = mpsc::unbounded_channel();
@@ -737,12 +737,12 @@ async fn la_latencia_incluye_la_espera_con_el_driver_ocupado() {
             .await
     });
     up(&mut active).await;
-    // Latidos con eco antes de medir.
+    // Heartbeats with echo before measuring.
     tokio::time::sleep(cfg().heartbeat_interval * 3).await;
 
-    // Cruzar ocupa al driver tomando la entrada y no lo suelta hasta que la prueba quiera.
-    // Lo que sigue se captura desde otro hilo, como el del hook o el tap, solo después de
-    // que el driver avisó que está ocupado: así espera en el canal sí o sí.
+    // Crossing keeps the driver busy taking the input and does not release it until the test wants.
+    // What follows is captured from another thread, like the hook's or the tap's, only after
+    // the driver signaled it is busy: that way it waits in the channel for sure.
     tx.send(Captured::now(rel(60.0, 0.0))).unwrap();
     let more = tx.clone();
     tokio::task::spawn_blocking(move || {
@@ -750,15 +750,15 @@ async fn la_latencia_incluye_la_espera_con_el_driver_ocupado() {
         for _ in 0..5 {
             more.send(Captured::now(rel(1.0, 0.0))).unwrap();
         }
-        // Piso del tiempo en el canal: dormir nunca dura menos de lo pedido.
+        // Floor of the time in the channel: sleeping never lasts less than asked.
         std::thread::sleep(busy);
         release.send(()).unwrap();
-        // Soltado el emisor, las demás tomas de entrada no esperan.
+        // With the sender dropped, the other input takes do not wait.
     })
     .await
     .unwrap();
-    // La espera de los movimientos llega en la muestra; esperar a verla (no a la primera
-    // muestra, que puede ser la del cruce).
+    // The wait of the movements arrives in the sample; wait to see it (not the first
+    // sample, which may be the crossing's).
     let floor = busy * 2 / 3;
     within(async {
         while !samples.lock().unwrap().iter().any(|d| *d >= floor) {
@@ -769,7 +769,7 @@ async fn la_latencia_incluye_la_espera_con_el_driver_ocupado() {
     let worst = samples.lock().unwrap().iter().copied().max().unwrap();
     assert!(
         worst >= floor,
-        "la muestra no cuenta la espera en el canal: {worst:?}"
+        "the sample does not count the wait in the channel: {worst:?}"
     );
 
     let _ = stop_s.send(());
@@ -780,11 +780,11 @@ async fn la_latencia_incluye_la_espera_con_el_driver_ocupado() {
     l.client_ep.close();
 }
 
-/// Los dos drivers publican el cursor mientras alguien mira (T-128): el servidor su
-/// posición y el cruce; el cliente, con el foco, la suya. Con el interruptor apagado no
-/// sale nada.
+/// Both drivers publish the cursor while someone is watching (T-128): the server its
+/// position and the crossing; the client, with the focus, its own. With the switch off nothing
+/// comes out.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn el_cursor_en_vivo_sale_de_quien_tiene_el_foco_y_solo_con_el_interruptor_encendido() {
+async fn the_live_cursor_comes_from_whoever_has_the_focus_and_only_with_the_switch_on() {
     let l = link().await;
     let gate = Arc::new(CursorGate::default());
     let (server_tap, mut server_rx) = CursorTap::new(gate.clone());
@@ -821,7 +821,7 @@ async fn el_cursor_en_vivo_sale_de_quien_tiene_el_foco_y_solo_con_el_interruptor
     });
     up(&mut { active }).await;
 
-    // Sin suscripción: un movimiento, un cruce y más movimiento no publican nada.
+    // Without a subscription: a movement, a crossing and more movement publish nothing.
     for e in [rel(5.0, 0.0), rel(60.0, 0.0), rel(3.0, 1.0)] {
         tx.send(Captured::now(e)).unwrap();
     }
@@ -831,14 +831,14 @@ async fn el_cursor_en_vivo_sale_de_quien_tiene_el_foco_y_solo_con_el_interruptor
     tokio::time::sleep(Duration::from_millis(150)).await;
     assert!(
         server_rx.try_recv().is_err(),
-        "el servidor publicó sin suscripción"
+        "the server published without a subscription"
     );
     assert!(
         client_rx.try_recv().is_err(),
-        "el cliente publicó sin suscripción"
+        "the client published without a subscription"
     );
 
-    // Con suscripción: el cliente, que tiene el foco, publica su posición con su pantalla.
+    // With a subscription: the client, which has the focus, publishes its position with its screen.
     gate.set(true);
     tx.send(Captured::now(rel(2.0, 0.0))).unwrap();
     let sample = within(client_rx.recv()).await.unwrap();
@@ -849,16 +849,16 @@ async fn el_cursor_en_vivo_sale_de_quien_tiene_el_foco_y_solo_con_el_interruptor
         y,
     }) = sample
     else {
-        panic!("se esperaba una muestra: {sample:?}");
+        panic!("a sample was expected: {sample:?}");
     };
     assert_eq!((machine, screen.as_str()), (Machine::A, "m32"));
     assert!(Rect::new(3440, 0, 1920, 1080).contains(Point::new(f64::from(x), f64::from(y))));
     assert!(
         server_rx.try_recv().is_err(),
-        "el servidor no tiene el foco"
+        "the server does not have the focus"
     );
 
-    // Al volver por el borde, el servidor publica el cruce y su propia posición.
+    // On coming back through the edge, the server publishes the crossing and its own position.
     tx.send(Captured::now(rel(-100.0, 0.0))).unwrap();
     let mut crossed = None;
     let mut sample = None;

@@ -1,13 +1,13 @@
 [package]
 name = "tandem-monitor"
-description = "Monitores en Tandem: monitor-ddc, dueño elegido, eventos, cambios con veredicto y vuelta automática"
+description = "Monitors in Tandem: monitor-ddc, elected owner, events, switches with a verdict and automatic rollback"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [[bin]]
-# El vigilante de la vuelta automática: un proceso aparte que restaura la entrada si el
-# que la cambió muere sin hacerlo.
+# The automatic-rollback watchdog: a separate process that restores the input if the
+# one that changed it dies without doing so.
 name = "tandem-monitor-guard"
 path = "src/bin/tandem-monitor-guard.rs"
 

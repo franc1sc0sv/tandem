@@ -1,12 +1,12 @@
-//! Doble de prueba de [`MacSink`]: guarda lo publicado y mueve un cursor simulado.
+//! Test double of [`MacSink`]: stores what was published and moves a simulated cursor.
 
 use std::time::Duration;
 
 use super::{EmulateError, MacEvent, MacSink};
 use crate::geometry::{Point, Rect};
 
-/// Sink que no toca el sistema. El cursor sigue a los eventos de mouse
-/// publicados, como lo haría macOS.
+/// Sink that does not touch the system. The cursor follows the published
+/// mouse events, as macOS would.
 #[derive(Debug, Clone)]
 pub struct RecordingSink {
     pub events: Vec<MacEvent>,
@@ -14,13 +14,13 @@ pub struct RecordingSink {
     pub screens: Vec<Rect>,
     pub double_click: Duration,
     pub natural_scroll: bool,
-    /// Si es `Some`, `post` falla con este mensaje (sin guardar el evento).
+    /// If `Some`, `post` fails with this message (without storing the event).
     pub fail_post: Option<String>,
 }
 
 impl RecordingSink {
-    /// Una pantalla de 1920×1080 con el cursor en el centro, doble clic de 0,5 s
-    /// y sin scroll natural.
+    /// A 1920×1080 screen with the cursor in the center, a 0.5 s double click
+    /// and no natural scrolling.
     pub fn new() -> Self {
         Self {
             events: Vec::new(),
@@ -32,7 +32,7 @@ impl RecordingSink {
         }
     }
 
-    /// Vacía y devuelve lo publicado.
+    /// Empties and returns what was published.
     pub fn take(&mut self) -> Vec<MacEvent> {
         std::mem::take(&mut self.events)
     }

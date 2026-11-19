@@ -1,8 +1,8 @@
-//! Métricas de red por camino (T-102, DESIGN §6): lo que ve la pantalla Red cuando se corta
-//! un camino, y la prueba de ancho de banda sobre un Wi-Fi simulado con capacidad limitada.
+//! Per-path network metrics (T-102, DESIGN §6): what the Network screen shows when a
+//! path is cut, and the bandwidth test over a simulated Wi-Fi with limited capacity.
 //!
-//! Con el reloj de tokio pausado: los pings, los tiempos de cambio y la capacidad del Wi-Fi
-//! son exactos.
+//! With the tokio clock paused: pings, switch times and the Wi-Fi capacity
+//! are exact.
 
 use std::time::Duration;
 
@@ -14,7 +14,7 @@ use tandem_link::qos::{LinkQos, Qos, input_p99_target};
 use tandem_proto::{Link, NetworkStatus, PathState, PathSwitch};
 use tandem_sim::{Desk, Outcome, SimWifi};
 
-/// La Mac con la PC prendida y los dos agentes viéndose por los tres caminos.
+/// The Mac with the PC on and both agents seeing each other over the three paths.
 async fn both_on() -> Desk {
     let d = Desk::new().await.unwrap();
     let run = d.power_on(Machine::B).await.unwrap();
@@ -28,7 +28,7 @@ fn states(s: &NetworkStatus) -> Vec<(Link, PathState)> {
 }
 
 #[tokio::test(start_paused = true)]
-async fn cortar_un_camino_genera_el_evento_con_su_duración_y_cambia_los_estados() {
+async fn cutting_a_path_produces_the_event_with_its_duration_and_changes_the_states() {
     let d = both_on().await;
     tokio::time::sleep(Duration::from_secs(5)).await;
     let mac = d.agent(Machine::A);
@@ -62,15 +62,15 @@ async fn cortar_un_camino_genera_el_evento_con_su_duración_y_cambia_los_estados
         from, to, took_ms, ..
     } = after.switches[0];
     assert_eq!((from, to), (Some(Link::Usb4), Some(Link::Ethernet)));
-    // Desde la última respuesta del USB-C: como mucho un ping y su tiempo máximo.
-    let took = took_ms.expect("un cambio por caída tiene duración");
+    // From the last USB-C answer: at most one ping and its maximum time.
+    let took = took_ms.expect("a switch caused by a drop has a duration");
     assert!((1..=1250).contains(&took), "{took} ms");
-    // El historial ya muestra el USB-C sin respuesta.
+    // The history already shows the USB-C without a response.
     let usb = after.path(Link::Usb4).unwrap();
     assert_eq!(usb.rtt_us, None);
     assert_eq!(usb.history.last().and_then(|s| s.rtt_us), None);
 
-    // La otra máquina ve lo mismo.
+    // The other machine sees the same.
     let pc = d.agent(Machine::B).network_status();
     assert_eq!(pc.primary().map(|p| p.link), Some(Link::Ethernet), "{pc:?}");
     assert_eq!(
@@ -78,7 +78,7 @@ async fn cortar_un_camino_genera_el_evento_con_su_duración_y_cambia_los_estados
         Some((Some(Link::Usb4), Some(Link::Ethernet)))
     );
 
-    // Y si cae también el Ethernet, pasa al Wi-Fi.
+    // And if Ethernet also drops, it goes to Wi-Fi.
     d.net.cut(LinkKind::Ethernet);
     tokio::time::sleep(Duration::from_secs(3)).await;
     let wifi = mac.network_status();
@@ -90,7 +90,7 @@ async fn cortar_un_camino_genera_el_evento_con_su_duración_y_cambia_los_estados
     assert!(wifi.switches[0].took_ms.is_some());
 }
 
-/// Mide un Wi-Fi simulado de `capacity` bytes por segundo con la prueba de 3 s.
+/// Measures a simulated Wi-Fi of `capacity` bytes per second with the 3 s test.
 async fn measure(wifi: &SimWifi) -> u64 {
     let (mut w, mut r) = wifi.data_pipe();
     let answer = tokio::spawn(async move { receive_probe(&mut r, 0).await.unwrap() });
@@ -107,13 +107,13 @@ fn near(got: u64, want: u64) -> bool {
 }
 
 #[tokio::test(start_paused = true)]
-async fn la_medición_da_lo_que_da_el_wifi_simulado_y_fija_el_tope() {
+async fn the_measurement_gives_what_the_simulated_wifi_gives_and_sets_the_cap() {
     const CAPACITY: u64 = 8_000_000;
     let wifi = SimWifi::new(CAPACITY, Duration::from_millis(2), 256 * 1024);
     let bps = measure(&wifi).await;
     assert!(near(bps, CAPACITY), "{bps} B/s");
 
-    // Lo medido queda en las métricas y el tope de los datos es su mitad (T-101).
+    // What was measured stays in the metrics and the data cap is half of it (T-101).
     let metrics = Metrics::default();
     let qos = LinkQos::default();
     metrics.record_bandwidth(LinkKind::Wifi, bps, &qos);
@@ -127,21 +127,21 @@ async fn la_medición_da_lo_que_da_el_wifi_simulado_y_fija_el_tope() {
     );
     assert_eq!(qos.get(LinkKind::Wifi).cap(), Some(bps / 2));
 
-    // Si el Wi-Fi empeora, la medición siguiente lo dice.
+    // If the Wi-Fi gets worse, the next measurement says so.
     wifi.set_capacity(CAPACITY / 4);
     let worse = measure(&wifi).await;
     assert!(near(worse, CAPACITY / 4), "{worse} B/s");
 }
 
-/// Revisión de T-102: la prueba de ancho de banda va sin tope pero respeta la pausa de
-/// T-101. Si la entrada pasa su objetivo durante la prueba, se corta antes de los 3 s.
+/// Review of T-102: the bandwidth test goes without a cap but respects the pause of
+/// T-101. If input exceeds its target during the test, it is cut before the 3 s.
 #[tokio::test(start_paused = true)]
-async fn la_medición_se_corta_si_la_entrada_pasa_su_objetivo() {
+async fn the_measurement_is_cut_off_if_input_exceeds_its_target() {
     let wifi = SimWifi::new(8_000_000, Duration::from_millis(2), 256 * 1024);
     let qos = Qos::default();
     qos.set_link(Some(LinkKind::Wifi));
     let late = input_p99_target(Some(LinkKind::Wifi)) * 2;
-    // Entrada a 1000 eventos/s, toda sobre el objetivo.
+    // Input at 1000 events/s, all over the target.
     let feed = {
         let qos = qos.clone();
         tokio::spawn(async move {
@@ -161,18 +161,18 @@ async fn la_medición_se_corta_si_la_entrada_pasa_su_objetivo() {
     feed.abort();
     drop(w);
     assert!(end.paused, "{end:?}");
-    // La pausa salta a los 2 s sobre el objetivo (T-101), antes del final de la prueba.
+    // The pause kicks in at 2 s over the target (T-101), before the end of the test.
     assert!(took < Duration::from_secs(3), "{took:?}");
     assert!(took >= Duration::from_secs(2), "{took:?}");
-    // El otro lado recibe el fin igual.
+    // The other side receives the end anyway.
     answer.await.unwrap();
 }
 
-/// T-094: un cable USB4 que se enchufa a mitad de la sesión se detecta por su interfaz, se
-/// vuelve el camino principal en las dos máquinas, y al desconectarlo la entrada pasa al
-/// camino siguiente en menos de 1 s, sin esperar a la revisión de salud.
+/// T-094: a USB4 cable plugged in mid-session is detected by its interface, becomes
+/// the main path on both machines, and on unplugging it input moves to the
+/// next path in under 1 s, without waiting for the health check.
 #[tokio::test(start_paused = true)]
-async fn el_cable_usb4_que_aparece_se_vuelve_el_principal_y_su_baja_pasa_al_siguiente() {
+async fn a_usb4_cable_that_appears_becomes_the_main_one_and_its_drop_moves_to_the_next() {
     let d = Desk::builder()
         .links(&[LinkKind::Ethernet, LinkKind::Wifi])
         .build()
@@ -192,7 +192,7 @@ async fn el_cable_usb4_que_aparece_se_vuelve_el_principal_y_su_baja_pasa_al_sigu
         );
     }
 
-    // Aparece la interfaz USB4 en las dos máquinas.
+    // The USB4 interface appears on both machines.
     d.plug_cable(LinkKind::Usb4);
     tokio::time::sleep(Duration::from_secs(3)).await;
     for a in [mac, pc] {
@@ -200,13 +200,16 @@ async fn el_cable_usb4_que_aparece_se_vuelve_el_principal_y_su_baja_pasa_al_sigu
         assert_eq!(s.primary().map(|p| p.link), Some(Link::Usb4), "{s:?}");
     }
 
-    // Se desconecta: en menos de 1 s la entrada ya va por el Ethernet.
+    // It is unplugged: in under 1 s input already goes over Ethernet.
     d.unplug_cable(LinkKind::Usb4);
     tokio::time::sleep(Duration::from_millis(900)).await;
     for a in [mac, pc] {
         let s = a.network_status();
         assert_eq!(s.primary().map(|p| p.link), Some(Link::Ethernet), "{s:?}");
-        let last = s.switches.first().expect("quedó el cambio en el historial");
+        let last = s
+            .switches
+            .first()
+            .expect("the switch stayed in the history");
         assert_eq!(
             (last.from, last.to),
             (Some(Link::Usb4), Some(Link::Ethernet))

@@ -5,43 +5,43 @@ use super::PublicKey;
 
 #[derive(Debug, thiserror::Error)]
 pub enum IdentityError {
-    #[error("error de E/S en {path}: {source}")]
+    #[error("I/O error at {path}: {source}")]
     Io {
         path: PathBuf,
         #[source]
         source: io::Error,
     },
-    #[error("la llave en {path} está dañada: {reason}")]
+    #[error("the key at {path} is damaged: {reason}")]
     CorruptKey { path: PathBuf, reason: &'static str },
-    #[error("permisos inseguros en {path} ({mode:o}); se esperan 0600")]
+    #[error("insecure permissions on {path} ({mode:o}); 0600 expected")]
     InsecurePermissions { path: PathBuf, mode: u32 },
-    #[error("no se pudo obtener entropía del sistema: {0}")]
+    #[error("could not obtain entropy from the system: {0}")]
     Entropy(getrandom::Error),
-    #[error("no se pudo codificar la llave en PKCS#8: {0}")]
+    #[error("could not encode the key as PKCS#8: {0}")]
     Pkcs8(String),
-    #[error("no se pudo generar el certificado: {0}")]
+    #[error("could not generate the certificate: {0}")]
     Certificate(#[from] rcgen::Error),
-    #[error("llave pública inválida: {0}")]
+    #[error("invalid public key: {0}")]
     InvalidPublicKey(&'static str),
-    #[error("trust store inválido en {path}: {source}")]
+    #[error("invalid trust store at {path}: {source}")]
     TrustStoreParse {
         path: PathBuf,
         #[source]
         source: toml::de::Error,
     },
-    #[error("versión de trust store no soportada en {path}: {version}")]
+    #[error("unsupported trust store version at {path}: {version}")]
     TrustStoreVersion { path: PathBuf, version: u32 },
-    #[error("no se pudo serializar el trust store: {0}")]
+    #[error("could not serialize the trust store: {0}")]
     TrustStoreSerialize(#[from] toml::ser::Error),
-    #[error("par no confiable: {0}")]
+    #[error("untrusted peer: {0}")]
     Untrusted(PublicKey),
-    #[error("una máquina no puede emparejarse consigo misma")]
+    #[error("a machine cannot pair with itself")]
     SelfPairing,
-    #[error("el par confirmó el código {remote}, pero aquí se muestra {local}")]
+    #[error("the peer confirmed code {remote}, but {local} is shown here")]
     CodeMismatch { local: String, remote: String },
-    #[error("el nonce revelado no coincide con el compromiso del par")]
+    #[error("the revealed nonce does not match the peer's commitment")]
     CommitMismatch,
-    #[error("el emparejamiento no está confirmado en ambos lados")]
+    #[error("the pairing is not confirmed on both sides")]
     NotConfirmed,
 }
 

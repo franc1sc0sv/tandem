@@ -6,23 +6,23 @@ use thiserror::Error;
 
 use super::NetInterface;
 
-/// Por qué no se pudo asignar la IP de respaldo.
+/// Why the fallback IP could not be assigned.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum AssignError {
-    /// Faltan permisos: hay que dar la orden al usuario.
-    #[error("sin permisos para cambiar la dirección de la interfaz")]
+    /// Permissions are missing: the command has to be given to the user.
+    #[error("no permission to change the interface address")]
     PermissionDenied,
-    #[error("no se pudo asignar la dirección: {0}")]
+    #[error("could not assign the address: {0}")]
     Failed(String),
 }
 
-/// Pone la IP de respaldo (`10.77.1.0/30`) en una interfaz. Es plataforma (`netsh`,
-/// `ifconfig`), así que va detrás de un trait con doble.
+/// Sets the fallback IP (`10.77.1.0/30`) on an interface. It is platform code (`netsh`,
+/// `ifconfig`), so it goes behind a trait with a double.
 pub trait AddrAssigner: Send + Sync + 'static {
     fn assign(&self, iface: &NetInterface, ip: Ipv4Addr) -> Result<(), AssignError>;
 }
 
-/// Programa y argumentos que asignan `ip` con máscara `/30` a la interfaz `name`.
+/// Program and arguments that assign `ip` with mask `/30` to the interface `name`.
 pub fn assign_command(os: Os, name: &str, ip: Ipv4Addr) -> (&'static str, Vec<String>) {
     let ip = ip.to_string();
     match os {
@@ -52,8 +52,8 @@ pub fn assign_command(os: Os, name: &str, ip: Ipv4Addr) -> (&'static str, Vec<St
     }
 }
 
-/// Si lo que dijo la orden al fallar es una falta de permisos (en inglés y en español: los
-/// mensajes de `netsh` salen en el idioma del sistema).
+/// Whether what the command said on failing is a lack of permissions (in English and Spanish: the
+/// `netsh` messages come out in the system's language).
 pub fn is_permission_failure(output: &str) -> bool {
     let o = output.to_lowercase();
     [
@@ -72,8 +72,8 @@ pub fn is_permission_failure(output: &str) -> bool {
     .any(|p| o.contains(p))
 }
 
-/// El asignador real: ejecuta la orden del sistema. En Linux (solo desarrollo) no hay
-/// nada que asignar y siempre pide la orden al usuario.
+/// The real assigner: runs the system command. On Linux (development only) there is
+/// nothing to assign and it always asks the user for the command.
 pub struct SystemAssigner;
 
 impl AddrAssigner for SystemAssigner {
@@ -113,7 +113,7 @@ impl AddrAssigner for SystemAssigner {
     }
 }
 
-/// Asignador de mentira: apunta lo que se le pidió y falla como se le diga.
+/// Fake assigner: records what it was asked and fails as told.
 #[derive(Default)]
 pub struct FakeAssigner {
     fail: Mutex<Option<AssignError>>,

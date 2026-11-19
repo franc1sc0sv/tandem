@@ -9,16 +9,16 @@ use super::{
 };
 use crate::identity::PublicKey;
 
-/// Tipo de servicio DNS-SD que anuncia cada agente.
+/// DNS-SD service type that each agent announces.
 pub const SERVICE_TYPE: &str = "_tandem._udp.local.";
 
-/// Lo que anuncia un agente solo mientras empareja, con el puerto de su endpoint de
-/// emparejamiento. Es otro tipo para que nadie lo confunda con el de un par.
+/// What an agent announces only while pairing, with the port of its pairing
+/// endpoint. It is a different type so nobody confuses it with a peer's.
 pub const PAIRING_SERVICE_TYPE: &str = "_tandem-pair._udp.local.";
 
-/// Anuncio propio: instancia y host `tandem-<huella corta>`, el puerto QUIC
-/// del agente y la huella completa en la clave TXT `fp`. Las direcciones las
-/// pone mdns-sd según las interfaces que haya en cada momento.
+/// Own announcement: instance and host `tandem-<short fingerprint>`, the agent's QUIC
+/// port and the full fingerprint in the TXT key `fp`. The addresses are
+/// set by mdns-sd according to the interfaces there are at any moment.
 pub fn service_info(own: &Fingerprint, port: u16) -> Result<ServiceInfo, DiscoveryError> {
     service_info_of(SERVICE_TYPE, own, port)
 }
@@ -35,14 +35,14 @@ fn service_info_of(
     Ok(info.enable_addr_auto())
 }
 
-/// Pasa un servicio resuelto por mdns-sd a [`Announcement`].
+/// Turns a service resolved by mdns-sd into an [`Announcement`].
 pub fn announcement(service: &ResolvedService) -> Announcement {
     let port = service.get_port();
     let mut addrs: Vec<SocketAddr> = service
         .get_addresses()
         .iter()
         .map(|ip| match ip {
-            // Una IPv6 de enlace local no sirve sin la interfaz por la que llegó.
+            // A link-local IPv6 is useless without the interface it arrived on.
             ScopedIp::V6(v6) if v6.addr().is_unicast_link_local() => {
                 SocketAddrV6::new(*v6.addr(), port, 0, v6.scope_id().index).into()
             }
@@ -59,7 +59,7 @@ pub fn announcement(service: &ResolvedService) -> Announcement {
     }
 }
 
-/// Lo que importa de un evento del navegador; el resto se ignora.
+/// What matters of a browser event; the rest is ignored.
 pub fn discovery_event(event: ServiceEvent) -> Option<DiscoveryEvent> {
     match event {
         ServiceEvent::ServiceResolved(s) => Some(DiscoveryEvent::Resolved(announcement(&s))),
@@ -68,10 +68,10 @@ pub fn discovery_event(event: ServiceEvent) -> Option<DiscoveryEvent> {
     }
 }
 
-/// Anuncio propio y búsqueda del par en la LAN por mDNS.
+/// Own announcement and search for the peer on the LAN over mDNS.
 ///
-/// Las direcciones del par se publican en [`MdnsDiscovery::peer_addrs`],
-/// de la más a la menos preferida. Al soltarlo se retira el anuncio.
+/// The peer's addresses are published in [`MdnsDiscovery::peer_addrs`],
+/// from most to least preferred. Dropping it withdraws the announcement.
 pub struct MdnsDiscovery {
     daemon: ServiceDaemon,
     peers: watch::Receiver<Vec<SocketAddr>>,
@@ -79,8 +79,8 @@ pub struct MdnsDiscovery {
 }
 
 impl MdnsDiscovery {
-    /// Anuncia `own` en `port` y busca a los pares de `trusted` (los del
-    /// trust store). Tiene que llamarse dentro de un runtime de tokio.
+    /// Announces `own` on `port` and looks for the peers in `trusted` (those of the
+    /// trust store). It has to be called inside a tokio runtime.
     pub fn start(
         own: &PublicKey,
         port: u16,
@@ -91,9 +91,9 @@ impl MdnsDiscovery {
         Self::run(SERVICE_TYPE, own, Some(port), resolver)
     }
 
-    /// Para emparejarse: anuncia el endpoint de emparejamiento en `port` (si hay) y
-    /// busca a cualquier otro agente que esté emparejando ([`PAIRING_SERVICE_TYPE`]).
-    /// Tiene que llamarse dentro de un runtime de tokio.
+    /// For pairing: announces the pairing endpoint on `port` (if any) and
+    /// looks for any other agent that is pairing ([`PAIRING_SERVICE_TYPE`]).
+    /// It has to be called inside a tokio runtime.
     pub fn pairing(own: &PublicKey, port: Option<u16>) -> Result<Self, DiscoveryError> {
         let own = Fingerprint::of(own);
         Self::run(PAIRING_SERVICE_TYPE, own, port, PeerResolver::any(own))
@@ -112,14 +112,14 @@ impl MdnsDiscovery {
         let browse = daemon.browse(service_type)?;
         let (tx, peers) = watch::channel(Vec::new());
         let task = tokio::spawn(async move {
-            // Termina cuando el daemon se apaga y cierra el canal.
+            // It ends when the daemon shuts down and closes the channel.
             while let Ok(event) = browse.recv_async().await {
                 let Some(event) = discovery_event(event) else {
                     continue;
                 };
                 if resolver.apply(event) {
                     let addrs = resolver.addrs();
-                    tracing::info!(?addrs, "direcciones del par en la LAN");
+                    tracing::info!(?addrs, "peer addresses on the LAN");
                     tx.send_replace(addrs);
                 }
             }
@@ -138,9 +138,9 @@ impl MdnsDiscovery {
 
 impl Drop for MdnsDiscovery {
     fn drop(&mut self) {
-        // `shutdown` manda el adiós (TTL 0) de lo registrado antes de parar.
+        // `shutdown` sends the goodbye (TTL 0) for what was registered before stopping.
         if let Err(e) = self.daemon.shutdown() {
-            tracing::debug!("no se pudo apagar mDNS: {e}");
+            tracing::debug!("could not shut down mDNS: {e}");
         }
         self.task.abort();
     }
@@ -158,7 +158,7 @@ mod tests {
     }
 
     #[test]
-    fn el_anuncio_lleva_la_huella_y_el_puerto() {
+    fn the_announcement_carries_the_fingerprint_and_the_port() {
         let fp = Fingerprint::of(&key(1));
         let info = service_info(&fp, 47770).unwrap();
         assert_eq!(info.get_type(), SERVICE_TYPE);
@@ -176,10 +176,10 @@ mod tests {
         assert!(info.is_addr_auto());
     }
 
-    /// Ida y vuelta por los tipos de mdns-sd: lo que anuncia un agente lo
-    /// acepta el otro, y no lo acepta un tercero.
+    /// Round trip through the mdns-sd types: what one agent announces the
+    /// other accepts, and a third does not.
     #[test]
-    fn el_anuncio_resuelto_lo_reconoce_solo_el_par() {
+    fn the_resolved_announcement_is_recognized_only_by_the_peer() {
         let (a, b, c) = (key(1), key(2), key(3));
         let info = ServiceInfo::new(
             SERVICE_TYPE,
@@ -192,7 +192,7 @@ mod tests {
         .unwrap();
         let event = ServiceEvent::ServiceResolved(Box::new(info.as_resolved_service()));
         let Some(DiscoveryEvent::Resolved(ann)) = discovery_event(event) else {
-            panic!("se esperaba un anuncio resuelto");
+            panic!("a resolved announcement was expected");
         };
         assert_eq!(ann.instance, format!("tandem-x.{SERVICE_TYPE}"));
         assert_eq!(
@@ -203,16 +203,16 @@ mod tests {
             ]
         );
 
-        let par = PeerResolver::new(Fingerprint::of(&b), [Fingerprint::of(&a)]);
-        assert_eq!(par.accepts(&ann), Some(Fingerprint::of(&a)));
+        let resolver = PeerResolver::new(Fingerprint::of(&b), [Fingerprint::of(&a)]);
+        assert_eq!(resolver.accepts(&ann), Some(Fingerprint::of(&a)));
         let tercero = PeerResolver::new(Fingerprint::of(&c), [Fingerprint::of(&b)]);
         assert_eq!(tercero.accepts(&ann), None);
-        let el_mismo = PeerResolver::new(Fingerprint::of(&a), [Fingerprint::of(&b)]);
-        assert_eq!(el_mismo.accepts(&ann), None);
+        let itself = PeerResolver::new(Fingerprint::of(&a), [Fingerprint::of(&b)]);
+        assert_eq!(itself.accepts(&ann), None);
     }
 
     #[test]
-    fn retiro_y_eventos_ignorados() {
+    fn withdrawal_and_ignored_events() {
         assert_eq!(
             discovery_event(ServiceEvent::ServiceRemoved(
                 SERVICE_TYPE.into(),
@@ -235,22 +235,22 @@ mod tests {
         );
     }
 
-    /// Dos agentes en la misma máquina se encuentran por multicast real.
-    /// Necesita una interfaz con multicast (en CI y en sandbox no se garantiza);
-    /// la prueba entre la Mac y la PC es la de verdad.
+    /// Two agents on the same machine find each other over real multicast.
+    /// It needs an interface with multicast (not guaranteed in CI and in a sandbox);
+    /// the test between the Mac and the PC is the real one.
     #[tokio::test]
     #[ignore = "hardware"]
-    async fn dos_agentes_se_encuentran_en_la_lan() {
+    async fn two_agents_find_each_other_on_the_lan() {
         let (a, b) = (key(1), key(2));
-        let da = MdnsDiscovery::start(&a, 47771, [b]).unwrap();
+        let disc_a = MdnsDiscovery::start(&a, 47771, [b]).unwrap();
         let db = MdnsDiscovery::start(&b, 47772, [a]).unwrap();
-        let mut wa = da.peer_addrs();
+        let mut wa = disc_a.peer_addrs();
         let found = tokio::time::timeout(
             Duration::from_secs(10),
             wa.wait_for(|addrs| !addrs.is_empty()),
         )
         .await
-        .expect("no se encontró al par")
+        .expect("the peer was not found")
         .unwrap()
         .clone();
         assert!(found.iter().all(|a| a.port() == 47772), "{found:?}");

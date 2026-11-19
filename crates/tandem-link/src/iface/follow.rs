@@ -6,20 +6,20 @@ use tokio::task::JoinHandle;
 use super::{InterfaceKind, Interfaces, NetInterface};
 use crate::manager::{LinkCandidate, LinkControl, LinkKind};
 
-/// Lo que hay que hacerle al gestor para que coincida con las interfaces.
+/// What has to be done to the manager so that it matches the interfaces.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WiredChange {
     Add(LinkCandidate),
     Remove(LinkKind),
 }
 
-/// Enlaces por cable según las interfaces de ahora. `current` es lo que ya se aplicó
-/// (tipo → índice de la interfaz y dirección): se actualiza y devuelve solo la diferencia.
+/// Wired links according to the interfaces of now. `current` is what was already applied
+/// (type → interface index and address): it is updated and only the difference is returned.
 ///
-/// Cada tipo de cable usa una interfaz, la de menor índice que esté arriba y de la que
-/// `resolve` sepa dónde está el otro agente. El Wi-Fi no pasa por aquí: es la LAN, que
-/// descubre su propio mDNS. Si la dirección o la interfaz de un tipo cambia, sale una baja
-/// y una alta.
+/// Each cable type uses one interface, the lowest-index one that is up and for which
+/// `resolve` knows where the other agent is. Wi-Fi does not go through here: it is the LAN, which
+/// its own mDNS discovers. If the address or the interface of a type changes, a removal
+/// and an addition come out.
 pub fn wired_changes(
     current: &mut BTreeMap<LinkKind, (u32, SocketAddr)>,
     interfaces: &[NetInterface],
@@ -58,9 +58,9 @@ pub fn wired_changes(
     changes
 }
 
-/// Mantiene el gestor de enlaces al día con las interfaces: al aparecer un cable, su
-/// enlace entra; al bajar, sale en el acto, sin esperar a la revisión de salud. Termina
-/// al soltar el [`JoinHandle`] (se aborta) o al cerrarse el gestor.
+/// Keeps the link manager up to date with the interfaces: when a cable appears, its
+/// link enters; when it goes down, it leaves at once, without waiting for the health check. It ends
+/// when the [`JoinHandle`] is dropped (it is aborted) or when the manager closes.
 pub fn follow_wired<I, F>(interfaces: &I, control: LinkControl, resolve: F) -> JoinHandle<()>
 where
     I: Interfaces + ?Sized,
@@ -74,11 +74,11 @@ where
             for change in wired_changes(&mut current, &list, &resolve) {
                 let done = match change {
                     WiredChange::Add(c) => {
-                        tracing::info!(link = %c.kind, addr = %c.addr, "interfaz de cable detectada");
+                        tracing::info!(link = %c.kind, addr = %c.addr, "cable interface detected");
                         control.add(c)
                     }
                     WiredChange::Remove(kind) => {
-                        tracing::info!(link = %kind, "interfaz de cable caída");
+                        tracing::info!(link = %kind, "cable interface down");
                         control.remove(kind)
                     }
                 };

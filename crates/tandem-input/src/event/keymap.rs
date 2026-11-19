@@ -1,9 +1,9 @@
-//! Tablas HID ↔ keycode de Mac ↔ scancode de Windows.
+//! HID ↔ Mac keycode ↔ Windows scancode tables.
 //!
-//! Los datos salen del crate `keycode` (MIT, tabla de Chromium). Las búsquedas
-//! inversas del crate dependen del orden de un `HashSet` en su macro y no
-//! distinguen la página HID, así que aquí se construyen índices propios
-//! recorriendo `KeyMap::from_usb_code`, que sí es exacto.
+//! The data comes from the `keycode` crate (MIT, Chromium's table). The crate's
+//! reverse lookups depend on the order of a `HashSet` in its macro and do not
+//! tell the HID page apart, so here own indexes are built
+//! by walking `KeyMap::from_usb_code`, which is exact.
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::OnceLock;
@@ -12,29 +12,29 @@ use serde::{Deserialize, Serialize};
 
 use super::{HidUsage, PAGE_CONSUMER, PAGE_GENERIC_DESKTOP, PAGE_KEYBOARD};
 
-/// Keycode virtual de macOS (`kVK_*`, el `CGKeyCode` de los eventos).
+/// macOS virtual keycode (`kVK_*`, the `CGKeyCode` of events).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct MacKeycode(pub u16);
 
-/// Scancode de Windows (Set 1). Las teclas extendidas llevan `0xE0` en el byte alto,
-/// como en la tabla de Chromium: `0xE048` es la flecha arriba.
+/// Windows scancode (Set 1). Extended keys carry `0xE0` in the high byte,
+/// as in Chromium's table: `0xE048` is the up arrow.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct WinScancode(pub u16);
 
 impl WinScancode {
-    /// Lleva prefijo E0: `SendInput` necesita `KEYEVENTF_EXTENDEDKEY`.
+    /// Carries the E0 prefix: `SendInput` needs `KEYEVENTF_EXTENDEDKEY`.
     pub const fn is_extended(self) -> bool {
         self.0 >> 8 == 0xE0
     }
 
-    /// El byte que va en `wScan`.
+    /// The byte that goes in `wScan`.
     pub const fn code(self) -> u8 {
         (self.0 & 0xFF) as u8
     }
 
-    /// Reconstruye el scancode a partir de lo que entrega el hook de Windows.
+    /// Rebuilds the scancode from what the Windows hook delivers.
     pub const fn from_parts(code: u8, extended: bool) -> Self {
         if extended {
             WinScancode(0xE000 | code as u16)
@@ -44,17 +44,17 @@ impl WinScancode {
     }
 }
 
-/// Sin equivalente en Windows en la tabla de Chromium.
+/// No Windows equivalent in Chromium's table.
 const WIN_INVALID: u16 = 0x0000;
-/// Sin equivalente en macOS en la tabla de Chromium.
+/// No macOS equivalent in Chromium's table.
 const MAC_INVALID: u16 = 0xFFFF;
 
-/// Teclas que llegan a un sistema con un código que no tiene en la tabla.
+/// Keys that reach a system with a code that is not in the table.
 ///
-/// - IntlHash (ISO `#`/`ç`): ni Windows ni macOS la distinguen de Backslash; las dos
-///   reportan el código de Backslash para esa tecla física.
-/// - Volumen en la página de consumo (lo que manda un teclado real): Chromium solo
-///   lo tiene en la página de teclado (0x7F–0x81), que es lo que devuelve la captura.
+/// - IntlHash (ISO `#`/`ç`): neither Windows nor macOS tell it apart from Backslash; both
+///   report the Backslash code for that physical key.
+/// - Volume on the consumer page (what a real keyboard sends): Chromium only
+///   has it on the keyboard page (0x7F–0x81), which is what the capture returns.
 const ALIAS_ANY: &[(HidUsage, HidUsage)] = &[
     (HidUsage::key(0x32), HidUsage::key(0x31)),
     (HidUsage::consumer(0xE2), HidUsage::key(0x7F)),
@@ -62,8 +62,8 @@ const ALIAS_ANY: &[(HidUsage, HidUsage)] = &[
     (HidUsage::consumer(0xEA), HidUsage::key(0x81)),
 ];
 
-/// Solo hacia Mac: macOS trata PrintScreen, ScrollLock y Pause de un teclado de PC
-/// como F13, F14 y F15. Por eso la vuelta Mac→HID devuelve F13–F15, no la original.
+/// Only toward Mac: macOS treats PrintScreen, ScrollLock and Pause on a PC keyboard
+/// as F13, F14 and F15. That is why the Mac→HID return gives F13–F15, not the original.
 const ALIAS_MAC: &[(HidUsage, HidUsage)] = &[
     (HidUsage::key(0x46), HidUsage::key(0x68)),
     (HidUsage::key(0x47), HidUsage::key(0x69)),
@@ -77,10 +77,10 @@ struct Tables {
     from_win: HashMap<WinScancode, HidUsage>,
 }
 
-/// Rango de usos que se recorre en cada página. La de consumo llega a 0x29F.
+/// Range of usages walked on each page. The consumer one reaches 0x29F.
 const PAGES: [(u16, u16); 3] = [
     (PAGE_GENERIC_DESKTOP, 0xFF),
-    // 0x00–0x03 son códigos de error y reservados, no teclas.
+    // 0x00–0x03 are error and reserved codes, not keys.
     (PAGE_KEYBOARD, 0xFF),
     (PAGE_CONSUMER, 0x3FF),
 ];
@@ -96,7 +96,7 @@ fn tables() -> &'static Tables {
         };
         for (page, max) in PAGES {
             let first = if page == PAGE_KEYBOARD { 0x04 } else { 0x01 };
-            // En orden ascendente: si un código se repitiera, gana el uso más bajo.
+            // In ascending order: if a code were repeated, the lowest usage wins.
             for id in first..=max {
                 let Ok(km) = keycode::KeyMap::from_usb_code(page, id) else {
                     continue;
@@ -125,7 +125,7 @@ fn alias(usage: HidUsage, table: &[(HidUsage, HidUsage)]) -> Option<HidUsage> {
         .map(|(_, to)| *to)
 }
 
-/// Keycode de Mac para inyectar esta tecla, si macOS tiene uno.
+/// Mac keycode to inject this key, if macOS has one.
 pub fn to_mac(usage: HidUsage) -> Option<MacKeycode> {
     let t = tables();
     t.to_mac.get(&usage).copied().or_else(|| {
@@ -134,7 +134,7 @@ pub fn to_mac(usage: HidUsage) -> Option<MacKeycode> {
     })
 }
 
-/// Scancode de Windows para inyectar esta tecla, si Windows tiene uno.
+/// Windows scancode to inject this key, if Windows has one.
 pub fn to_win(usage: HidUsage) -> Option<WinScancode> {
     let t = tables();
     t.to_win
@@ -143,18 +143,18 @@ pub fn to_win(usage: HidUsage) -> Option<WinScancode> {
         .or_else(|| t.to_win.get(&alias(usage, ALIAS_ANY)?).copied())
 }
 
-/// Tecla física de un keycode capturado en Mac.
+/// Physical key of a keycode captured on Mac.
 pub fn from_mac(code: MacKeycode) -> Option<HidUsage> {
     tables().from_mac.get(&code).copied()
 }
 
-/// Tecla física de un scancode capturado en Windows.
+/// Physical key of a scancode captured on Windows.
 pub fn from_win(code: WinScancode) -> Option<HidUsage> {
     tables().from_win.get(&code).copied()
 }
 
-/// La tecla con este nombre de `KeyboardEvent.code` (`ScrollLock`, `KeyL`,
-/// `ControlLeft`), para las teclas de la configuración. Distingue mayúsculas.
+/// The key with this `KeyboardEvent.code` name (`ScrollLock`, `KeyL`,
+/// `ControlLeft`), for the keys in the configuration. Case-sensitive.
 pub fn from_code_name(name: &str) -> Option<HidUsage> {
     let code: keycode::KeyMappingCode = name.parse().ok()?;
     PAGES.iter().find_map(|&(page, max)| {
@@ -165,12 +165,12 @@ pub fn from_code_name(name: &str) -> Option<HidUsage> {
     })
 }
 
-/// Todas las teclas con código directo en Mac, en orden HID.
+/// All the keys with a direct code on Mac, in HID order.
 pub fn mac_usages() -> impl Iterator<Item = (HidUsage, MacKeycode)> {
     tables().to_mac.iter().map(|(u, c)| (*u, *c))
 }
 
-/// Todas las teclas con código directo en Windows, en orden HID.
+/// All the keys with a direct code on Windows, in HID order.
 pub fn win_usages() -> impl Iterator<Item = (HidUsage, WinScancode)> {
     tables().to_win.iter().map(|(u, c)| (*u, *c))
 }
@@ -181,18 +181,18 @@ mod tests {
     use proptest::prelude::*;
 
     #[test]
-    fn teclas_por_su_nombre_de_code() {
+    fn keys_by_their_code_name() {
         assert_eq!(from_code_name("ScrollLock"), Some(HidUsage::key(0x47)));
         assert_eq!(from_code_name("KeyL"), Some(HidUsage::key(0x0F)));
         assert_eq!(from_code_name("ControlLeft"), Some(HidUsage::key(0xE0)));
         assert_eq!(from_code_name("F14"), Some(HidUsage::key(0x69)));
         assert_eq!(from_code_name("scrolllock"), None);
         assert_eq!(from_code_name(""), None);
-        assert_eq!(from_code_name("NoExiste"), None);
+        assert_eq!(from_code_name("DoesNotExist"), None);
     }
 
-    /// Las 105 teclas de un teclado ISO español de PC, por código físico HID.
-    /// La `ç` está en Backslash (0x31): así la reportan Windows y macOS.
+    /// The 105 keys of a Spanish ISO PC keyboard, by physical HID code.
+    /// The `ç` is on Backslash (0x31): that is how Windows and macOS report it.
     const ISO_ES: &[(u16, &str)] = &[
         (0x29, "Esc"),
         (0x3A, "F1"),
@@ -306,7 +306,7 @@ mod tests {
     }
 
     #[test]
-    fn iso_es_tiene_105_teclas_distintas() {
+    fn iso_es_has_105_distinct_keys() {
         let mut ids: Vec<u16> = ISO_ES.iter().map(|(id, _)| *id).collect();
         ids.sort_unstable();
         ids.dedup();
@@ -315,23 +315,23 @@ mod tests {
     }
 
     #[test]
-    fn iso_es_ida_y_vuelta_hid_win_hid() {
+    fn iso_es_round_trip_hid_win_hid() {
         for (usage, name) in iso_es() {
-            let win = to_win(usage).unwrap_or_else(|| panic!("{name}: sin scancode"));
+            let win = to_win(usage).unwrap_or_else(|| panic!("{name}: no scancode"));
             assert_eq!(from_win(win), Some(usage), "{name}: {win:?}");
         }
     }
 
     #[test]
-    fn iso_es_ida_y_vuelta_hid_mac_hid() {
-        // ImprPant, BloqDespl y Pausa llegan a la Mac como F13–F15 (ALIAS_MAC).
+    fn iso_es_round_trip_hid_mac_hid() {
+        // PrintScreen, ScrollLock and Pause reach the Mac as F13–F15 (ALIAS_MAC).
         let aliased = [0x46, 0x47, 0x48];
         for (usage, name) in iso_es() {
-            let mac = to_mac(usage).unwrap_or_else(|| panic!("{name}: sin keycode"));
-            let back = from_mac(mac).unwrap_or_else(|| panic!("{name}: {mac:?} no vuelve"));
+            let mac = to_mac(usage).unwrap_or_else(|| panic!("{name}: no keycode"));
+            let back = from_mac(mac).unwrap_or_else(|| panic!("{name}: {mac:?} does not return"));
             if aliased.contains(&usage.id) {
                 assert_eq!(back, HidUsage::key(usage.id + 0x22), "{name}");
-                assert_eq!(to_mac(back), Some(mac), "{name}: alias estable");
+                assert_eq!(to_mac(back), Some(mac), "{name}: stable alias");
             } else {
                 assert_eq!(back, usage, "{name}: {mac:?}");
             }
@@ -339,10 +339,10 @@ mod tests {
     }
 
     #[test]
-    fn iso_es_win_mac_win_pasando_por_hid() {
+    fn iso_es_win_mac_win_through_hid() {
         for (usage, name) in iso_es().filter(|(u, _)| !(0x46..=0x48).contains(&u.id)) {
             let Some(win) = to_win(usage) else {
-                panic!("{name}: sin scancode")
+                panic!("{name}: no scancode")
             };
             let mac = from_win(win).and_then(to_mac);
             let win_back = mac.and_then(from_mac).and_then(to_win);
@@ -352,7 +352,7 @@ mod tests {
 
     #[test]
     fn valores_conocidos() {
-        // Comprobados contra la tabla de Chromium y la documentación de cada sistema.
+        // Checked against Chromium's table and each system's documentation.
         let a = HidUsage::key(0x04);
         assert_eq!(to_mac(a), Some(MacKeycode(0x00)));
         assert_eq!(to_win(a), Some(WinScancode(0x1E)));
@@ -364,13 +364,13 @@ mod tests {
         assert_eq!(to_win(cmd), Some(WinScancode(0xE05B)));
         let altgr = HidUsage::key(0xE6);
         assert_eq!(to_win(altgr), Some(WinScancode(0xE038)));
-        // `<` ISO: kVK_ISO_Section en Mac (ojo con el intercambio §/` del teclado de Apple).
+        // ISO `<`: kVK_ISO_Section on Mac (mind the §/` swap on Apple keyboards).
         assert_eq!(to_mac(HidUsage::key(0x64)), Some(MacKeycode(0x0A)));
         assert_eq!(to_mac(HidUsage::key(0x35)), Some(MacKeycode(0x32)));
     }
 
     #[test]
-    fn intl_hash_se_inyecta_como_backslash() {
+    fn intl_hash_is_injected_as_backslash() {
         let hash = HidUsage::key(0x32);
         let backslash = HidUsage::key(0x31);
         assert_eq!(to_win(hash), to_win(backslash));
@@ -379,16 +379,16 @@ mod tests {
     }
 
     #[test]
-    fn multimedia_en_pagina_de_consumo() {
+    fn media_on_the_consumer_page() {
         let play = HidUsage::consumer(0xCD);
         assert_eq!(to_win(play), Some(WinScancode(0xE022)));
         assert_eq!(from_win(WinScancode(0xE022)), Some(play));
-        // La página 0x0C no se confunde con la 0x07 aunque el uso coincida.
+        // Page 0x0C is not confused with 0x07 even if the usage coincides.
         assert_ne!(to_win(HidUsage::key(0xCD)), to_win(play));
     }
 
     #[test]
-    fn volumen_de_consumo_se_inyecta_como_el_de_teclado() {
+    fn consumer_volume_is_injected_like_the_keyboards() {
         for (consumer, key) in [(0xE2, 0x7F), (0xE9, 0x80), (0xEA, 0x81)] {
             let c = HidUsage::consumer(consumer);
             let k = HidUsage::key(key);
@@ -401,13 +401,17 @@ mod tests {
     }
 
     #[test]
-    fn codigos_invalidos_no_se_traducen() {
+    fn invalid_codes_are_not_translated() {
         assert_eq!(to_win(HidUsage::key(0x00)), None);
         assert_eq!(to_win(HidUsage::key(0x01)), None);
         assert_eq!(to_mac(HidUsage::key(0x47 + 0x100)), None);
         assert_eq!(from_mac(MacKeycode(MAC_INVALID)), None);
         assert_eq!(from_win(WinScancode(WIN_INVALID)), None);
-        assert_eq!(to_win(HidUsage::new(0x00, 0x12)), None, "Fn no es HID real");
+        assert_eq!(
+            to_win(HidUsage::new(0x00, 0x12)),
+            None,
+            "Fn is not real HID"
+        );
     }
 
     #[test]
@@ -422,7 +426,7 @@ mod tests {
     }
 
     #[test]
-    fn tablas_inversas_son_biyectivas() {
+    fn inverse_tables_are_bijective() {
         assert_eq!(mac_usages().count(), tables().from_mac.len());
         assert_eq!(win_usages().count(), tables().from_win.len());
         assert!(mac_usages().count() > 100);
@@ -441,27 +445,27 @@ mod tests {
 
     proptest! {
         #[test]
-        fn ida_y_vuelta_mac((usage, mac) in any_mac_entry()) {
+        fn round_trip_mac((usage, mac) in any_mac_entry()) {
             prop_assert_eq!(to_mac(usage), Some(mac));
             prop_assert_eq!(from_mac(mac), Some(usage));
         }
 
         #[test]
-        fn ida_y_vuelta_win((usage, win) in any_win_entry()) {
+        fn round_trip_win((usage, win) in any_win_entry()) {
             prop_assert_eq!(to_win(usage), Some(win));
             prop_assert_eq!(from_win(win), Some(usage));
             prop_assert_eq!(WinScancode::from_parts(win.code(), win.is_extended()), win);
         }
 
         #[test]
-        fn cualquier_scancode_capturado_vuelve_igual(raw in any::<u16>()) {
+        fn any_captured_scancode_comes_back_the_same(raw in any::<u16>()) {
             if let Some(usage) = from_win(WinScancode(raw)) {
                 prop_assert_eq!(to_win(usage), Some(WinScancode(raw)));
             }
         }
 
         #[test]
-        fn cualquier_keycode_capturado_vuelve_igual(raw in any::<u16>()) {
+        fn any_captured_keycode_comes_back_the_same(raw in any::<u16>()) {
             if let Some(usage) = from_mac(MacKeycode(raw)) {
                 prop_assert_eq!(to_mac(usage), Some(MacKeycode(raw)));
             }

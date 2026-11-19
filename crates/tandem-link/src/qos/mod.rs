@@ -1,30 +1,30 @@
-//! Prioridades y tope de los datos (DECISIONS A2, DESIGN §6).
+//! Priorities and cap of the data (DECISIONS A2, DESIGN §6).
 //!
-//! Los datos (túneles, archivos) van por cualquier camino, también por Wi-Fi. Para que no le
-//! metan latencia al teclado y al mouse:
+//! Data (tunnels, files) goes over any path, Wi-Fi too. So that it does not add
+//! latency to the keyboard and mouse:
 //!
-//! - **Prioridad de streams QUIC** ([`StreamClass`]): entrada > control > portapapeles >
-//!   datos. QUIC manda primero lo pendiente del stream de más prioridad, y los datagramas
-//!   del movimiento van antes que cualquier stream en cada paquete.
-//! - **Tope en Wi-Fi** ([`data_cap`]): la prioridad solo ordena lo que todavía no salió;
-//!   lo que ya está en la cola del punto de acceso sale en orden de llegada. Con los datos
-//!   por debajo de lo que da el Wi-Fi (por omisión, el 50 % de lo medido) esa cola no
-//!   crece y la tecla siguiente no espera detrás de un archivo.
-//! - **Pausa por latencia** ([`LatencyGuard`]): si aun así el p99 de la entrada pasa su
-//!   objetivo durante 2 s (el Wi-Fi empeoró), los datos se pausan hasta que baje.
+//! - **QUIC stream priority** ([`StreamClass`]): input > control > clipboard >
+//!   data. QUIC sends the pending data of the highest-priority stream first, and the
+//!   motion datagrams go before any stream in each packet.
+//! - **Cap on Wi-Fi** ([`data_cap`]): priority only orders what has not yet left;
+//!   what is already in the access point's queue leaves in arrival order. With data
+//!   below what Wi-Fi gives (by default, 50 % of what was measured) that queue does not
+//!   grow and the next key does not wait behind a file.
+//! - **Pause by latency** ([`LatencyGuard`]): if the input p99 still exceeds its
+//!   target for 2 s (the Wi-Fi got worse), data is paused until it drops.
 //!
-//! Todo eso vive en un [`Qos`] por camino ([`LinkQos`]): entre las dos máquinas hay más de
-//! una conexión (la que abre cada agente y la que acepta), y todas las de un mismo camino
-//! comparten el mismo aire, así que comparten el tope y la pausa
-//! ([`Connection::with_qos`](crate::transport::Connection::with_qos)). Los módulos de datos
-//! escriben por un [`DataStream`], que espera la pausa y el tope, y siguen la pausa con
-//! [`Qos::gate`] o [`Qos::events`].
+//! All that lives in one [`Qos`] per path ([`LinkQos`]): between the two machines there is more than
+//! one connection (the one each agent opens and the one it accepts), and all those of the same path
+//! share the same air, so they share the cap and the pause
+//! ([`Connection::with_qos`](crate::transport::Connection::with_qos)). The data modules
+//! write through a [`DataStream`], which waits for the pause and the cap, and follow the pause with
+//! [`Qos::gate`] or [`Qos::events`].
 //!
-//! **Quien mide la entrada (T-093)** pasa cada latencia a
-//! `conn.qos().record_input_latency(..)` de la conexión por la que llegó, **en las dos
-//! máquinas**: los datos de las dos compiten por el mismo aire, así que el lado que inyecta
-//! la mide y el que captura la recibe de vuelta (el histograma de T-093) y también la
-//! anota en su `Qos`.
+//! **Whoever measures the input (T-093)** passes each latency to
+//! `conn.qos().record_input_latency(..)` of the connection it arrived on, **on both
+//! machines**: the data of both compete for the same air, so the side that injects
+//! measures it and the one that captures receives it back (the T-093 histogram) and also
+//! records it in its `Qos`.
 
 mod cap;
 mod guard;
@@ -47,21 +47,21 @@ pub use stream::DataStream;
 
 use crate::manager::LinkKind;
 
-/// Clase de un stream QUIC, de más a menos prioridad.
+/// Class of a QUIC stream, from highest to lowest priority.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum StreamClass {
-    /// Teclas y clics (el movimiento va en datagramas).
+    /// Keys and clicks (motion goes in datagrams).
     Input,
-    /// Pedidos entre agentes, pings, estado.
+    /// Requests between agents, pings, state.
     Control,
     Clipboard,
-    /// Túneles y archivos.
+    /// Tunnels and files.
     Data,
 }
 
 impl StreamClass {
-    /// Prioridad para quinn (más alta, antes). Control queda en 0, la de omisión: un
-    /// stream sin clase es de control.
+    /// Priority for quinn (higher, earlier). Control stays at 0, the default: a
+    /// stream without a class is a control one.
     pub fn priority(self) -> i32 {
         match self {
             StreamClass::Input => 10,
@@ -71,23 +71,23 @@ impl StreamClass {
         }
     }
 
-    /// La clase del stream propio de un canal ([`tandem_proto::ControlMsg::Open`]).
+    /// The class of a channel's own stream ([`tandem_proto::ControlMsg::Open`]).
     pub fn of(channel: Channel) -> Self {
         match channel {
             Channel::Input => StreamClass::Input,
             Channel::Clipboard => StreamClass::Clipboard,
-            // Los pedidos son de control; el canal de datos pasa a `Data` al pedir `Attach`.
+            // Requests are control; the data channel becomes `Data` when `Attach` is requested.
             Channel::Tunnel => StreamClass::Control,
             Channel::Measure => StreamClass::Data,
         }
     }
 }
 
-/// Si los datos pueden salir.
+/// Whether data may go out.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DataGate {
     Open,
-    /// La entrada pasó su objetivo: `p99` medido contra `target`.
+    /// Input exceeded its target: `p99` measured against `target`.
     Paused {
         p99: Duration,
         target: Duration,
@@ -100,7 +100,7 @@ impl DataGate {
     }
 }
 
-/// Lo que pasa con los datos de una conexión, para los módulos y el log.
+/// What happens to a connection's data, for the modules and the log.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum QosEvent {
     Paused {
@@ -110,29 +110,29 @@ pub enum QosEvent {
     },
     Resumed {
         link: Option<LinkKind>,
-        /// Cuánto duró la pausa.
+        /// How long the pause lasted.
         after: Duration,
     },
-    /// Cambió el tope (bytes por segundo; `None` = sin tope).
+    /// The cap changed (bytes per second; `None` = no cap).
     Cap {
         link: Option<LinkKind>,
         cap: Option<u64>,
     },
 }
 
-/// Cada cuánto se recalcula el p99 como mucho, y cada cuánto revisa la pausa quien espera.
+/// How often the p99 is recalculated at most, and how often whoever waits checks the pause.
 const EVALUATE_EVERY: Duration = Duration::from_millis(20);
 const RECHECK: Duration = Duration::from_millis(100);
 
-/// Fracción del tope configurado que se usa, en milésimas.
+/// Fraction of the configured cap that is used, in thousandths.
 const FULL: u32 = 1000;
-/// Lo menos que se baja (el tope real nunca queda bajo [`MIN_CAP`]).
+/// The least it is lowered (the real cap never goes under [`MIN_CAP`]).
 const MIN_SCALE: u32 = 10;
-/// Cada cuánto puede subir el tope como mucho.
+/// How often the cap may rise at most.
 const RAMP_EVERY: Duration = Duration::from_secs(1);
 
-/// Prioridad, tope y pausa de los datos de una conexión. Se clona barato: todas las copias
-/// comparten el mismo estado.
+/// Priority, cap and pause of a connection's data. Cheap to clone: all the copies
+/// share the same state.
 #[derive(Clone)]
 pub struct Qos {
     shared: Arc<Shared>,
@@ -156,11 +156,11 @@ struct Shared {
 }
 
 struct Inner {
-    /// La etiqueta efectiva: la peor de la clase propia y la que anuncia el otro extremo.
+    /// The effective label: the worse of the own class and the one the other end announces.
     link: Option<LinkKind>,
     own: Option<LinkKind>,
     peer: Option<LinkKind>,
-    /// La conexión que anunció `peer`: solo ella puede borrarla al cerrarse.
+    /// The connection that announced `peer`: only it may erase it when closing.
     peer_from: Option<usize>,
     prefs: DataPrefs,
     measured: Option<u64>,
@@ -168,9 +168,9 @@ struct Inner {
     guard: LatencyGuard,
     last_eval: Option<Instant>,
     paused_at: Option<Instant>,
-    /// Qué parte del tope configurado se usa ahora (milésimas). Baja cuando la entrada se
-    /// atrasa y sube de a poco cuando no: el tope sale de lo último medido, y si el Wi-Fi
-    /// empeora después, el configurado ya no le cabe.
+    /// What part of the configured cap is used now (thousandths). It goes down when input
+    /// falls behind and rises little by little when it does not: the cap comes from the last measurement, and if the Wi-Fi
+    /// worsens afterwards, the configured one no longer fits.
     scale: u32,
     last_decrease: Option<Instant>,
     last_change: Option<Instant>,
@@ -183,7 +183,7 @@ impl Default for Qos {
 }
 
 impl Qos {
-    /// Sin camino conocido: sin tope y con el objetivo del Wi-Fi.
+    /// No known path: no cap and with the Wi-Fi target.
     pub fn new(guard: GuardConfig) -> Self {
         let (gate, _) = watch::channel(DataGate::Open);
         let (events, _) = broadcast::channel(32);
@@ -217,17 +217,17 @@ impl Qos {
             .unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// Por qué camino va la conexión según este extremo. Cambiar de camino cambia el tope y
-    /// el objetivo, y levanta una pausa: lo medido por el otro camino ya no vale.
+    /// Which path the connection goes over according to this end. Changing path changes the cap and
+    /// the target, and lifts a pause: what the other path measured no longer holds.
     pub fn set_link(&self, link: Option<LinkKind>) {
         let mut s = self.lock();
         s.own = link;
         self.relabel(&mut s);
     }
 
-    /// Cómo clasifica el otro extremo este camino. Se guarda aparte de la propia y la
-    /// etiqueta se recalcula cada vez, para que se recupere cuando el otro vuelve a anunciar
-    /// un cable. `None` al cerrarse su conexión.
+    /// How the other end classifies this path. It is kept apart from its own and the
+    /// label is recomputed every time, so that it recovers when the other announces
+    /// a cable again. `None` when its connection closes.
     pub fn set_peer_link(&self, link: Option<LinkKind>) {
         let mut s = self.lock();
         s.peer = link;
@@ -235,7 +235,7 @@ impl Qos {
         self.relabel(&mut s);
     }
 
-    /// Como `set_peer_link(Some(..))`, anotando qué conexión la anunció.
+    /// Like `set_peer_link(Some(..))`, recording which connection announced it.
     pub fn set_peer_link_from(&self, conn: usize, link: LinkKind) {
         let mut s = self.lock();
         s.peer = Some(link);
@@ -243,8 +243,8 @@ impl Qos {
         self.relabel(&mut s);
     }
 
-    /// Borra la clase del otro al cerrarse `conn`, pero solo si ella la anunció: una
-    /// conexión nueva del mismo camino que ya anunció la suya no pierde la vigente.
+    /// Erases the other's class when `conn` closes, but only if it announced it: a new
+    /// connection of the same path that already announced its own does not lose the current one.
     pub fn clear_peer_link_of(&self, conn: usize) {
         let mut s = self.lock();
         if s.peer_from == Some(conn) {
@@ -271,17 +271,17 @@ impl Qos {
         self.update_cap(s);
     }
 
-    /// La clase de este extremo, sin la del otro.
+    /// The class of this end, without the other's.
     pub fn own_link(&self) -> Option<LinkKind> {
         self.lock().own
     }
 
-    /// La etiqueta efectiva: la peor de las dos clases.
+    /// The effective label: the worse of the two classes.
     pub fn link(&self) -> Option<LinkKind> {
         self.lock().link
     }
 
-    /// Las preferencias del puesto (`[data]`).
+    /// The desk's preferences (`[data]`).
     pub fn set_prefs(&self, prefs: DataPrefs) {
         let mut s = self.lock();
         if s.prefs != prefs {
@@ -294,38 +294,38 @@ impl Qos {
         self.lock().prefs
     }
 
-    /// El último ancho de banda medido del camino actual, en bytes por segundo.
+    /// The last bandwidth measured on the current path, in bytes per second.
     pub fn set_measured(&self, bytes_per_sec: u64) {
         let mut s = self.lock();
         if s.measured != Some(bytes_per_sec) {
-            // Una medición nueva dice cuánto da el camino ahora: se vuelve a usar entero.
+            // A new measurement says how much the path gives now: it is used whole again.
             s.measured = Some(bytes_per_sec);
             s.scale = FULL;
             self.update_cap(&mut s);
         }
     }
 
-    /// El último ancho de banda medido ([`Self::set_measured`]).
+    /// The last bandwidth measured ([`Self::set_measured`]).
     pub fn measured(&self) -> Option<u64> {
         self.lock().measured
     }
 
-    /// El p50 y el p99 de la entrada en la última ventana (1 s); `None` sin entrada.
+    /// The p50 and p99 of input in the last window (1 s); `None` with no input.
     pub fn input_latency(&self) -> Option<(Duration, Duration)> {
         self.lock().guard.percentiles(Instant::now())
     }
 
-    /// El p99 que se le tolera a la entrada por este camino.
+    /// The p99 tolerated for input on this path.
     pub fn input_target(&self) -> Duration {
         self.lock().guard.target()
     }
 
-    /// El tope actual en bytes por segundo; `None` es sin tope.
+    /// The current cap in bytes per second; `None` means no cap.
     pub fn cap(&self) -> Option<u64> {
         self.lock().limiter.as_ref().map(RateLimiter::cap)
     }
 
-    /// El tope configurado (sin la parte que se bajó por latencia).
+    /// The configured cap (without the part that was lowered for latency).
     pub fn configured_cap(&self) -> Option<u64> {
         let s = self.lock();
         data_cap(s.link, &s.prefs, s.measured)
@@ -346,23 +346,23 @@ impl Qos {
             (None, Some(cap)) => Some(RateLimiter::new(cap, now)),
             (_, None) => None,
         };
-        // El tope real puede ser el mínimo y no el pedido.
+        // The real cap may be the minimum and not the requested one.
         let cap = s.limiter.as_ref().map(RateLimiter::cap);
         if cap == before {
             return;
         }
         if s.scale == FULL {
-            tracing::info!(link = ?s.link, ?cap, "tope de los datos");
+            tracing::info!(link = ?s.link, ?cap, "data cap");
         } else {
-            tracing::debug!(link = ?s.link, ?cap, scale = s.scale, "tope de los datos ajustado por latencia");
+            tracing::debug!(link = ?s.link, ?cap, scale = s.scale, "data cap adjusted for latency");
         }
         let _ = self.shared.events.send(QosEvent::Cap { link: s.link, cap });
     }
 
-    /// Ajusta la parte del tope que se usa según el p99 de la entrada: baja enseguida si se
-    /// acerca al objetivo (a lo sumo una vez por ventana, que es lo que tarda el p99 en ver
-    /// el efecto) y sube de a poco si sobra margen. Así un Wi-Fi que empeora y se queda
-    /// malo no hace que los datos se pausen y reanuden en ciclo.
+    /// Adjusts the part of the cap that is used according to the input p99: it drops at once if it
+    /// nears the target (at most once per window, which is how long the p99 takes to see
+    /// the effect) and rises little by little if there is margin. That way a Wi-Fi that worsens and stays
+    /// bad does not make data pause and resume in a cycle.
     fn adapt(&self, s: &mut Inner, now: Instant, paused: bool) {
         if s.limiter.is_none() {
             return;
@@ -378,7 +378,7 @@ impl Qos {
                     return;
                 }
                 s.last_decrease = Some(now);
-                // Pasado el objetivo, a la mitad; cerca, un poco menos.
+                // Past the target, half; near it, a bit less.
                 let factor = if p > target { 500 } else { 700 };
                 (s.scale * factor / FULL).max(MIN_SCALE)
             }
@@ -395,7 +395,7 @@ impl Qos {
         self.update_cap(s);
     }
 
-    /// Una latencia medida de la entrada (de quien captura a quien inyecta).
+    /// A measured input latency (from whoever captures to whoever injects).
     pub fn record_input_latency(&self, latency: Duration) {
         let now = Instant::now();
         let mut s = self.lock();
@@ -408,12 +408,12 @@ impl Qos {
         self.evaluate(&mut s, now);
     }
 
-    /// El p99 de la latencia de la entrada en la ventana del guardián; `None` sin muestras.
+    /// The p99 of input latency in the guard's window; `None` without samples.
     pub fn input_p99(&self) -> Option<Duration> {
         self.lock().guard.p99(Instant::now())
     }
 
-    /// Revisa la pausa sin una muestra nueva (sin entrada también hay que reanudar).
+    /// Checks the pause without a new sample (without input it also has to resume).
     pub fn tick(&self) {
         let mut s = self.lock();
         self.evaluate(&mut s, Instant::now());
@@ -427,7 +427,7 @@ impl Qos {
             Some(Transition::Pause { p99 }) => {
                 let target = s.guard.target();
                 s.paused_at = Some(now);
-                // Lo que había no alcanzó: al volver, la mitad.
+                // What there was was not enough: on returning, half.
                 s.scale = (s.scale / 2).max(MIN_SCALE);
                 s.last_decrease = Some(now);
                 s.last_change = Some(now);
@@ -436,7 +436,7 @@ impl Qos {
                     link = ?s.link,
                     p99_ms = p99.as_secs_f64() * 1e3,
                     target_ms = target.as_secs_f64() * 1e3,
-                    "datos en pausa: la entrada pasó su objetivo"
+                    "data paused: input exceeded its target"
                 );
                 self.shared
                     .gate
@@ -458,7 +458,7 @@ impl Qos {
             .take()
             .map(|t| now.saturating_duration_since(t))
             .unwrap_or_default();
-        tracing::info!(link = ?s.link, after_ms = after.as_millis(), "datos reanudados");
+        tracing::info!(link = ?s.link, after_ms = after.as_millis(), "data resumed");
         self.shared.gate.send_replace(DataGate::Open);
         let _ = self.shared.events.send(QosEvent::Resumed {
             link: s.link,
@@ -466,24 +466,24 @@ impl Qos {
         });
     }
 
-    /// Si los datos pueden salir ahora.
+    /// Whether data may go out now.
     pub fn gate(&self) -> DataGate {
         *self.shared.gate.borrow()
     }
 
-    /// Para seguir la pausa.
+    /// To follow the pause.
     pub fn watch_gate(&self) -> watch::Receiver<DataGate> {
         self.shared.gate.subscribe()
     }
 
-    /// Pausas, reanudaciones y cambios de tope, en orden. Quien se atrase pierde los más
-    /// viejos (`RecvError::Lagged`); el estado actual siempre está en [`Self::gate`].
+    /// Pauses, resumes and cap changes, in order. Whoever falls behind loses the oldest
+    /// (`RecvError::Lagged`); the current state is always in [`Self::gate`].
     pub fn events(&self) -> broadcast::Receiver<QosEvent> {
         self.shared.events.subscribe()
     }
 
-    /// Espera a que puedan salir datos y devuelve cuántos de los `want` pueden salir ya
-    /// (al menos 1 si `want > 0`).
+    /// Waits until data may go out and returns how many of the `want` may go out now
+    /// (at least 1 if `want > 0`).
     pub async fn acquire(&self, want: usize) -> usize {
         if want == 0 {
             return 0;
@@ -491,7 +491,7 @@ impl Qos {
         let mut gate = self.watch_gate();
         loop {
             if !gate.borrow_and_update().is_open() {
-                // Sin entrada no llegan muestras: la pausa se revisa sola cada tanto.
+                // Without input no samples arrive: the pause is checked on its own every so often.
                 let _ = time::timeout(RECHECK, gate.changed()).await;
                 self.tick();
                 continue;
@@ -505,20 +505,20 @@ impl Qos {
             };
             match taken {
                 Ok(n) => return n,
-                // Corto: una pausa o un tope nuevo se notan enseguida.
+                // Short: a pause or a new cap is noticed right away.
                 Err(wait) => time::sleep(wait.min(RECHECK)).await,
             }
         }
     }
 
-    /// Envuelve `writer` para que todo lo que se escriba respete la pausa y el tope.
+    /// Wraps `writer` so that everything written respects the pause and the cap.
     pub fn data_stream<W>(&self, writer: W) -> DataStream<W> {
         DataStream::new(self.clone(), writer)
     }
 }
 
-/// Un [`Qos`] por camino, compartido por todas las conexiones con el otro agente por ese
-/// camino. Se clona barato.
+/// One [`Qos`] per path, shared by all the connections with the other agent over that
+/// path. Cheap to clone.
 #[derive(Clone, Default)]
 pub struct LinkQos {
     inner: Arc<Mutex<LinkQosInner>>,
@@ -541,7 +541,7 @@ impl LinkQos {
         self.inner.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// El de `kind`; el primero que lo pide lo crea con las preferencias actuales.
+    /// The one for `kind`; the first to ask for it creates it with the current preferences.
     pub fn get(&self, kind: LinkKind) -> Qos {
         let mut s = self.lock();
         let prefs = s.prefs;
@@ -556,7 +556,7 @@ impl LinkQos {
             .clone()
     }
 
-    /// El `[data]` del puesto, para todos los caminos (los que ya existen y los que vengan).
+    /// The desk's `[data]`, for all paths (those that already exist and those to come).
     pub fn set_prefs(&self, prefs: DataPrefs) {
         let mut s = self.lock();
         s.prefs = prefs;
@@ -571,7 +571,7 @@ impl LinkQos {
 }
 
 impl Qos {
-    /// Si `self` y `other` son el mismo (comparten estado).
+    /// Whether `self` and `other` are the same one (they share state).
     pub fn same(&self, other: &Qos) -> bool {
         Arc::ptr_eq(&self.shared, &other.shared)
     }

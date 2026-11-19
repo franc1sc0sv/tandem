@@ -1,9 +1,9 @@
-//! Máquina de estados del cliente: la máquina que recibe la entrada.
+//! Client state machine: the machine that receives the input.
 //!
-//! Sigue al servidor: aplica lo que llega por los dos canales y devuelve los
-//! eventos que hay que inyectar, en orden. Lleva lo que dejó presionado para
-//! soltarlo todo al salir el cursor, al caer o cambiar el enlace o por silencio
-//! del servidor; si no, una tecla quedaría pegada. No hace E/S.
+//! It follows the server: applies what arrives on the two channels and returns the
+//! events that have to be injected, in order. It keeps what it left pressed so as to
+//! release it all when the cursor leaves, when the link drops or changes, or on silence
+//! from the server; otherwise a key would be left stuck. It does no I/O.
 
 use super::msg::{MotionDatagram, StreamMsg};
 use crate::event::{Change, InputEvent, KeyState, ModifierKey, Pressed};
@@ -11,15 +11,15 @@ use crate::geometry::{Point, Screen};
 
 #[derive(Debug, Clone)]
 pub struct ClientSession {
-    /// Pantallas visibles de esta máquina, para pasar los deltas lógicos a
-    /// unidades nativas.
+    /// Visible screens of this machine, to convert logical deltas into
+    /// native units.
     screens: Vec<Screen>,
-    /// Posición del cursor mientras el foco está aquí.
+    /// Cursor position while the focus is here.
     cursor: Option<Point>,
-    /// Secuencia de la última posición aplicada: un movimiento que no sea más
-    /// nuevo se descarta.
+    /// Sequence of the last applied position: a movement that is not
+    /// newer is discarded.
     last_seq: u64,
-    /// Secuencia del Enter: lo anterior es de otra visita del cursor.
+    /// Sequence of the Enter: anything earlier belongs to another visit of the cursor.
     enter_seq: u64,
     pressed: Pressed,
 }
@@ -35,12 +35,12 @@ impl ClientSession {
         }
     }
 
-    /// Las pantallas de esta máquina cambiaron.
+    /// This machine's screens changed.
     pub fn set_screens(&mut self, screens: Vec<Screen>) {
         self.screens = screens;
     }
 
-    /// Si el cursor está en esta máquina.
+    /// Whether the cursor is on this machine.
     pub fn is_active(&self) -> bool {
         self.cursor.is_some()
     }
@@ -49,8 +49,8 @@ impl ClientSession {
         self.cursor
     }
 
-    /// El id de la pantalla visible que contiene `p` (la más cercana si cae en un hueco);
-    /// vacío si no se conocen.
+    /// The id of the visible screen that contains `p` (the nearest if it falls in a gap);
+    /// empty if none are known.
     pub fn screen_id(&self, p: Point) -> String {
         self.screens
             .iter()
@@ -76,7 +76,7 @@ impl ClientSession {
                 pos,
                 modifiers,
             } => {
-                // Un Enter sin Leave (el servidor se reinició): lo anterior se suelta.
+                // An Enter without a Leave (the server restarted): what came before is released.
                 out.extend(self.pressed.release_all());
                 self.last_seq = seq;
                 self.enter_seq = seq;
@@ -118,13 +118,13 @@ impl ClientSession {
         if d.seq <= self.enter_seq {
             return out;
         }
-        // Un Sync o un botón por el stream puede adelantarse a su datagrama: la
-        // posición ya está, pero el scroll que traía no se pierde.
+        // A Sync or a button over the stream can get ahead of its datagram: the
+        // position is already there, but the scroll it carried is not lost.
         if d.seq > self.last_seq {
             self.last_seq = d.seq;
             let target = match d.resync {
                 Some(p) => p,
-                // El delta ya viene en unidades nativas de aquí.
+                // The delta already comes in this machine's native units.
                 None => self.on_screen(Point::new(pos.x + d.dx, pos.y + d.dy)),
             };
             self.move_to(target, &mut out);
@@ -133,8 +133,8 @@ impl ClientSession {
         out
     }
 
-    /// El enlace cayó o cambió, o el servidor dejó de dar señales: se suelta
-    /// todo y se espera un Enter nuevo.
+    /// The link dropped or changed, or the server stopped giving signs of life: everything is released
+    /// and a new Enter is awaited.
     pub fn link_lost(&mut self) -> Vec<InputEvent> {
         self.release()
     }
@@ -144,8 +144,8 @@ impl ClientSession {
         self.pressed.release_all()
     }
 
-    /// Posición que el servidor tenía al enviar el datagrama `seq`; si ya llegó
-    /// uno más nuevo, su posición manda.
+    /// Position the server had when sending datagram `seq`; if a newer one already
+    /// arrived, its position wins.
     fn sync(&mut self, seq: u64, pos: Point, out: &mut Vec<InputEvent>) {
         if seq >= self.last_seq {
             self.last_seq = seq;
@@ -163,8 +163,8 @@ impl ClientSession {
         );
     }
 
-    /// Inyecta la tecla o el botón si cambia algo (o es repetición); una suelta
-    /// de algo que aquí no está presionado se descarta.
+    /// Injects the key or button if anything changes (or it is a repeat); a release
+    /// of something not pressed here is discarded.
     fn apply(&mut self, event: InputEvent, out: &mut Vec<InputEvent>) {
         match self.pressed.record(&event) {
             Change::Changed | Change::Repeat => out.push(event),
@@ -179,9 +179,9 @@ impl ClientSession {
         }
     }
 
-    /// El punto dentro de alguna pantalla: si cae en un hueco (pantallas que cambiaron
-    /// y el servidor todavía no sabe), en el borde de la más cercana. Sin pantallas
-    /// conocidas, tal cual.
+    /// The point inside some screen: if it falls in a gap (screens that changed
+    /// and the server does not know yet), on the edge of the nearest one. Without known
+    /// screens, as is.
     fn on_screen(&self, pos: Point) -> Point {
         if self.screens.is_empty() || self.screens.iter().any(|s| s.rect.contains(pos)) {
             return pos;
@@ -247,7 +247,7 @@ mod tests {
     }
 
     #[test]
-    fn sin_enter_no_se_inyecta_nada() {
+    fn without_an_enter_nothing_is_injected() {
         let mut c = client();
         assert!(c.on_datagram(motion(1, 1.0, 1.0)).is_empty());
         assert!(c.on_stream(key(0x04, KeyState::Pressed)).is_empty());
@@ -256,7 +256,7 @@ mod tests {
     }
 
     #[test]
-    fn enter_mueve_y_aprieta_los_modificadores() {
+    fn enter_moves_and_holds_the_modifiers() {
         let mut c = client();
         let out = c.on_stream(StreamMsg::Enter {
             seq: 5,
@@ -271,7 +271,7 @@ mod tests {
                 ev_key(0xE7, KeyState::Pressed),
             ]
         );
-        // Datagramas de antes del Enter no valen.
+        // Datagrams from before the Enter are not valid.
         assert!(c.on_datagram(motion(5, 1.0, 0.0)).is_empty());
         assert_eq!(
             c.on_datagram(motion(6, 1.0, 0.0)),
@@ -287,10 +287,10 @@ mod tests {
     }
 
     #[test]
-    fn el_delta_ya_viene_en_unidades_nativas() {
+    fn the_delta_already_comes_in_native_units() {
         let mut c = client();
         c.on_stream(enter(0, 4000.0));
-        // En el 32" al 150 %: el servidor ya lo convirtió.
+        // On the 32" at 150 %: the server already converted it.
         assert_eq!(
             c.on_datagram(motion(1, 15.0, -3.0)),
             vec![InputEvent::MotionAbsolute { x: 4015.0, y: 97.0 }]
@@ -298,10 +298,10 @@ mod tests {
     }
 
     #[test]
-    fn un_delta_que_cae_fuera_de_las_pantallas_queda_en_el_borde() {
+    fn a_delta_that_falls_outside_the_screens_stays_at_the_edge() {
         let mut c = client();
         c.on_stream(enter(0, 100.0));
-        // Debajo del 34" (1440 de alto) no hay pantalla.
+        // Below the 34" (1440 tall) there is no screen.
         assert_eq!(
             c.on_datagram(motion(1, 0.0, 5000.0)),
             vec![InputEvent::MotionAbsolute {
@@ -312,7 +312,7 @@ mod tests {
     }
 
     #[test]
-    fn datagrama_atrasado_se_descarta_y_la_resincronizacion_manda() {
+    fn a_late_datagram_is_discarded_and_the_resync_wins() {
         let mut c = client();
         c.on_stream(enter(0, 100.0));
         c.on_datagram(motion(2, 5.0, 0.0));
@@ -343,7 +343,7 @@ mod tests {
     }
 
     #[test]
-    fn el_boton_cae_en_su_posicion_salvo_que_haya_algo_mas_nuevo() {
+    fn the_button_lands_at_its_position_unless_something_newer_exists() {
         let mut c = client();
         c.on_stream(enter(0, 100.0));
         let click = |seq, x| StreamMsg::Button {
@@ -353,7 +353,7 @@ mod tests {
             pos: Point::new(x, 100.0),
             t_us: 0,
         };
-        // El datagrama 1 se perdió: el botón trae la posición.
+        // Datagram 1 was lost: the button carries the position.
         assert_eq!(
             c.on_stream(click(1, 150.0)),
             vec![
@@ -365,7 +365,7 @@ mod tests {
             ]
         );
         c.on_datagram(motion(3, 10.0, 0.0));
-        // Botón con seq 2 después del datagrama 3: no mueve hacia atrás.
+        // Button with seq 2 after datagram 3: it does not move backwards.
         let out = c.on_stream(StreamMsg::Button {
             button: Button::Left,
             state: KeyState::Released,
@@ -384,7 +384,7 @@ mod tests {
     }
 
     #[test]
-    fn sync_corrige_la_posicion_sin_retroceder() {
+    fn sync_corrects_the_position_without_going_back() {
         let mut c = client();
         c.on_stream(enter(0, 100.0));
         c.on_datagram(motion(2, 5.0, 0.0));
@@ -406,7 +406,7 @@ mod tests {
     }
 
     #[test]
-    fn el_scroll_de_un_datagrama_adelantado_por_el_stream_no_se_pierde() {
+    fn the_scroll_of_a_datagram_overtaken_by_the_stream_is_not_lost() {
         let mut c = client();
         c.on_stream(enter(4, 100.0));
         c.on_stream(StreamMsg::Sync {
@@ -423,7 +423,7 @@ mod tests {
         };
         assert_eq!(c.on_datagram(late), vec![InputEvent::Scroll(scroll)]);
         assert_eq!(c.cursor(), Some(Point::new(110.0, 100.0)));
-        // Uno de antes del Enter no trae nada de esta visita.
+        // One from before the Enter carries nothing from this visit.
         let old = MotionDatagram {
             scroll: Some(scroll),
             ..motion(4, 10.0, 0.0)
@@ -432,7 +432,7 @@ mod tests {
     }
 
     #[test]
-    fn suelta_de_algo_no_presionado_se_ignora_y_la_repeticion_pasa() {
+    fn release_of_something_not_pressed_is_ignored_and_the_repeat_passes() {
         let mut c = client();
         c.on_stream(enter(0, 0.0));
         assert!(c.on_stream(key(0x04, KeyState::Released)).is_empty());
@@ -447,7 +447,7 @@ mod tests {
     }
 
     #[test]
-    fn leave_suelta_todo() {
+    fn leave_releases_everything() {
         let mut c = client();
         c.on_stream(enter(0, 0.0));
         c.on_stream(key(0xE0, KeyState::Pressed));
@@ -473,7 +473,7 @@ mod tests {
     }
 
     #[test]
-    fn caida_del_enlace_con_una_tecla_presionada_la_suelta() {
+    fn link_drop_with_a_pressed_key_releases_it() {
         let mut c = client();
         c.on_stream(enter(0, 0.0));
         c.on_stream(key(0x16, KeyState::Pressed)); // S
@@ -512,17 +512,17 @@ mod tests {
     }
 
     proptest! {
-        /// Pase lo que pase, al caer el enlace lo inyectado queda todo suelto: lo
-        /// que se presionó en el sistema se soltó exactamente una vez.
+        /// Whatever happens, when the link drops everything injected is left released: what
+        /// was pressed on the system was released exactly once.
         #[test]
-        fn nada_queda_pegado(msgs in prop::collection::vec(any_msg(), 0..64)) {
+        fn nothing_is_left_stuck(msgs in prop::collection::vec(any_msg(), 0..64)) {
             let mut c = client();
             let mut system = Pressed::new();
             let inject = |events: Vec<InputEvent>, system: &mut Pressed| {
                 for e in events {
                     if let InputEvent::Key { state: KeyState::Released, .. }
                     | InputEvent::Button { state: KeyState::Released, .. } = e {
-                        // Nunca se suelta algo que el sistema no tiene presionado.
+                        // Something the system does not have pressed is never released.
                         prop_assert_eq!(system.record(&e), Change::Changed);
                     } else {
                         system.record(&e);

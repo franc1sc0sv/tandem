@@ -6,10 +6,10 @@ use tandem_proto::{ControlMsg, Hello};
 use super::Prober;
 use crate::transport::{Connection, ControlStream, Endpoint, TransportError};
 
-/// [`Prober`] sobre el transporte QUIC: una conexión por enlace y pings
-/// [`ControlMsg::Ping`]/[`ControlMsg::Pong`] por su stream de control.
+/// [`Prober`] over the QUIC transport: one connection per link and
+/// [`ControlMsg::Ping`]/[`ControlMsg::Pong`] pings over its control stream.
 ///
-/// El otro agente contesta con [`answer_pings`].
+/// The other agent answers with [`answer_pings`].
 pub struct QuicProber {
     endpoint: Arc<Endpoint>,
     hello: Hello,
@@ -49,7 +49,7 @@ impl Prober for QuicProber {
         loop {
             match s.control.recv::<ControlMsg>().await? {
                 Some(ControlMsg::Pong { nonce: n }) if n == nonce => return Ok(()),
-                // Un Pong atrasado u otro mensaje: no cuenta como respuesta.
+                // A late Pong or another message: it does not count as an answer.
                 Some(_) => {}
                 None => return Err(TransportError::ControlClosed),
             }
@@ -61,8 +61,8 @@ impl Prober for QuicProber {
     }
 }
 
-/// Lado que acepta: toma el stream de control que abrió el [`QuicProber`] del
-/// par y contesta cada Ping hasta que el par lo cierre.
+/// Accepting side: takes the control stream that the peer's [`QuicProber`]
+/// opened and answers each Ping until the peer closes it.
 pub async fn answer_pings(conn: Connection, hello: &Hello) -> Result<(), TransportError> {
     let (mut control, _) = conn.accept_control(hello).await?;
     while let Some(msg) = control.recv::<ControlMsg>().await? {

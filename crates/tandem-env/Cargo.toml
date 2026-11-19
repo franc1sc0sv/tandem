@@ -1,6 +1,6 @@
 [package]
 name = "tandem-env"
-description = "Entornos de ejecución detectados y recursos en vivo (T-105)"
+description = "Detected execution environments and live resources (T-105)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

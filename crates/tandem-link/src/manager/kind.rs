@@ -3,25 +3,25 @@ use std::net::SocketAddr;
 
 use serde::{Deserialize, Serialize};
 
-/// Tipo de enlace entre las dos máquinas (DESIGN §6).
+/// Type of link between the two machines (DESIGN §6).
 ///
-/// El orden de las variantes es la prioridad: `Usb4 < Ethernet < Wifi`, así
-/// que el mejor enlace sano es el menor.
+/// The order of the variants is the priority: `Usb4 < Ethernet < Wifi`, so
+/// the best healthy link is the smallest.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum LinkKind {
-    /// USB4 / Thunderbolt directo.
+    /// Direct USB4 / Thunderbolt.
     Usb4,
-    /// Ethernet 2.5G directo.
+    /// Direct 2.5G Ethernet.
     Ethernet,
-    /// Wi-Fi de la LAN de casa.
+    /// Home LAN Wi-Fi.
     Wifi,
 }
 
 impl LinkKind {
     pub const ALL: [LinkKind; 3] = [LinkKind::Usb4, LinkKind::Ethernet, LinkKind::Wifi];
 
-    /// Prioridad de la tabla de DESIGN §6 (1 = la mejor).
+    /// Priority from the table in DESIGN §6 (1 = the best).
     pub fn priority(self) -> u8 {
         match self {
             LinkKind::Usb4 => 1,
@@ -65,7 +65,7 @@ impl From<tandem_proto::Link> for LinkKind {
     }
 }
 
-/// Dirección del otro agente por un enlace concreto.
+/// Address of the other agent over a specific link.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LinkCandidate {
     pub kind: LinkKind,
@@ -77,7 +77,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn la_prioridad_sigue_el_diseño() {
+    fn priority_follows_the_design() {
         let mut kinds = LinkKind::ALL;
         kinds.reverse();
         kinds.sort();
@@ -86,14 +86,14 @@ mod tests {
     }
 
     #[test]
-    fn el_camino_de_la_ui_va_y_vuelve() {
+    fn the_ui_path_round_trips() {
         for k in LinkKind::ALL {
             assert_eq!(LinkKind::from(tandem_proto::Link::from(k)), k);
         }
     }
 
     #[test]
-    fn el_tipo_se_lee_de_la_config_en_minúsculas() {
+    fn the_kind_is_read_from_the_config_in_lowercase() {
         let c: LinkCandidate =
             toml::from_str("kind = \"ethernet\"\naddr = \"10.77.2.2:47770\"").unwrap();
         assert_eq!(c.kind, LinkKind::Ethernet);

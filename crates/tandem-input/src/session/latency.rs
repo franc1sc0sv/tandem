@@ -1,10 +1,10 @@
-//! Medición de la latencia de la entrada (T-093, DESIGN §7.1).
+//! Measurement of input latency (T-093, DESIGN §7.1).
 //!
-//! El servidor marca cada datagrama de movimiento y cada tecla o clic con su reloj
-//! monotónico ([`now_us`]). El cliente pasa esa marca a su propio reloj con el desfase
-//! que estiman los latidos ([`Beats`], como NTP: ida y vuelta / 2, quedándose con la
-//! muestra de menor ida y vuelta) y guarda la diferencia con el momento de inyectar en
-//! un [`Histogram`]. Cada 5 s manda p50/p99/máx al servidor y los publica.
+//! The server stamps each motion datagram and each key or click with its monotonic
+//! clock ([`now_us`]). The client converts that stamp to its own clock with the offset
+//! estimated by the heartbeats ([`Beats`], like NTP: round trip / 2, keeping the
+//! sample with the smallest round trip) and stores the difference with the moment of injecting in
+//! a [`Histogram`]. Every 5 s it sends p50/p99/max to the server and they are published.
 
 use std::collections::VecDeque;
 use std::sync::OnceLock;
@@ -13,17 +13,17 @@ use std::time::Instant;
 use serde::{Deserialize, Serialize};
 use tandem_proto::InputLatency;
 
-/// Reloj monotónico del proceso, en microsegundos desde la primera lectura. Cada
-/// máquina tiene el suyo: entre las dos solo vale con el desfase de [`ClockSync`].
+/// Monotonic clock of the process, in microseconds since the first reading. Each
+/// machine has its own: between the two it is only valid with the [`ClockSync`] offset.
 pub fn now_us() -> u64 {
     static START: OnceLock<Instant> = OnceLock::new();
     let start = *START.get_or_init(Instant::now);
     u64::try_from(start.elapsed().as_micros()).unwrap_or(u64::MAX)
 }
 
-/// Un evento tal como sale de la captura, con la marca de [`now_us`] puesta en el hilo
-/// que lo capturó (el del hook o el tap): la latencia publicada cuenta también lo que
-/// espera en el canal hasta que el driver lo procesa.
+/// An event as it comes out of the capture, with the [`now_us`] stamp set on the thread
+/// that captured it (the hook's or the tap's): the published latency also counts what it
+/// waits in the channel until the driver processes it.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Captured {
     pub t_us: u64,
@@ -31,7 +31,7 @@ pub struct Captured {
 }
 
 impl Captured {
-    /// `event`, capturado ahora.
+    /// `event`, captured now.
     pub fn now(event: crate::event::InputEvent) -> Self {
         Self {
             t_us: now_us(),
@@ -40,16 +40,16 @@ impl Captured {
     }
 }
 
-/// Bits de la mantisa: 32 cubetas por potencia de dos, error relativo ≤ 1/32.
+/// Mantissa bits: 32 buckets per power of two, relative error ≤ 1/32.
 const SUB_BITS: u32 = 5;
 const SUB: u64 = 1 << SUB_BITS;
-/// Hasta `2 * SUB` cada valor tiene su cubeta.
+/// Up to `2 * SUB` each value has its own bucket.
 const LINEAR: u64 = 2 * SUB;
-/// Lo que entra en `u32` microsegundos (más de una hora) alcanza de sobra.
+/// What fits in `u32` microseconds (more than an hour) is plenty.
 const BUCKETS: usize = (LINEAR + (32 - SUB_BITS as u64 - 1) * SUB) as usize;
 
-/// Histograma log-lineal de microsegundos: memoria fija y registrar es O(1), así no
-/// pesa en el camino caliente.
+/// Log-linear histogram of microseconds: fixed memory and recording is O(1), so it
+/// does not weigh on the hot path.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Histogram {
     buckets: Vec<u32>,
@@ -84,14 +84,14 @@ impl Histogram {
         self.max = self.max.max(v);
     }
 
-    /// El valor bajo el cual queda la fracción `q` de lo registrado (por arriba: el
-    /// límite superior de su cubeta, sin pasar del máximo). `None` sin datos.
+    /// The value below which the fraction `q` of what was recorded lies (from above: the
+    /// upper bound of its bucket, without exceeding the maximum). `None` without data.
     pub fn quantile(&self, q: f64) -> Option<u32> {
         if self.count == 0 {
             return None;
         }
         let q = q.clamp(0.0, 1.0);
-        // Rango 1-based del valor buscado.
+        // 1-based rank of the sought value.
         let rank = ((q * f64::from(self.count)).ceil() as u64).max(1);
         let mut seen = 0u64;
         for (i, n) in self.buckets.iter().enumerate() {
@@ -103,7 +103,7 @@ impl Histogram {
         Some(self.max)
     }
 
-    /// p50/p99/máx de lo registrado; `None` sin datos.
+    /// p50/p99/max of what was recorded; `None` without data.
     pub fn stats(&self) -> Option<InputLatency> {
         Some(InputLatency {
             link: None,
@@ -114,7 +114,7 @@ impl Histogram {
         })
     }
 
-    /// Las estadísticas de la ventana y una ventana nueva.
+    /// The statistics of the window and a new window.
     pub fn take(&mut self) -> Option<InputLatency> {
         let s = self.stats();
         *self = Self::new();
@@ -132,7 +132,7 @@ fn index(v: u32) -> usize {
     (LINEAR + (exp - u64::from(SUB_BITS) - 1) * SUB + (top - SUB)) as usize
 }
 
-/// Mayor valor que cae en la cubeta `i`.
+/// Greatest value that falls in bucket `i`.
 fn upper(i: usize) -> u32 {
     let i = i as u64;
     if i < LINEAR {
@@ -145,32 +145,32 @@ fn upper(i: usize) -> u32 {
     u32::try_from(v).unwrap_or(u32::MAX)
 }
 
-/// El eco del último latido recibido: cuándo lo mandó el otro (en su reloj) y cuánto
-/// lo retuvo quien contesta.
+/// The echo of the last heartbeat received: when the other sent it (on its clock) and how long
+/// the answering side held it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Echo {
     pub sent_us: u64,
     pub held_us: u64,
 }
 
-/// Latido con marca de tiempo; `echo` devuelve el último del otro lado.
+/// Heartbeat with a timestamp; `echo` returns the last one from the other side.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Beat {
     pub sent_us: u64,
     pub echo: Option<Echo>,
 }
 
-/// Una muestra de la ida y vuelta: la ida y vuelta sin lo retenido y el desfase
-/// (reloj del otro − reloj propio) suponiendo ida y vuelta simétricas.
+/// A round-trip sample: the round trip without what was held and the offset
+/// (the other's clock − own clock) assuming symmetric round trips.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Sample {
     rtt_us: u64,
     offset_us: i64,
 }
 
-/// Estimación del desfase con el reloj del otro lado. Se queda con la muestra de menor
-/// ida y vuelta de las últimas [`ClockSync::WINDOW`]: la más corta es la que menos
-/// asimetría puede tener.
+/// Estimation of the offset with the other side's clock. It keeps the sample with the smallest
+/// round trip of the last [`ClockSync::WINDOW`]: the shortest one is the one that
+/// can have the least asymmetry.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ClockSync {
     samples: VecDeque<Sample>,
@@ -179,13 +179,13 @@ pub struct ClockSync {
 impl ClockSync {
     pub const WINDOW: usize = 16;
 
-    /// `t0`: cuándo mandamos el latido (nuestro reloj); `t2`: cuándo mandó el otro el
-    /// suyo con el eco (su reloj); `held`: cuánto lo retuvo; `t3`: cuándo llegó (nuestro).
+    /// `t0`: when we sent the heartbeat (our clock); `t2`: when the other sent
+    /// theirs with the echo (their clock); `held`: how long it held it; `t3`: when it arrived (ours).
     pub fn sample(&mut self, t0: u64, t2: u64, held: u64, t3: u64) {
         let Some(rtt) = t3.checked_sub(t0).and_then(|r| r.checked_sub(held)) else {
             return;
         };
-        // t1 = t2 − held es cuándo le llegó al otro el nuestro.
+        // t1 = t2 − held is when ours reached the other.
         let (t0, t2, held, t3) = (t0 as i128, t2 as i128, held as i128, t3 as i128);
         let offset = ((t2 - held - t0) + (t2 - t3)) / 2;
         let Ok(offset_us) = i64::try_from(offset) else {
@@ -200,12 +200,12 @@ impl ClockSync {
         });
     }
 
-    /// Reloj del otro − reloj propio, si ya hay una muestra.
+    /// The other's clock − own clock, if there is already a sample.
     pub fn offset_us(&self) -> Option<i64> {
         self.best().map(|s| s.offset_us)
     }
 
-    /// La menor ida y vuelta de la ventana.
+    /// The smallest round trip in the window.
     pub fn rtt_us(&self) -> Option<u64> {
         self.best().map(|s| s.rtt_us)
     }
@@ -214,21 +214,21 @@ impl ClockSync {
         self.samples.iter().min_by_key(|s| s.rtt_us)
     }
 
-    /// Cuánto pasó desde la marca `peer_us` del otro hasta `now_us` nuestro.
+    /// How much time passed from the other's stamp `peer_us` until our `now_us`.
     pub fn elapsed_since(&self, peer_us: u64, now_us: u64) -> Option<u64> {
         let offset = self.offset_us()?;
         let local = i128::from(peer_us) - i128::from(offset);
-        // Un error de estimación puede dar algo negativo: es cero.
+        // An estimation error can give something negative: it is zero.
         let d = (i128::from(now_us) - local).max(0);
         Some(u64::try_from(d).unwrap_or(u64::MAX))
     }
 }
 
-/// Los latidos de un lado: arma los que salen (con el eco del último que llegó) y saca
-/// muestras de desfase de los que llegan.
+/// The heartbeats of one side: builds the outgoing ones (with the echo of the last that arrived) and extracts
+/// offset samples from the incoming ones.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Beats {
-    /// El último latido del otro: cuándo lo mandó (su reloj) y cuándo llegó (el nuestro).
+    /// The other's last heartbeat: when it sent it (its clock) and when it arrived (ours).
     last_rx: Option<(u64, u64)>,
     sync: ClockSync,
 }
@@ -267,7 +267,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn sin_datos_no_hay_estadisticas() {
+    fn without_data_there_are_no_statistics() {
         let mut h = Histogram::new();
         assert_eq!(h.stats(), None);
         assert_eq!(h.take(), None);
@@ -275,7 +275,7 @@ mod tests {
     }
 
     #[test]
-    fn percentiles_de_una_distribucion_conocida() {
+    fn percentiles_of_a_known_distribution() {
         let mut h = Histogram::new();
         for v in 1..=100u64 {
             h.record(v);
@@ -283,10 +283,10 @@ mod tests {
         let s = h.take().unwrap();
         assert_eq!(s.count, 100);
         assert_eq!(s.max_us, 100);
-        // Debajo de 64 cada valor es exacto; arriba, a menos de 1/32.
+        // Below 64 each value is exact; above, within 1/32.
         assert_eq!(s.p50_us, 50);
         assert!((99..=102).contains(&s.p99_us), "{}", s.p99_us);
-        assert_eq!(h.count(), 0, "tomar abre una ventana nueva");
+        assert_eq!(h.count(), 0, "taking opens a new window");
     }
 
     #[test]
@@ -301,7 +301,7 @@ mod tests {
     }
 
     #[test]
-    fn las_cubetas_cubren_todo_u32_en_orden() {
+    fn the_buckets_cover_all_of_u32_in_order() {
         let mut values: Vec<u32> = (0..32)
             .flat_map(|shift| [1u32 << shift, (1u32 << shift).saturating_add(7)])
             .collect();
@@ -312,7 +312,10 @@ mod tests {
             assert!(i < BUCKETS, "{v} → {i}");
             assert!(i >= last, "{v} → {i} < {last}");
             assert!(upper(i) >= v);
-            assert!(i == 0 || upper(i - 1) < v, "{v} cabe en la cubeta anterior");
+            assert!(
+                i == 0 || upper(i - 1) < v,
+                "{v} fits in the previous bucket"
+            );
             last = i;
         }
         assert_eq!(index(u32::MAX), BUCKETS - 1);
@@ -320,8 +323,8 @@ mod tests {
     }
 
     #[test]
-    fn desfase_con_ida_y_vuelta_simetrica() {
-        // El otro reloj va 1 s adelante; 400 µs de ida, 400 de vuelta, 10 ms retenido.
+    fn offset_with_symmetric_round_trip() {
+        // The other clock is 1 s ahead; 400 µs out, 400 back, 10 ms held.
         let mut c = ClockSync::default();
         assert_eq!(c.offset_us(), None);
         let (t0, t1) = (5_000u64, 1_005_400u64);
@@ -330,36 +333,36 @@ mod tests {
         c.sample(t0, t2, 10_000, t3);
         assert_eq!(c.offset_us(), Some(1_000_000));
         assert_eq!(c.rtt_us(), Some(800));
-        // Una marca del otro de hace 2 ms, vista desde aquí.
+        // A stamp from the other from 2 ms ago, seen from here.
         assert_eq!(c.elapsed_since(1_100_000, 102_000), Some(2_000));
-        // Una estimación que da negativo es cero.
+        // An estimate that gives negative is zero.
         assert_eq!(c.elapsed_since(1_100_000, 99_000), Some(0));
     }
 
     #[test]
-    fn manda_la_muestra_de_menor_ida_y_vuelta() {
+    fn the_sample_with_the_smallest_round_trip_wins() {
         let mut c = ClockSync::default();
-        // Ida lenta (cola): 5 ms de ida y 100 µs de vuelta, desfase real 0.
+        // Slow outbound (queue): 5 ms out and 100 µs back, real offset 0.
         c.sample(0, 5_000, 0, 5_100);
         assert_eq!(c.offset_us(), Some(2_450));
-        // Una muestra limpia gana.
+        // A clean sample wins.
         c.sample(10_000, 10_050, 0, 10_100);
         assert_eq!(c.offset_us(), Some(0));
-        // Muestras imposibles (relojes que vuelven atrás) se descartan.
+        // Impossible samples (clocks going backwards) are discarded.
         c.sample(10, 0, 50, 20);
         assert_eq!(c.rtt_us(), Some(100));
     }
 
     #[test]
-    fn los_latidos_con_eco_estiman_el_desfase() {
-        // A y B con relojes separados por 7 ms; 300 µs por sentido.
+    fn heartbeats_with_echo_estimate_the_offset() {
+        // A and B with clocks 7 ms apart; 300 µs each way.
         let mut a = Beats::new();
         let mut b = Beats::new();
         let skew = 7_000u64;
         let ab = a.outgoing(1_000);
         assert_eq!(ab.echo, None);
         b.incoming(ab, 1_300 + skew);
-        // B contesta 1 s después, con el eco.
+        // B answers 1 s later, with the echo.
         let ba = b.outgoing(1_001_300 + skew);
         assert_eq!(
             ba.echo,
@@ -371,14 +374,14 @@ mod tests {
         a.incoming(ba, 1_001_600);
         assert_eq!(a.sync().offset_us(), Some(7_000));
         assert_eq!(a.sync().rtt_us(), Some(600));
-        assert_eq!(b.sync().offset_us(), None, "B todavía no recibió un eco");
+        assert_eq!(b.sync().offset_us(), None, "B has not yet received an echo");
     }
 
     proptest! {
-        /// El percentil informado nunca queda por debajo del real y lo pasa a lo sumo
-        /// en 1/32 (más un microsegundo de redondeo); el máximo es exacto.
+        /// The reported percentile is never below the real one and exceeds it at most
+        /// by 1/32 (plus one microsecond of rounding); the maximum is exact.
         #[test]
-        fn el_percentil_acota_al_real(
+        fn the_percentile_bounds_the_real_one(
             mut values in prop::collection::vec(0u64..5_000_000, 1..400),
             q in 0.0f64..=1.0,
         ) {
@@ -395,9 +398,9 @@ mod tests {
             prop_assert_eq!(h.stats().unwrap().max_us as u64, *values.last().unwrap());
         }
 
-        /// Los percentiles crecen con `q`.
+        /// The percentiles grow with `q`.
         #[test]
-        fn los_percentiles_son_monotonos(
+        fn the_percentiles_are_monotonic(
             values in prop::collection::vec(any::<u32>(), 1..200),
             a in 0.0f64..=1.0,
             b in 0.0f64..=1.0,
@@ -410,8 +413,8 @@ mod tests {
             prop_assert!(h.quantile(lo) <= h.quantile(hi));
         }
 
-        /// Con ida y vuelta simétricas el desfase se recupera exacto (a ±1 µs de
-        /// redondeo), sea cual sea el desfase real y lo retenido.
+        /// With symmetric round trips the offset is recovered exactly (within ±1 µs of
+        /// rounding), whatever the real offset and what was held.
         #[test]
         fn desfase_simetrico_exacto(
             t0 in 0u64..1_000_000_000,

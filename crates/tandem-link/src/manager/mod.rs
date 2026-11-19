@@ -1,18 +1,18 @@
-//! Gestor de enlaces múltiples y política de planos (DESIGN §6).
+//! Multiple-link manager and plane policy (DESIGN §6).
 //!
-//! Cada enlace configurado (USB4, Ethernet, Wi-Fi) tiene su propia conexión
-//! con el otro agente y un ping de salud cada segundo. El enlace activo es
-//! el sano de mayor prioridad: si cae, se pasa al siguiente en cuanto falla un
-//! solo ping (sin esperar al timeout de inactividad de QUIC). Para volver a un
-//! enlace mejor que ya se cayó, este tiene que llevar
-//! [`HealthConfig::settle`] respondiendo sin cortes (histéresis: un cable que
-//! parpadea no arrastra el tráfico de un lado a otro), y no se sube mientras haya
-//! una transacción en curso ([`LinkManager::hold`]). Cada cambio sale como
-//! [`LinkEvent`], en orden.
+//! Each configured link (USB4, Ethernet, Wi-Fi) has its own connection
+//! to the other agent and a health ping every second. The active link is
+//! the healthy one of highest priority: if it drops, it moves to the next as soon as a
+//! single ping fails (without waiting for QUIC's idle timeout). To go back to a
+//! better link that already dropped, it has to have
+//! [`HealthConfig::settle`] answering without cuts (hysteresis: a cable that
+//! flickers does not drag traffic back and forth), and it does not go up while there is
+//! a transaction in progress ([`LinkManager::hold`]). Every change comes out as a
+//! [`LinkEvent`], in order.
 //!
-//! Todo el tráfico va por el activo, también los datos (DECISIONS A2): lo que los
-//! frena en Wi-Fi para cuidar la entrada es el [`Qos`](crate::qos::Qos) de cada
-//! conexión, no el gestor.
+//! All traffic goes over the active one, data too (DECISIONS A2): what holds
+//! it back on Wi-Fi to protect input is each connection's [`Qos`](crate::qos::Qos),
+//! not the manager.
 
 mod kind;
 mod probe;
@@ -33,22 +33,22 @@ pub use kind::{LinkCandidate, LinkKind};
 pub use probe::Prober;
 pub use quic::{QuicProber, QuicSession, answer_pings};
 pub use table::{LinkEvent, LinkStatus};
-// `LinkControl` y `ManagerGone` se definen abajo.
+// `LinkControl` and `ManagerGone` are defined below.
 
 use table::LinkTable;
 
-/// Tiempos de la revisión de salud.
+/// Health check timings.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct HealthConfig {
-    /// Cada cuánto se hace ping por enlace (DESIGN §6: 1 s).
+    /// How often each link is pinged (DESIGN §6: 1 s).
     pub ping_interval: Duration,
-    /// Cuánto se espera el Pong. `ping_interval + ping_timeout` es lo máximo
-    /// que tarda en detectarse una caída, y tiene que quedar bajo 1,5 s.
+    /// How long to wait for the Pong. `ping_interval + ping_timeout` is the most
+    /// it takes to detect a drop, and it has to stay under 1.5 s.
     pub ping_timeout: Duration,
-    /// Tope para abrir la conexión de un enlace caído.
+    /// Cap for opening the connection of a dropped link.
     pub connect_timeout: Duration,
-    /// Cuánto tiene que responder sin cortes un enlace que ya se cayó antes de
-    /// volver a él. Con 0 se vuelve en el primer ping bueno.
+    /// How long a link that already dropped before has to answer without cuts before
+    /// going back to it. With 0 it goes back on the first good ping.
     pub settle: Duration,
 }
 
@@ -65,15 +65,15 @@ impl Default for HealthConfig {
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ManagerError {
-    #[error("no hay ningún enlace configurado")]
+    #[error("no link is configured")]
     NoCandidates,
-    #[error("el enlace {0} está configurado dos veces")]
+    #[error("the link {0} is configured twice")]
     DuplicateLink(LinkKind),
-    #[error("los tiempos de la revisión de salud no pueden ser 0")]
+    #[error("the health check timings cannot be 0")]
     ZeroDuration,
 }
 
-/// Enlace activo y lo necesario para mandar tráfico por él.
+/// Active link and what is needed to send traffic over it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ActiveLink<H> {
     pub kind: LinkKind,
@@ -81,18 +81,18 @@ pub struct ActiveLink<H> {
     pub handle: H,
 }
 
-/// Foto del gestor; se actualiza con cada ping.
+/// Snapshot of the manager; updated with every ping.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Snapshot<H> {
     pub active: Option<ActiveLink<H>>,
-    /// Todos los enlaces configurados, en orden de prioridad.
+    /// All the configured links, in priority order.
     pub links: Vec<LinkStatus>,
-    /// La conexión de cada enlace sano (el activo incluido).
+    /// The connection of each healthy link (the active one included).
     pub handles: BTreeMap<LinkKind, H>,
 }
 
-/// Gestor en marcha. Al soltarlo se detienen los pings y se cierran las
-/// conexiones de todos los enlaces.
+/// Running manager. Dropping it stops the pings and closes the
+/// connections of all the links.
 pub struct LinkManager<H> {
     state: watch::Receiver<Snapshot<H>>,
     holds: Arc<watch::Sender<usize>>,
@@ -105,8 +105,8 @@ enum Command {
     Remove(LinkKind),
 }
 
-/// Para agregar y quitar enlaces con el gestor en marcha (T-094): un cable que aparece o
-/// se desconecta. Se clona barato.
+/// To add and remove links with the manager running (T-094): a cable that appears or
+/// is disconnected. Cheap to clone.
 #[derive(Debug, Clone)]
 pub struct LinkControl {
     tx: mpsc::UnboundedSender<Command>,
@@ -118,28 +118,28 @@ impl fmt::Debug for Command {
     }
 }
 
-/// El gestor ya no existe.
+/// The manager no longer exists.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-#[error("el gestor de enlaces ya terminó")]
+#[error("the link manager already ended")]
 pub struct ManagerGone;
 
 impl LinkControl {
-    /// Agrega un enlace y empieza a pingearlo. Si ya estaba con esa dirección no cambia
-    /// nada. Si volvió después de quitarse sano, entra con la histéresis de siempre.
+    /// Adds a link and starts pinging it. If it was already there with that address nothing
+    /// changes. If it came back after being removed healthy, it enters with the usual hysteresis.
     pub fn add(&self, link: LinkCandidate) -> Result<(), ManagerGone> {
         self.tx.send(Command::Add(link)).map_err(|_| ManagerGone)
     }
 
-    /// Quita un enlace en el acto, sin esperar al ping: si era el activo, la entrada pasa
-    /// al siguiente.
+    /// Removes a link at once, without waiting for the ping: if it was the active one, input moves
+    /// to the next.
     pub fn remove(&self, kind: LinkKind) -> Result<(), ManagerGone> {
         self.tx.send(Command::Remove(kind)).map_err(|_| ManagerGone)
     }
 }
 
-/// Mientras exista, el gestor no cambia de enlace salvo que el activo caiga.
-/// Al soltar el último, si hay un enlace mejor ya asentado, se pasa a él enseguida.
-#[must_use = "la retención termina al soltarla"]
+/// While it exists, the manager does not switch links unless the active one drops.
+/// On dropping the last one, if a better link is already settled, it moves to it right away.
+#[must_use = "the hold ends when it is dropped"]
 pub struct LinkHold {
     holds: Arc<watch::Sender<usize>>,
 }
@@ -159,9 +159,9 @@ impl Drop for LinkHold {
 type Report<H> = (LinkKind, Option<(H, Duration)>);
 
 impl<H: Clone + Send + Sync + 'static> LinkManager<H> {
-    /// Arranca un ping por enlace. Devuelve también la cola de
-    /// [`LinkEvent`], que conserva el orden y no pierde eventos aunque el
-    /// consumidor se atrase. Tiene que llamarse dentro de un runtime de tokio.
+    /// Starts one ping per link. It also returns the queue of
+    /// [`LinkEvent`]s, which keeps the order and loses no events even if the
+    /// consumer falls behind. It has to be called inside a tokio runtime.
     pub fn spawn<P: Prober<Handle = H>>(
         candidates: &[LinkCandidate],
         prober: P,
@@ -197,9 +197,9 @@ impl<H: Clone + Send + Sync + 'static> LinkManager<H> {
         }
         let (control_tx, mut commands) = mpsc::unbounded_channel::<Command>();
 
-        // Una sola tarea aplica los resultados: así los eventos salen en el
-        // orden en que cambió la tabla. Al abortarla, `links` se suelta y
-        // aborta los pings.
+        // A single task applies the results: that way events come out in the
+        // order in which the table changed. When it is aborted, `links` is dropped and
+        // aborts the pings.
         let task = tokio::spawn(async move {
             let mut links = links;
             loop {
@@ -218,7 +218,7 @@ impl<H: Clone + Send + Sync + 'static> LinkManager<H> {
                                 ));
                                 pingers.insert(c.kind, handle);
                             }
-                            // Un enlace sin ping todavía no cambia el activo.
+                            // A link without a ping yet does not change the active one.
                             None
                         }
                         Command::Remove(kind) => {
@@ -238,15 +238,15 @@ impl<H: Clone + Send + Sync + 'static> LinkManager<H> {
                         table.reevaluate(Instant::now(), held)
                     }
                 };
-                // Primero la foto: quien reciba el evento ya ve el estado nuevo.
+                // The snapshot first: whoever receives the event already sees the new state.
                 state_tx.send_replace(snapshot(&table));
                 if let Some(e) = event {
                     tracing::info!(
                         from = ?e.from,
                         to = ?e.to,
-                        "cambio de enlace activo"
+                        "active link changed"
                     );
-                    // Si nadie escucha los eventos, el gestor sigue igual.
+                    // If nobody listens to the events, the manager carries on the same.
                     let _ = event_tx.send(e);
                 }
             }
@@ -264,13 +264,13 @@ impl<H: Clone + Send + Sync + 'static> LinkManager<H> {
 }
 
 impl<H> LinkManager<H> {
-    /// Para agregar y quitar enlaces en marcha.
+    /// To add and remove links while running.
     pub fn control(&self) -> LinkControl {
         self.control.clone()
     }
 
-    /// Retiene el enlace activo durante una transacción: los pasos de un mismo
-    /// cambio no saltan de enlace a medias salvo que el activo caiga.
+    /// Holds the active link during a transaction: the steps of one
+    /// change do not jump links midway unless the active one drops.
     pub fn hold(&self) -> LinkHold {
         self.holds.send_modify(|n| *n += 1);
         LinkHold {
@@ -284,7 +284,7 @@ impl<H: Clone> LinkManager<H> {
         self.state.borrow().clone()
     }
 
-    /// Para seguir la foto (la UI dibuja los enlaces con esto).
+    /// To follow the snapshot (the UI draws the links with this).
     pub fn watch(&self) -> watch::Receiver<Snapshot<H>> {
         self.state.clone()
     }
@@ -331,10 +331,10 @@ enum Failure<E> {
 impl<E: fmt::Display> fmt::Display for Failure<E> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Failure::Connect(e) => write!(f, "no conecta: {e}"),
-            Failure::ConnectTimeout => f.write_str("la conexión no respondió a tiempo"),
-            Failure::Ping(e) => write!(f, "ping fallido: {e}"),
-            Failure::PingTimeout => f.write_str("el ping no respondió a tiempo"),
+            Failure::Connect(e) => write!(f, "cannot connect: {e}"),
+            Failure::ConnectTimeout => f.write_str("the connection did not answer in time"),
+            Failure::Ping(e) => write!(f, "ping failed: {e}"),
+            Failure::PingTimeout => f.write_str("the ping did not answer in time"),
         }
     }
 }
@@ -346,7 +346,7 @@ async fn run_link<P: Prober>(
     reports: mpsc::UnboundedSender<Report<P::Handle>>,
 ) {
     let mut tick = time::interval(config.ping_interval);
-    // Tras una conexión lenta no se encadenan pings atrasados.
+    // After a slow connection, late pings are not chained.
     tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
     let mut session = None;
     let mut was_up = false;
@@ -355,15 +355,15 @@ async fn run_link<P: Prober>(
         let up = match probe_once(&*prober, link.addr, &mut session, &config).await {
             Ok(up) => {
                 if !was_up {
-                    tracing::info!(link = %link.kind, addr = %link.addr, "enlace sano");
+                    tracing::info!(link = %link.kind, addr = %link.addr, "healthy link");
                 }
                 Some(up)
             }
             Err(failure) => {
                 if was_up {
-                    tracing::warn!(link = %link.kind, addr = %link.addr, "enlace caído: {failure}");
+                    tracing::warn!(link = %link.kind, addr = %link.addr, "link down: {failure}");
                 } else {
-                    tracing::debug!(link = %link.kind, addr = %link.addr, "enlace caído: {failure}");
+                    tracing::debug!(link = %link.kind, addr = %link.addr, "link down: {failure}");
                 }
                 None
             }
@@ -395,8 +395,8 @@ async fn probe_once<P: Prober>(
         Ok(Err(e)) => Failure::Ping(e),
         Err(_) => Failure::PingTimeout,
     };
-    // Un ping cortado a medias puede dejar el stream desalineado: se
-    // descarta la sesión y el próximo tick conecta de nuevo.
+    // A ping cut off halfway may leave the stream misaligned: the
+    // session is discarded and the next tick connects again.
     *session = None;
     Err(result)
 }

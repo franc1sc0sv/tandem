@@ -1,4 +1,4 @@
-//! Fallos inyectados: en un paso concreto de una máquina, o en un instante.
+//! Injected faults: at a specific step of a machine, or at an instant.
 
 use std::fmt;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -7,31 +7,31 @@ use std::time::Duration;
 use tandem_core::{Machine, Step};
 use tandem_link::manager::LinkKind;
 
-/// Qué le pasa a un paso.
+/// What happens to a step.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FaultAction {
-    /// Falla sin aplicarse, con este motivo.
+    /// Fails without being applied, with this reason.
     Fail(String),
-    /// No termina nunca: lo corta el tiempo máximo del orquestador.
+    /// Never finishes: the orchestrator's maximum time cuts it off.
     Hang,
-    /// Tarda esto y después se aplica (si nadie lo cortó antes).
+    /// Takes this long and then is applied (if nobody cut it off first).
     Delay(Duration),
-    /// Se cae el enlace al empezar el paso; el paso sigue normal.
+    /// The link drops at the start of the step; the step goes on normally.
     CutLink(LinkKind),
-    /// El paso se aplica y el enlace se cae antes de la respuesta: quien lo pidió no
-    /// sabe que se hizo.
+    /// The step is applied and the link drops before the answer: whoever asked
+    /// does not know it was done.
     ApplyThenCut(LinkKind),
 }
 
 type Matcher = Arc<dyn Fn(&Step) -> bool + Send + Sync>;
 
-/// Un fallo en los pasos de una máquina.
+/// A fault in the steps of a machine.
 #[derive(Clone)]
 pub struct Fault {
     machine: Machine,
     matcher: Matcher,
     action: FaultAction,
-    /// Cuántas veces más se dispara.
+    /// How many more times it fires.
     remaining: u32,
 }
 
@@ -45,12 +45,12 @@ impl fmt::Debug for Fault {
     }
 }
 
-/// Fallos para una corrida. Cada fallo se dispara una vez salvo que se diga otra cosa,
-/// así un paso que falla no hace fallar también a su inverso.
+/// Faults for a run. Each fault fires once unless said otherwise,
+/// so that a step that fails does not also make its inverse fail.
 #[derive(Debug, Clone, Default)]
 pub struct FaultPlan {
     pub(crate) faults: Vec<Fault>,
-    /// Caídas de enlace programadas, contadas desde que se arma el plan.
+    /// Scheduled link drops, counted from when the plan is built.
     pub(crate) cuts: Vec<(Duration, LinkKind)>,
 }
 
@@ -59,12 +59,12 @@ impl FaultPlan {
         Self::default()
     }
 
-    /// `action` la primera vez que `machine` ejecuta exactamente `step`.
+    /// `action` the first time `machine` executes exactly `step`.
     pub fn on(self, machine: Machine, step: Step, action: FaultAction) -> Self {
         self.on_matching(machine, move |s| *s == step, action)
     }
 
-    /// `action` la primera vez que `machine` ejecuta un paso que cumple `matcher`.
+    /// `action` the first time `machine` executes a step that satisfies `matcher`.
     pub fn on_matching(
         mut self,
         machine: Machine,
@@ -80,7 +80,7 @@ impl FaultPlan {
         self
     }
 
-    /// El último fallo agregado se dispara `times` veces en vez de una.
+    /// The last fault added fires `times` times instead of once.
     pub fn times(mut self, times: u32) -> Self {
         if let Some(f) = self.faults.last_mut() {
             f.remaining = times;
@@ -88,14 +88,14 @@ impl FaultPlan {
         self
     }
 
-    /// Se cae `link` a los `after` de armar el plan.
+    /// `link` drops `after` the plan is built.
     pub fn cut_link_at(mut self, after: Duration, link: LinkKind) -> Self {
         self.cuts.push((after, link));
         self
     }
 }
 
-/// Los fallos pendientes, compartidos por los pasos simulados de las dos máquinas.
+/// The pending faults, shared by the simulated steps of both machines.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct Faults(Arc<Mutex<Vec<Fault>>>);
 
@@ -104,7 +104,7 @@ impl Faults {
         *self.0.lock().unwrap_or_else(PoisonError::into_inner) = faults;
     }
 
-    /// Las acciones que tocan a este paso, consumiendo una vez cada fallo.
+    /// The actions that touch this step, consuming each fault once.
     pub(crate) fn take(&self, machine: Machine, step: &Step) -> Vec<FaultAction> {
         let mut faults = self.0.lock().unwrap_or_else(PoisonError::into_inner);
         let mut actions = Vec::new();

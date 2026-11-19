@@ -1,19 +1,19 @@
-//! Captura de teclado y mouse en macOS (docs/research/input-engine.md).
+//! Keyboard and mouse capture on macOS (docs/research/input-engine.md).
 //!
-//! Un CGEventTap **activo** en `kCGHIDEventTap`, en un hilo propio con su
-//! CFRunLoop, ve toda la entrada antes que cualquier app. Cada evento se traduce
-//! al modelo portable ([`translate`]) y se entrega al consumidor (el driver de la
-//! sesión); mientras el foco está en la otra máquina el tap lo traga (devuelve
-//! NULL) y el cursor local queda congelado y oculto ([`grab`]).
+//! An **active** CGEventTap at `kCGHIDEventTap`, on its own thread with its
+//! CFRunLoop, sees all input before any app. Each event is translated
+//! to the portable model ([`translate`]) and delivered to the consumer (the session
+//! driver); while the focus is on the other machine the tap swallows it (returns
+//! NULL) and the local cursor is frozen and hidden ([`grab`]).
 //!
-//! - Si el sistema apaga el tap (`kCGEventTapDisabledByTimeout` o
-//!   `…ByUserInput`), se vuelve a encender en el mismo callback y queda registrado.
-//! - Con Secure Event Input (un campo de contraseña) no se toma la entrada: el
-//!   tap no ve el teclado y el usuario quedaría escribiendo a ciegas.
-//! - Hace falta el permiso de Accesibilidad (TCC) para un tap activo; sin él,
-//!   [`MacCapture::start`] falla antes de crear nada ([`Permissions`]).
-//! - Si el consumidor de eventos desaparece con la entrada tomada, el tap la
-//!   devuelve solo: la Mac nunca queda sin teclado.
+//! - If the system turns the tap off (`kCGEventTapDisabledByTimeout` or
+//!   `…ByUserInput`), it is turned on again in the same callback and recorded.
+//! - With Secure Event Input (a password field) input is not taken: the
+//!   tap does not see the keyboard and the user would end up typing blind.
+//! - The Accessibility permission (TCC) is needed for an active tap; without it,
+//!   [`MacCapture::start`] fails before creating anything ([`Permissions`]).
+//! - If the event consumer disappears with the input taken, the tap gives it
+//!   back on its own: the Mac is never left without a keyboard.
 
 pub mod grab;
 pub mod translate;
@@ -32,45 +32,45 @@ pub use translate::{
 
 #[derive(Debug, Error)]
 pub enum CaptureError {
-    /// Falta un permiso de TCC. Se pide con `request_permissions` y el usuario lo
-    /// concede en Ajustes del Sistema → Privacidad y seguridad.
-    #[error("falta el permiso de {0} (Ajustes del Sistema → Privacidad y seguridad)")]
+    /// A TCC permission is missing. It is requested with `request_permissions` and the user
+    /// grants it in System Settings → Privacy & Security.
+    #[error("the {0} permission is missing (System Settings → Privacy & Security)")]
     Permission(Permission),
-    /// Hay un campo de contraseña activo (Secure Event Input).
-    #[error("hay un campo de contraseña activo (Secure Event Input); no se cruza de pantalla")]
+    /// A password field is active (Secure Event Input).
+    #[error("a password field is active (Secure Event Input); the screen is not crossed")]
     SecureInput,
-    /// `CGEventTapCreate` devolvió NULL (normalmente, permisos).
-    #[error("no se pudo crear el CGEventTap")]
+    /// `CGEventTapCreate` returned NULL (normally, permissions).
+    #[error("the CGEventTap could not be created")]
     TapCreate,
-    /// El hilo del tap no arrancó o murió antes de avisar.
-    #[error("el hilo del tap de eventos no arrancó: {0}")]
+    /// The tap thread did not start or died before reporting.
+    #[error("the event tap thread did not start: {0}")]
     Thread(String),
-    /// Una llamada de CoreGraphics sobre el cursor devolvió un `CGError`.
-    #[error("{op} falló con CGError {code}")]
+    /// A CoreGraphics call on the cursor returned a `CGError`.
+    #[error("{op} failed with CGError {code}")]
     Cursor { op: &'static str, code: i32 },
 }
 
-/// Permisos de TCC que importan para capturar.
+/// TCC permissions that matter for capturing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Permission {
-    /// Accesibilidad: necesaria para un tap activo (y para inyectar).
+    /// Accessibility: needed for an active tap (and for injecting).
     Accessibility,
-    /// Monitorización de entrada: basta para un tap que solo escucha.
+    /// Input Monitoring: enough for a tap that only listens.
     InputMonitoring,
 }
 
 impl std::fmt::Display for Permission {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
-            Permission::Accessibility => "Accesibilidad",
-            Permission::InputMonitoring => "Monitorización de entrada",
+            Permission::Accessibility => "Accessibility",
+            Permission::InputMonitoring => "Input Monitoring",
         })
     }
 }
 
-/// Estado de los permisos de TCC del proceso. El permiso queda atado a la firma
-/// del binario: hace falta una `.app` firmada de forma estable para no volver a
-/// pedirlo en cada compilación.
+/// State of the process's TCC permissions. The permission is tied to the binary's
+/// signature: a stably signed `.app` is needed so it is not asked for again
+/// on every build.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Permissions {
     pub accessibility: bool,
@@ -78,12 +78,12 @@ pub struct Permissions {
 }
 
 impl Permissions {
-    /// Lo que falta para un tap activo, que traga eventos.
+    /// What is missing for an active tap, which swallows events.
     pub fn missing_for_active_tap(self) -> Option<Permission> {
         (!self.accessibility).then_some(Permission::Accessibility)
     }
 
-    /// Todo lo que falta, para mostrarlo en la UI.
+    /// Everything that is missing, to show in the UI.
     pub fn missing(self) -> Vec<Permission> {
         let mut v = Vec::new();
         if !self.accessibility {
@@ -101,7 +101,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn el_tap_activo_solo_exige_accesibilidad() {
+    fn the_active_tap_only_requires_accessibility() {
         let p = Permissions {
             accessibility: true,
             input_monitoring: false,
@@ -125,10 +125,10 @@ mod tests {
     }
 
     #[test]
-    fn mensajes_de_error_en_espanol() {
+    fn error_messages_in_english() {
         assert_eq!(
             CaptureError::Permission(Permission::Accessibility).to_string(),
-            "falta el permiso de Accesibilidad (Ajustes del Sistema → Privacidad y seguridad)"
+            "the Accessibility permission is missing (System Settings → Privacy & Security)"
         );
         assert_eq!(
             CaptureError::Cursor {
@@ -136,7 +136,7 @@ mod tests {
                 code: 1001
             }
             .to_string(),
-            "CGDisplayHideCursor falló con CGError 1001"
+            "CGDisplayHideCursor failed with CGError 1001"
         );
     }
 }

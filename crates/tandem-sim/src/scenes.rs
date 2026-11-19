@@ -1,9 +1,9 @@
-//! El doble de los pasos de escena (T-100): qué máquina muestra cada monitor de escena y
-//! cuántas veces se recalculó la geometría. Con monitores de verdad en el puesto
-//! ([`crate::DeskBuilder::monitors`]) no se usa: los agentes van a los dobles de
-//! `monitor-ddc` (T-111). Aquí cada cambio se aplica al instante salvo que el
-//! [`crate::FaultPlan`] diga otra cosa (los fallos se buscan con el paso de escena y la
-//! máquina que la aplica).
+//! The scene-step double (T-100): which machine shows each scene monitor and
+//! how many times the geometry was recomputed. With real monitors on the desk
+//! ([`crate::DeskBuilder::monitors`]) it is not used: the agents go to the
+//! `monitor-ddc` doubles (T-111). Here every change is applied instantly unless the
+//! [`crate::FaultPlan`] says otherwise (faults are looked up by the scene step and the
+//! machine applying it).
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -17,18 +17,18 @@ use crate::fault::{FaultAction, Faults};
 #[derive(Debug, Default)]
 struct Screens {
     shows: BTreeMap<String, Machine>,
-    /// Cuántas veces cada máquina llevó el motor de entrada a la geometría nueva.
+    /// How many times each machine took the input engine to the new geometry.
     geometry: BTreeMap<Machine, u32>,
-    /// Cada cambio de monitor hecho, en orden: (quién lo pidió, monitor, máquina).
+    /// Each monitor change made, in order: (who requested it, monitor, machine).
     log: Vec<(Machine, String, Machine)>,
 }
 
-/// Los monitores de escena del puesto, compartidos por las dos máquinas.
+/// The desk's scene monitors, shared by both machines.
 #[derive(Debug, Clone, Default)]
 pub struct SceneScreens(Arc<Mutex<Screens>>);
 
 impl SceneScreens {
-    /// Monitores que muestran, al empezar, la máquina indicada.
+    /// Monitors that show the given machine at the start.
     pub fn new(monitors: &[(&str, Machine)]) -> Self {
         let s = SceneScreens::default();
         s.lock().shows = monitors
@@ -42,17 +42,17 @@ impl SceneScreens {
         self.0.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// Qué muestra cada monitor ahora.
+    /// What each monitor shows now.
     pub fn shows(&self) -> BTreeMap<String, Machine> {
         self.lock().shows.clone()
     }
 
-    /// Los cambios de monitor hechos, en orden.
+    /// The monitor changes made, in order.
     pub fn log(&self) -> Vec<(Machine, String, Machine)> {
         self.lock().log.clone()
     }
 
-    /// Cuántas veces `machine` recalculó la geometría por una escena.
+    /// How many times `machine` recomputed the geometry because of a scene.
     pub fn geometry_of(&self, machine: Machine) -> u32 {
         self.lock().geometry.get(&machine).copied().unwrap_or(0)
     }
@@ -66,7 +66,7 @@ impl SceneScreens {
     }
 }
 
-/// El [`SceneBackend`] simulado de una máquina.
+/// A machine's simulated [`SceneBackend`].
 #[derive(Debug)]
 pub(crate) struct SimSceneBackend {
     machine: Machine,
@@ -75,14 +75,14 @@ pub(crate) struct SimSceneBackend {
 }
 
 impl SimSceneBackend {
-    /// Lo que dice el plan de fallos para `step`; `Ok(())` si se aplica.
+    /// What the fault plan says for `step`; `Ok(())` if it is applied.
     async fn faults(&self, step: &Step) -> Result<(), String> {
         for action in self.faults.take(self.machine, step) {
             match action {
                 FaultAction::Fail(why) => return Err(format!("{}: {why}", describe(step))),
                 FaultAction::Hang => std::future::pending::<()>().await,
                 FaultAction::Delay(d) => tokio::time::sleep(d).await,
-                // Los pasos de escena no van por la red.
+                // Scene steps do not go over the network.
                 FaultAction::CutLink(_) | FaultAction::ApplyThenCut(_) => {}
             }
         }
@@ -95,7 +95,7 @@ impl SceneBackend for SimSceneBackend {
         if self.screens.lock().shows.contains_key(monitor) {
             Ok(())
         } else {
-            Err(format!("no se ve el monitor {monitor}"))
+            Err(format!("monitor {monitor} is not visible"))
         }
     }
 
@@ -105,7 +105,7 @@ impl SceneBackend for SimSceneBackend {
             .shows
             .get(monitor)
             .copied()
-            .ok_or_else(|| format!("el monitor {monitor} no existe"))
+            .ok_or_else(|| format!("monitor {monitor} does not exist"))
     }
 
     fn show<'a>(&'a self, monitor: &'a str, machine: Machine) -> StepFuture<'a> {
@@ -117,7 +117,7 @@ impl SceneBackend for SimSceneBackend {
             self.faults(&step).await?;
             let mut s = self.screens.lock();
             if !s.shows.contains_key(monitor) {
-                return Err(format!("el monitor {monitor} no existe"));
+                return Err(format!("monitor {monitor} does not exist"));
             }
             s.shows.insert(monitor.to_owned(), machine);
             s.log.push((self.machine, monitor.to_owned(), machine));

@@ -1,11 +1,11 @@
-//! Cambio de entrada del monitor con vuelta automática.
+//! Monitor input switch with automatic rollback.
 //!
-//! Regla de la suite: **nada cambia una entrada sin las dos redes** de `tandem-monitor`:
-//! el [`InputGuard`] dentro del proceso (vuelve al soltarse) y el vigilante aparte
-//! (`tandem-monitor-guard`), que vuelve si el proceso muere. Si el vigilante no está junto
-//! al ejecutable, la comprobación se omite en vez de arriesgar al usuario sin ver la PC.
+//! Suite rule: **nothing changes an input without the two safety nets** of `tandem-monitor`:
+//! the in-process [`InputGuard`] (restores on drop) and the separate watchdog
+//! (`tandem-monitor-guard`), which restores if the process dies. If the watchdog is not next
+//! to the executable, the check is skipped instead of risking the user not seeing the PC.
 //!
-//! Los mensajes no llevan el identificador ni el EDID del monitor.
+//! Messages carry neither the monitor's identifier nor its EDID.
 
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
@@ -19,14 +19,14 @@ use tandem_monitor::guard::{InputGuard, WatchPlan, Watchdog};
 use crate::report::CheckResult;
 
 const SWITCH_TIMEOUT: Duration = Duration::from_secs(12);
-/// Cuánto se espera al vigilante tras matar al proceso que cambió la entrada.
+/// How long to wait for the watchdog after killing the process that switched the input.
 const WATCHDOG_WAIT: Duration = Duration::from_secs(45);
 
 pub const ROUNDTRIP: &str = "monitor-roundtrip";
 pub const KILL_MIDWAY: &str = "monitor-kill";
 const COVERS: &[&str] = &["H3", "T-109", "T-110"];
 
-/// El vigilante, junto al ejecutable actual.
+/// The watchdog, next to the current executable.
 pub fn guard_exe() -> PathBuf {
     let mut p = std::env::current_exe().unwrap_or_default();
     p.set_file_name(format!(
@@ -43,7 +43,7 @@ pub fn other_input(i: Input) -> Input {
     }
 }
 
-/// Un monitor compatible abierto y su identificador (que no sale en los mensajes).
+/// A compatible monitor, opened, and its identifier (which does not appear in messages).
 pub struct Found {
     id: String,
     monitor: StandardMonitor,
@@ -51,11 +51,11 @@ pub struct Found {
 }
 
 pub fn find() -> Result<Found, String> {
-    let bus = monitor_ddc::system_bus().map_err(|e| format!("sin canal DDC: {e}"))?;
+    let bus = monitor_ddc::system_bus().map_err(|e| format!("no DDC channel: {e}"))?;
     let clock: Arc<dyn Clock> = Arc::new(SystemClock::new());
     let monitors = bus
         .monitors()
-        .map_err(|e| format!("no se enumeraron los monitores: {e}"))?;
+        .map_err(|e| format!("monitors were not enumerated: {e}"))?;
     for info in monitors {
         let link = Link::new(bus.clone(), clock.clone(), info.handle);
         if let Probe::Compatible(_) = link.probe()
@@ -68,40 +68,48 @@ pub fn find() -> Result<Found, String> {
             });
         }
     }
-    Err("ningún monitor compatible en esta máquina".into())
+    Err("no compatible monitor on this machine".into())
 }
 
-/// Lo que se exige tras el cambio y la vuelta: la vuelta confirmada a la entrada original.
-/// El veredicto del cambio puede ser cualquiera de los dos finales (el monitor puede no
-/// tener señal en la otra entrada), pero tiene que haberlo.
+/// What is required after the switch and the return: confirmed return to the original input.
+/// The switch verdict can be either final one (the monitor may have no signal on the
+/// other input), but there has to be one.
 pub fn classify_roundtrip(
     original: Input,
     switched: &Result<Verdict, String>,
     back: &Result<Verdict, String>,
 ) -> Result<String, String> {
     let went = match switched {
-        Ok(Verdict::Confirmed { .. }) => "cambio confirmado",
-        Ok(Verdict::Failed { .. }) => "cambio sin señal en la otra entrada (el firmware lo dijo)",
-        Ok(other) => return Err(format!("el cambio no dio un veredicto final: {other:?}")),
-        Err(e) => return Err(format!("no se pudo pedir el cambio: {e}")),
+        Ok(Verdict::Confirmed { .. }) => "switch confirmed",
+        Ok(Verdict::Failed { .. }) => {
+            "switch got no signal on the other input (the firmware said so)"
+        }
+        Ok(other) => {
+            return Err(format!(
+                "the switch did not give a final verdict: {other:?}"
+            ));
+        }
+        Err(e) => return Err(format!("the switch could not be requested: {e}")),
     };
     match back {
         Ok(Verdict::Confirmed { input }) if *input == Some(original) => {
-            Ok(format!("{went}; vuelta confirmada a la entrada original"))
+            Ok(format!("{went}; return confirmed to the original input"))
         }
         other => Err(format!(
-            "LA VUELTA NO QUEDÓ CONFIRMADA ({other:?}); revisar la entrada del monitor a mano"
+            "THE RETURN WAS NOT CONFIRMED ({other:?}); check the monitor input by hand"
         )),
     }
 }
 
-/// Cambia a la otra entrada y vuelve, con el guardia y el vigilante.
+/// Switches to the other input and back, with the guard and the watchdog.
 pub fn roundtrip(label: &str) -> CheckResult {
     let r = CheckResult::new(ROUNDTRIP, label, COVERS);
     let started = Instant::now();
     let guard_path = guard_exe();
     if !guard_path.exists() {
-        return r.skip("falta tandem-monitor-guard junto al ejecutable: no se toca la entrada");
+        return r.skip(
+            "tandem-monitor-guard is missing next to the executable: the input is not touched",
+        );
     }
     let found = match find() {
         Ok(f) => f,
@@ -109,7 +117,7 @@ pub fn roundtrip(label: &str) -> CheckResult {
     };
     let guard = match InputGuard::arm(found.monitor, found.clock.clone()) {
         Ok(g) => g,
-        Err(e) => return r.skip(format!("no se leyó la entrada real: {e}")),
+        Err(e) => return r.skip(format!("the real input was not read: {e}")),
     };
     let original = guard.original();
     let watchdog = match Watchdog::spawn(
@@ -120,20 +128,20 @@ pub fn roundtrip(label: &str) -> CheckResult {
         },
     ) {
         Ok(w) => w,
-        // `guard` se suelta aquí sin haber cambiado nada.
-        Err(e) => return r.skip(format!("no arrancó el vigilante: {e}")),
+        // `guard` is dropped here without having changed anything.
+        Err(e) => return r.skip(format!("the watchdog did not start: {e}")),
     };
     let switched = guard
         .monitor()
         .switch_input(other_input(original), SWITCH_TIMEOUT)
         .map_err(|e| e.to_string());
-    // Se vuelve pase lo que pase con el cambio; después se mira.
+    // The return happens whatever the switch does; only afterwards is it inspected.
     let back = guard.restore().map_err(|e| e.to_string());
     let confirmed = matches!(
         &back,
         Ok(Verdict::Confirmed { input }) if *input == Some(original)
     );
-    // Desarmado solo con la vuelta confirmada; si no, lo suelta sin desarmar y reintenta él.
+    // Disarmed only with the return confirmed; otherwise it drops without disarming and retries.
     let watch = if confirmed {
         watchdog.disarm()
     } else {
@@ -144,17 +152,17 @@ pub fn roundtrip(label: &str) -> CheckResult {
         Err(d) => r.fail(d),
     };
     if let Err(e) = watch {
-        out = out.fail(format!("el vigilante no terminó: {e}"));
+        out = out.fail(format!("the watchdog did not finish: {e}"));
     }
     out.millis = started.elapsed().as_millis() as u64;
     out
 }
 
-/// El proceso hijo de [`kill_midway`]: arma las dos redes, cambia, avisa y se queda
-/// esperando a que lo maten. Si nadie lo mata, vuelve solo a los 120 s.
+/// The child process of [`kill_midway`]: arms both nets, switches, signals and waits
+/// to be killed. If nobody kills it, it returns on its own after 120 s.
 pub fn hold() -> anyhow::Result<()> {
     let guard_path = guard_exe();
-    anyhow::ensure!(guard_path.exists(), "falta tandem-monitor-guard");
+    anyhow::ensure!(guard_path.exists(), "tandem-monitor-guard is missing");
     let found = find().map_err(anyhow::Error::msg)?;
     let guard = InputGuard::arm(found.monitor, found.clock.clone())?;
     let original = guard.original();
@@ -173,27 +181,25 @@ pub fn hold() -> anyhow::Result<()> {
     println!("switched");
     std::io::stdout().flush()?;
     std::thread::sleep(Duration::from_secs(120));
-    // `guard` vuelve al soltarse.
+    // `guard` restores on drop.
     Ok(())
 }
 
-/// Entrada actual del monitor (`dp`/`hdmi`), para que `run.sh` sepa a qué volver. Solo lee.
+/// Current monitor input (`dp`/`hdmi`), so `run.sh` knows what to return to. Read only.
 pub fn current_input_name() -> Result<String, String> {
     let found = find()?;
     live_input(&found)
         .map(|i| i.as_str().to_owned())
-        .ok_or_else(|| "no se leyó la entrada real".to_owned())
+        .ok_or_else(|| "the real input was not read".to_owned())
 }
 
-/// Vuelve a `target` con el vigilante: se lanza con la entrada cerrada, que para él es "el
-/// proceso murió" y restaura. Es la restauración explícita de la limpieza de `run.sh`.
+/// Returns to `target` with the watchdog: it is launched with the input closed, which for it means "the
+/// process died" and restores. It is the explicit restore of `run.sh`'s cleanup.
 pub fn restore_with_guard(target: &str) -> Result<(), String> {
-    let want: Input = target
-        .parse()
-        .map_err(|e| format!("entrada inválida: {e}"))?;
+    let want: Input = target.parse().map_err(|e| format!("invalid input: {e}"))?;
     let guard_path = guard_exe();
     if !guard_path.exists() {
-        return Err("falta tandem-monitor-guard junto al ejecutable".into());
+        return Err("tandem-monitor-guard is missing next to the executable".into());
     }
     let found = find()?;
     let plan = WatchPlan {
@@ -206,14 +212,14 @@ pub fn restore_with_guard(target: &str) -> Result<(), String> {
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()
-        .map_err(|e| format!("no arrancó el vigilante: {e}"))?;
+        .map_err(|e| format!("the watchdog did not start: {e}"))?;
     if !status.success() {
-        return Err(format!("el vigilante terminó con {status}"));
+        return Err(format!("the watchdog ended with {status}"));
     }
     if live_input(&found) == Some(want) {
         Ok(())
     } else {
-        Err("tras el vigilante la entrada no es la esperada".into())
+        Err("after the watchdog the input is not the expected one".into())
     }
 }
 
@@ -221,8 +227,8 @@ fn live_input(found: &Found) -> Option<Input> {
     found.monitor.live().ok().and_then(|l| l.input())
 }
 
-/// Resultado de [`kill_midway`] según lo que se observó. Sin cambio no hay nada que probar:
-/// la entrada "vuelta" sería la que nunca se movió.
+/// Result of [`kill_midway`] according to what was observed. With no switch there is nothing to test:
+/// the "returned" input would be the one that never moved.
 #[derive(Debug, PartialEq, Eq)]
 pub enum KillVerdict {
     Pass,
@@ -238,24 +244,26 @@ pub fn classify_kill(switched: bool, restored: bool) -> KillVerdict {
     }
 }
 
-/// Mata el proceso que cambió la entrada a mitad de camino: el vigilante tiene que volver
-/// solo. Último recurso: si no volvió, esta función lo hace y la comprobación falla.
+/// Kills the process that switched the input midway: the watchdog has to restore on its
+/// own. Last resort: if it did not return, this function does it and the check fails.
 pub fn kill_midway(label: &str) -> CheckResult {
     let r = CheckResult::new(KILL_MIDWAY, label, COVERS);
     let started = Instant::now();
     if !guard_exe().exists() {
-        return r.skip("falta tandem-monitor-guard junto al ejecutable: no se toca la entrada");
+        return r.skip(
+            "tandem-monitor-guard is missing next to the executable: the input is not touched",
+        );
     }
     let found = match find() {
         Ok(f) => f,
         Err(e) => return r.skip(e),
     };
     let Some(original) = live_input(&found) else {
-        return r.skip("no se leyó la entrada real");
+        return r.skip("the real input was not read");
     };
     let me = match std::env::current_exe() {
         Ok(p) => p,
-        Err(e) => return r.skip(format!("sin ruta del ejecutable: {e}")),
+        Err(e) => return r.skip(format!("no executable path: {e}")),
     };
     let mut child = match Command::new(me)
         .arg("monitor-hold")
@@ -264,12 +272,12 @@ pub fn kill_midway(label: &str) -> CheckResult {
         .spawn()
     {
         Ok(c) => c,
-        Err(e) => return r.skip(format!("no arrancó el proceso de prueba: {e}")),
+        Err(e) => return r.skip(format!("the test process did not start: {e}")),
     };
     let Some(stdout) = child.stdout.take() else {
         let _ = child.kill();
         let _ = child.wait();
-        return r.skip("sin stdout del proceso de prueba");
+        return r.skip("no stdout from the test process");
     };
     let mut lines = BufReader::new(stdout).lines();
     let mut switched = false;
@@ -279,7 +287,7 @@ pub fn kill_midway(label: &str) -> CheckResult {
             break;
         }
     }
-    // Un momento con el cambio en curso o ya hecho, y se mata al proceso.
+    // A moment with the switch in progress or done, then the process is killed.
     std::thread::sleep(Duration::from_millis(1500));
     let _ = child.kill();
     let _ = child.wait();
@@ -295,18 +303,18 @@ pub fn kill_midway(label: &str) -> CheckResult {
     };
     let verdict = classify_kill(switched, restored);
     if !restored {
-        // Tercera red: no se deja al usuario sin ver la PC.
+        // Third net: the user is never left without seeing the PC.
         let _ = found.monitor.switch_input(original, SWITCH_TIMEOUT);
     }
     let mut out = match verdict {
         KillVerdict::Pass => {
-            r.pass("el vigilante volvió a la entrada original tras matar al proceso")
+            r.pass("the watchdog returned to the original input after killing the process")
         }
         KillVerdict::NeverSwitched => {
-            r.skip("el proceso de prueba no llegó a cambiar la entrada: no se probó el vigilante")
+            r.skip("the test process never switched the input: the watchdog was not tested")
         }
         KillVerdict::NotRestored => {
-            r.fail("el vigilante NO volvió a tiempo; la restauró esta prueba. Revisar el vigilante")
+            r.fail("the watchdog did NOT return in time; this test restored it. Check the watchdog")
         }
     };
     out.millis = started.elapsed().as_millis() as u64;
@@ -346,7 +354,7 @@ mod tests {
             &confirmed(Input::Hdmi),
             &confirmed(Input::Hdmi),
         );
-        assert!(bad.unwrap_err().contains("NO QUEDÓ CONFIRMADA"));
+        assert!(bad.unwrap_err().contains("NOT CONFIRMED"));
     }
 
     #[test]
@@ -365,7 +373,7 @@ mod tests {
     fn a_request_error_fails_even_if_the_return_worked() {
         let r = classify_roundtrip(
             Input::Hdmi,
-            &Err("sin canal".into()),
+            &Err("no channel".into()),
             &confirmed(Input::Hdmi),
         );
         assert!(r.is_err());

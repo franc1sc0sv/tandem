@@ -1,9 +1,9 @@
-//! Dos `tandemd` con el motor de entrada, emparejados y unidos por QUIC real en loopback,
-//! con captura e inyección simuladas ([`FakeInputBackends`]): el banco de latencia de la
-//! entrada (T-093) y las pruebas de punta a punta del teclado y el mouse.
+//! Two `tandemd` with the input engine, paired and joined by real QUIC on loopback,
+//! with simulated capture and injection ([`FakeInputBackends`]): the input latency
+//! bench (T-093) and the end-to-end keyboard and mouse tests.
 //!
-//! A diferencia del resto de `tandem-sim`, aquí el reloj es el real: lo que se mide es
-//! tiempo de verdad.
+//! Unlike the rest of `tandem-sim`, here the clock is the real one: what is measured is
+//! real time.
 
 use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
@@ -26,7 +26,7 @@ use tokio::task::JoinHandle;
 
 use crate::SimError;
 
-/// Pasos locales que siempre salen bien: el banco no aplica planes.
+/// Local steps that always succeed: the bench does not apply plans.
 struct NoSteps;
 
 impl LocalSteps for NoSteps {
@@ -35,7 +35,7 @@ impl LocalSteps for NoSteps {
     }
 }
 
-/// Un agente en marcha.
+/// A running agent.
 pub struct SimAgent {
     pub agent: Arc<Agent>,
     pub fake: FakeInputBackends,
@@ -53,7 +53,7 @@ impl SimAgent {
         self.agent.input_status()
     }
 
-    /// Espera a que el estado de la entrada cumpla `f`, como mucho `limit`.
+    /// Waits for the input state to satisfy `f`, at most `limit`.
     pub async fn until_input(
         &self,
         limit: Duration,
@@ -62,8 +62,8 @@ impl SimAgent {
         let mut rx = self.agent.subscribe_input();
         let got = tokio::time::timeout(limit, rx.wait_for(|s| f(s)))
             .await
-            .map_err(|_| SimError::Timeout("estado de la entrada"))?
-            .map_err(|_| SimError::Timeout("el motor de entrada se detuvo"))?
+            .map_err(|_| SimError::Timeout("input state"))?
+            .map_err(|_| SimError::Timeout("the input engine stopped"))?
             .clone();
         Ok(got)
     }
@@ -86,7 +86,7 @@ impl Drop for SimAgent {
     }
 }
 
-/// Las dos máquinas del banco: `a` y `b` según sus claves (DECISIONS A1).
+/// The bench's two machines: `a` and `b` according to their keys (DECISIONS A1).
 pub struct InputPair {
     pub a: SimAgent,
     pub b: SimAgent,
@@ -97,12 +97,12 @@ fn loopback(port: u16) -> SocketAddr {
 }
 
 impl InputPair {
-    /// Arranca las dos con estas pantallas (las que lee cada una) y estos tiempos. El
-    /// teclado arranca en `A`; el enlace es «USB4» (en loopback).
+    /// Starts both with these screens (the ones each reads) and these timings. The
+    /// keyboard starts on `A`; the link is "USB4" (on loopback).
     ///
-    /// Las identidades son nuevas en cada par: dos bancos que corren a la vez (otra suite,
-    /// otro checkout) no se pueden confundir de agente aunque se crucen de puerto. Los
-    /// puertos se abren sin reserva y, si otra suite tomó alguno, se eligen otros
+    /// Identities are new for every pair: two benches running at the same time (another suite,
+    /// another checkout) cannot mistake each other's agent even if their ports cross. Ports
+    /// are opened without reservation and, if another suite took one, others are chosen
     /// ([`tandemd::test_ports`]).
     pub async fn start(
         screens_a: Vec<tandem_input::Screen>,
@@ -132,7 +132,7 @@ impl InputPair {
                 Err(PortTaken) => a.stop().await,
             }
         }
-        Err(SimError::Setup("no se encontraron puertos libres".into()))
+        Err(SimError::Setup("no free ports found".into()))
     }
 
     pub async fn stop(self) {
@@ -189,7 +189,7 @@ async fn start_one(
         NetOptions {
             bind: Some(loopback(port)),
             mdns: false,
-            // Sin reserva: un puerto tomado falla enseguida y se eligen otros.
+            // Without reservation: a taken port fails right away and others are chosen.
             fallback_ports: Vec::new(),
             ..NetOptions::default()
         },

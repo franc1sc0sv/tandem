@@ -1,15 +1,15 @@
-//! Windows: captura e inyección de entrada.
+//! Windows: input capture and injection.
 //!
-//! La lógica (traducción, filtros, watchdog) es portable y se prueba en Linux; solo
-//! las llamadas al sistema (`SendInput`, hooks, métricas del escritorio) van bajo
+//! The logic (translation, filters, watchdog) is portable and is tested on Linux; only
+//! the system calls (`SendInput`, hooks, desktop metrics) go under
 //! `cfg(windows)`.
 //!
-//! - [`capture`]: captura de la entrada local (hooks de bajo nivel y Raw Input).
-//! - [`emulate`]: inyección con `SendInput` (scancodes, mouse absoluto, rueda).
+//! - [`capture`]: capture of local input (low-level hooks and Raw Input).
+//! - [`emulate`]: injection with `SendInput` (scancodes, absolute mouse, wheel).
 
 pub mod capture;
 pub mod emulate;
 
-/// Marca en `dwExtraInfo` de todo lo que inyecta Tandem ("TNDM"), para que la captura
-/// pueda descartar sus propios eventos sin depender solo de `LL*HF_INJECTED`.
+/// Mark in `dwExtraInfo` of everything Tandem injects ("TNDM"), so that the capture
+/// can discard its own events without depending only on `LL*HF_INJECTED`.
 pub const TANDEM_EXTRA_INFO: usize = 0x544E_444D;

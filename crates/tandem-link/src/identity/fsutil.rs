@@ -1,4 +1,4 @@
-//! Escritura de archivos sensibles: atómica y, en Unix, con permisos 0600.
+//! Writing sensitive files: atomic and, on Unix, with 0600 permissions.
 
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
@@ -6,9 +6,9 @@ use std::path::{Path, PathBuf};
 
 use super::IdentityError;
 
-/// Escribe `bytes` en `path` de forma atómica (archivo temporal + rename) para
-/// que un corte a mitad de escritura nunca deje una llave o un trust store a
-/// medias.
+/// Writes `bytes` to `path` atomically (temporary file + rename) so
+/// that a cut mid-write never leaves a key or a trust store
+/// half written.
 pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> Result<(), IdentityError> {
     if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
         fs::create_dir_all(dir).map_err(|e| IdentityError::io(dir, e))?;
@@ -17,7 +17,7 @@ pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> Result<(), IdentityErr
     let result = write_new(&tmp, bytes)
         .and_then(|()| fs::rename(&tmp, path).map_err(|e| IdentityError::io(path, e)));
     if result.is_err() {
-        // Mejor esfuerzo: el error original es el que importa.
+        // Best effort: the original error is the one that matters.
         let _ = fs::remove_file(&tmp);
     }
     result
@@ -50,8 +50,8 @@ fn open_private(path: &Path) -> std::io::Result<File> {
         .open(path)
 }
 
-// En Windows la protección llega con DPAPI (tarea posterior); el perfil del
-// usuario ya restringe el acceso por ACL.
+// On Windows protection comes with DPAPI (a later task); the user's
+// profile already restricts access by ACL.
 #[cfg(not(unix))]
 fn open_private(path: &Path) -> std::io::Result<File> {
     OpenOptions::new()
@@ -61,7 +61,7 @@ fn open_private(path: &Path) -> std::io::Result<File> {
         .open(path)
 }
 
-/// Rechaza archivos secretos legibles por otros usuarios, como hace ssh.
+/// Rejects secret files readable by other users, as ssh does.
 #[cfg(unix)]
 pub(crate) fn check_private(path: &Path, file: &File) -> Result<(), IdentityError> {
     use std::os::unix::fs::PermissionsExt;
