@@ -41,5 +41,5 @@ REPORT=$(sed -n 's/.*report: //p' "$W/run.err" | tail -1)
 [ -f "$REPORT" ] && check 'ping' "$REPORT" "the report includes the Mac results" || { echo "FAIL: no report"; fail=1; }
 [ "$RUN_RC" = 0 ] || { echo "FAIL: run.sh code $RUN_RC"; tail -15 "$W/run.err"; fail=1; }
 [ "$MAC_RC" = 0 ] || { echo "FAIL: mac-side code $MAC_RC"; tail -15 "$W/mac.err"; fail=1; }
-pgrep -f "tandem-hw/[0-9-]*/.*/tandemd" >/dev/null && { echo "FAIL: processes left over"; fail=1; }
+pgrep -f "tandem-hw/[0-9]+-[0-9]+/bin/tandemd" >/dev/null && { echo "FAIL: processes left over"; fail=1; }
 exit $fail

@@ -19,8 +19,11 @@
 #                    and are skipped if the watcher is missing.
 #   --only LIST     only these groups: link,tunnels,input,monitors (comma). `monitors` is
 #                    ignored without --with-monitors.
+#   --skip-build     reuses the Windows and macOS binaries of a previous run. The Linux tandem-hw
+#                    that writes the report is ALWAYS rebuilt from --ref (it fails clearly if missing).
 #   --keep-cache     keeps ~/.cache/tandem-hw-src and ~/.cache/tandem-hw-target on the Mac
-#                    (build cache); by default they are deleted when done.
+#                    (build cache); by default they are deleted when done, but never while a
+#                    mac-side.sh run is alive (lock files in ~/.cache/tandem-hw-locks).
 #   --mac-link DIR   link-local address of the Mac's USB4 cable (or TANDEM_HW_MAC_LINK). If
 #                    `mac-runner` does not answer (Wi-Fi down), this address is used with the same
 #                    user and key as the ssh alias. No fixed IPs in the repo (D10).
@@ -74,7 +77,7 @@ while [ $# -gt 0 ]; do
     --mac-results) MAC_RESULTS=$2; shift ;;
     --mac-command-file) MAC_CMD_FILE=$2; shift ;;
     --repo) REPO=$2; shift ;;
-    -h|--help) sed -n 2,30p "$0"; exit 0 ;;
+    -h|--help) sed -n 2,32p "$0"; exit 0 ;;
     *) echo "unknown option:$1" >&2; exit 2 ;;
   esac
   shift
@@ -113,6 +116,9 @@ mkdir -p "$SRC" "$OUT"
 export CARGO_INCREMENTAL=0 CARGO_PROFILE_RELEASE_DEBUG=0 CARGO_BUILD_JOBS=4
 LOG_LEVEL='tandemd=debug,tandem_link=info'
 
+# The real stdout/stderr, saved: a signal can arrive while a function runs with its own
+# redirections (step output goes to files), and cleanup must still print to the run's log.
+exec 3>&2 4>&1
 say() { printf '[hw %s] %s\n' "$(date +%H:%M:%S)" "$*" >&2; }
 die() { say "ERROR: $*"; exit 2; }
 
@@ -124,6 +130,12 @@ MAC_OPTS=(-o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=10 -o Ser
 mac() { timeout -k 5 "${TMO:-$T_CALL}" ssh "${MAC_OPTS[@]}" "$MAC_HOST" "$@" </dev/null; }
 mac_in() { timeout -k 5 "${TMO:-$T_CALL}" ssh "${MAC_OPTS[@]}" "$MAC_HOST" "$@"; }   # reads stdin (tar)
 macq() { local a out=""; for a in "$@"; do out+="$(printf '%q ' "$a")"; done; printf '%s' "$out"; }
+
+# Mac cache removal for ssh mode. It respects the lock files of mac-side.sh (~/.cache/tandem-hw-locks/
+# <commit>.<pid>): if any run is alive it leaves the cache alone. Locks of dead pids are dropped.
+MAC_CACHE_RM='l=$HOME/.cache/tandem-hw-locks; live=0
+for f in "$l"/*; do [ -e "$f" ] || continue; if kill -0 "${f##*.}" 2>/dev/null; then live=1; else rm -f "$f"; fi; done
+[ $live = 0 ] && rm -rf ~/.cache/tandem-hw-src ~/.cache/tandem-hw-target; true'
 
 # Kills a process and all its descendants (a background `cargo` does not die with its subshell).
 killtree() {
@@ -140,6 +152,16 @@ bgwait() {
   wait "$p"
 }
 
+# Same, with the output redirected INSIDE the background job: redirecting the function call itself
+# would also send whatever a signal trap prints (the cleanup log) to that file.
+bgwait_to() {
+  local out=$1 err=$2; shift 2
+  "$@" >"$out" 2>>"$err" &
+  local p=$!
+  BG_PIDS+=("$p")
+  wait "$p"
+}
+
 # If `mac-runner` does not answer (sometimes the Wi-Fi), use the cable's link-local address.
 MAC_VIA_CABLE=0
 pick_mac_route() {
@@ -151,7 +173,7 @@ pick_mac_route() {
   mac true >/dev/null 2>&1
 }
 
-PC_DIR="" PC_BIN="" MAC_DIR="" SIM_BIN=""
+PC_DIR="" PC_BIN="" MAC_DIR="" SIM_BIN="" PC_LOCAL=""
 PC_PID="" MAC_PID="" SIM_PIDS=() PC_ORIG_INPUT=""
 BG_PIDS=()
 
@@ -165,14 +187,42 @@ mac_hw() {
   else TMO=$T_HW mac "$(macq "$MAC_DIR/bin/tandem-hw" "$@")"; fi
 }
 
+# Copies the agents' logs into the run's out/ folder: they are the evidence of a dropped link and
+# the folders that hold them are deleted right after. Never fails (best effort), also on a signal.
+save_logs() {
+  local d=$OUT/final-logs
+  mkdir -p "$d" 2>/dev/null
+  if [ -n "$PC_LOCAL" ] && [ -d "$PC_LOCAL" ]; then
+    mkdir -p "$d/pc"
+    cp "$PC_LOCAL/agent.out" "$PC_LOCAL/agent.err" "$d/pc/" 2>/dev/null
+    cp -r "$PC_LOCAL/agent/data/logs" "$d/pc/logs" 2>/dev/null
+    say "PC agent logs saved in $d/pc"
+  fi
+  if [ "$SIM" = 1 ] && [ -d "$MAC_DIR" ]; then
+    mkdir -p "$d/mac"
+    cp "$MAC_DIR/agent.out" "$d/mac/" 2>/dev/null
+    cp -r "$MAC_DIR/agent/data/logs" "$d/mac/logs" 2>/dev/null
+  elif [ "$SIM" = 0 ] && [ "$MANUAL" = 0 ] && [ -n "$MAC_DIR" ]; then
+    mkdir -p "$d/mac"
+    TMO=15 mac "cd '$MAC_DIR' && tar -c agent.out agent/data/logs 2>/dev/null" 2>/dev/null | tar -x -C "$d/mac" 2>/dev/null
+  fi
+  return 0
+}
+
 # --- Cleanup: always, even if something fails -------------------------------------------------
 cleanup() {
   local rc=$?
-  trap - EXIT INT TERM
+  # A second signal while cleaning up must not cut it short.
+  trap '' INT TERM HUP
+  trap - EXIT
+  exec 2>&3 1>&4
   say "cleanup"
   local p
   for p in "${BG_PIDS[@]:-}"; do [ -n "$p" ] && killtree "$p"; done
   for p in "${SIM_PIDS[@]:-}"; do [ -n "$p" ] && killtree "$p"; done
+  # The agents end on SIGTERM in their own time: give them a moment, then make sure.
+  sleep 0.5
+  for p in "${SIM_PIDS[@]:-}" "${BG_PIDS[@]:-}"; do [ -n "$p" ] && kill -9 "$p" 2>/dev/null; done
   if [ "$SIM" = 0 ]; then
     # 1. First tandem-hw (owner of the guard) and the agents; the watcher is NOT touched: it has
     #    to see its input close and roll back on its own.
@@ -196,14 +246,22 @@ cleanup() {
       pc "Get-Process tandem-monitor-guard -ErrorAction SilentlyContinue | Where-Object { \$_.Path -like '$PC_DIR\\*' } | Stop-Process -Force -ErrorAction SilentlyContinue" >/dev/null 2>&1
     fi
     sleep 1
+    save_logs
     [ -n "$PC_DIR" ] && pc "Remove-Item -Recurse -Force -LiteralPath '$PC_DIR' -ErrorAction SilentlyContinue" >/dev/null 2>&1
     [ "$MANUAL" = 0 ] && [ -n "$MAC_DIR" ] && mac "rm -rf '$MAC_DIR'" >/dev/null 2>&1
-    [ "$MANUAL" = 0 ] && [ "$KEEP_CACHE" = 0 ] && mac 'rm -rf ~/.cache/tandem-hw-src ~/.cache/tandem-hw-target' >/dev/null 2>&1
+    [ "$MANUAL" = 0 ] && [ "$KEEP_CACHE" = 0 ] && mac "$MAC_CACHE_RM" >/dev/null 2>&1
   fi
+  [ "$SIM" = 1 ] && save_logs
   say "done (code $rc); run in $RUN"
   exit "$rc"
 }
-trap cleanup EXIT INT TERM
+# Signals become `exit`, so the EXIT trap (cleanup) runs once, with the conventional code. Bash
+# runs these traps when the current foreground child ends (long steps run through bgwait, which
+# `wait`s, so they fire at once; short pc/mac calls are bounded by T_CALL).
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+trap 'exit 129' HUP
 
 # --- 1. Prepare the code ----------------------------------------------------------------
 git -C "$ROOT" fetch -q origin 2>/dev/null
@@ -231,8 +289,8 @@ else
   fi
 
   if [ "$SKIP_BUILD" = 0 ]; then
-    say "building for Windows (mingw) and for Linux (the report)"
-    bgwait timeout "$T_BUILD" bash -c 'cd "$1" && export CARGO_TARGET_DIR=$2 && cargo build --release --target x86_64-pc-windows-gnu -p tandemd -p tandem-hw -p tandem-monitor && cargo build --release -p tandem-hw' _ "$SRC" "$HW_TARGET" >"$OUT/build-pc.log" 2>&1 \
+    say "building for Windows (mingw)"
+    bgwait timeout "$T_BUILD" bash -c 'cd "$1" && export CARGO_TARGET_DIR=$2 && cargo build --release --target x86_64-pc-windows-gnu -p tandemd -p tandem-hw -p tandem-monitor' _ "$SRC" "$HW_TARGET" >"$OUT/build-pc.log" 2>&1 \
       || { tail -20 "$OUT/build-pc.log" >&2; die "Windows build failed"; }
     if [ "$MANUAL" = 0 ]; then
     # The Mac has no GitHub credentials (T-130) and must stay that way: git dependencies
@@ -249,13 +307,22 @@ else
       || { tail -20 "$OUT/build-mac.log" >&2; die "macOS build failed"; }
     fi
   fi
-  REPORT_BIN=$HW_TARGET/release/tandem-hw
+  # The report is produced by the Linux tandem-hw, built here from the SAME ref as the Windows and
+  # macOS binaries, also with --skip-build (which only skips the machine builds): a stale binary
+  # from another revision once ended a run with code 127 and no report. It is copied to the run
+  # folder so a later build in the shared target cannot change it mid-run.
+  say "building the Linux tandem-hw for the report"
+  bgwait timeout "$T_BUILD" bash -c 'cd "$1" && CARGO_TARGET_DIR=$2 cargo build --release -p tandem-hw' _ "$SRC" "$HW_TARGET" >"$OUT/build-report.log" 2>&1 \
+    || { tail -20 "$OUT/build-report.log" >&2; die "the Linux tandem-hw build failed (needed for the report)"; }
+  mkdir -p "$RUN/bin"
+  cp "$HW_TARGET/release/tandem-hw" "$RUN/bin/tandem-hw" 2>/dev/null || die "missing $HW_TARGET/release/tandem-hw after the build"
+  REPORT_BIN=$RUN/bin/tandem-hw
 
   # --- 3. Temporary folders and binary install ---
   PC_TEMP=$(pc '[IO.Path]::GetTempPath()')
   PC_DIR="${PC_TEMP%\\}\\tandem-hw-$SHORT"
   MAC_DIR=/tmp/tdhw-$SHORT      # short: the Unix socket has a 104-byte limit
-  PC_WSL=$(wslpath -u "$PC_DIR")
+  PC_WSL=$(wslpath -u "$PC_DIR"); PC_LOCAL=$PC_WSL
   mkdir -p "$PC_WSL/bin" "$PC_WSL/work"
   for f in tandemd tandem-hw tandem-monitor-guard; do
     cp "$HW_TARGET/x86_64-pc-windows-gnu/release/$f.exe" "$PC_WSL/bin/" || die "missing $f.exe"
@@ -278,7 +345,7 @@ fi
 
 # --- 4. Provision and start the test agents -------------------------------------
 if [ "$SIM" = 1 ]; then
-  PC_DIR=$RUN/pc; MAC_DIR=$RUN/mac; mkdir -p "$PC_DIR/work" "$MAC_DIR/work"
+  PC_DIR=$RUN/pc; PC_LOCAL=$PC_DIR; MAC_DIR=$RUN/mac; mkdir -p "$PC_DIR/work" "$MAC_DIR/work"
   pc_hw provision --role pc --root "$PC_DIR/agent" --port $PORT_A --peer "127.0.0.1:$PORT_B" >/dev/null || die "provision pc"
   SIDES="pc mac"
   if [ "$MANUAL" = 1 ]; then SIDES=pc   # the Mac half is run by mac-side.sh (--sim)
@@ -329,7 +396,7 @@ if [ "$MANUAL" = 1 ]; then
     [ -n "$REPO" ] || REPO=$(git -C "$ROOT" remote get-url origin 2>/dev/null)
     git -C "$ROOT" branch -r --contains "$COMMIT" 2>/dev/null | grep -q . \
       || say "WARNING: $COMMIT is not on any remote branch: the Mac cannot fetch it. Push first."
-    MAC_CMD="bash -c $(sq 'd=$HOME/.cache/tandem-hw-src; r=$1; c=$2; shift 2; export CARGO_NET_GIT_FETCH_WITH_CLI=true; [ -d "$d/.git" ] || git clone -q "$r" "$d" || exit 1; git -C "$d" fetch -q origin; git -C "$d" fetch -q origin "$c" 2>/dev/null; git -C "$d" checkout -q -f "$c" || exit 1; exec bash "$d/scripts/hw/mac-side.sh" --commit "$c" --repo "$r" "$@"') _ $(sq "$REPO" "$COMMIT" \
+    MAC_CMD="bash -c $(sq 'r=$1; c=$2; shift 2; k=${c:0:12}; d=$HOME/.cache/tandem-hw-src-$k; l=$HOME/.cache/tandem-hw-locks; export CARGO_NET_GIT_FETCH_WITH_CLI=true; mkdir -p "$l" || exit 1; n=0; until mkdir "$l/.mutex" 2>/dev/null; do n=$((n+1)); [ $n -gt 150 ] && rmdir "$l/.mutex" 2>/dev/null; sleep 0.2; done; : >"$l/$k.$$"; rmdir "$l/.mutex"; [ -d "$d/.git" ] || git clone -q "$r" "$d" || exit 1; git -C "$d" fetch -q origin; git -C "$d" fetch -q origin "$c" 2>/dev/null; git -C "$d" checkout -q -f "$c" || exit 1; exec bash "$d/scripts/hw/mac-side.sh" --commit "$c" --repo "$r" "$@"') _ $(sq "$REPO" "$COMMIT" \
       --pc-ip "$PC_IP" --mac-ip "$MAC_IP" --pc-hw "$PC_HW_PATH" --pc-work "$PC_WORK" --pc-sep '\' \
       --mac-dir "$MAC_DIR" --groups "$MAC_GROUPS" --pair-wait "$M_PAIR_WAIT" --window "$M_WINDOW" --keep "$M_KEEP")"
   fi
@@ -357,7 +424,7 @@ step() {
   local data res tmp="$OUT/step.$side.$$.$RANDOM" c
   if [ "$side" = pc ]; then data=$PC_DATA; res=$RES_PC; else data=$MAC_DATA; res=$RES_MAC; fi
   say "$side: $checks"
-  bgwait "${side}_hw" run --label "$side" --data-dir "$data" --checks "$checks" "$@" >"$tmp" 2>>"$OUT/step-$side.err"
+  bgwait_to "$tmp" "$OUT/step-$side.err" "${side}_hw" run --label "$side" --data-dir "$data" --checks "$checks" "$@"
   local rc=$?
   cat "$tmp" >>"$res"
   if [ $rc -ne 0 ] && ! grep -q '"outcome"' "$tmp"; then
@@ -472,6 +539,7 @@ REPORT=$ROOT/docs/reports/hw-$DATE.md
 [ -e "$REPORT" ] && REPORT=${REPORT%.md}-$SHORT.md   # a second run on the same day does not overwrite the first
 LOGS=(--log "agent PC=$OUT/agent-pc.log")
 [ -s "$OUT/agent-mac.log" ] && LOGS+=(--log "agent Mac=$OUT/agent-mac.log")
+[ -x "$REPORT_BIN" ] || die "the report binary is missing: $REPORT_BIN"
 "$REPORT_BIN" report --require-monitors "$MONITORS" --date "$DATE" --out "$REPORT" "${LOGS[@]}" "$RES_PC" "$RES_MAC"
 code=$?
 say "report: $REPORT"
