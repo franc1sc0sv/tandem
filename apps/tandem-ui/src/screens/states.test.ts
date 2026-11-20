@@ -101,6 +101,16 @@ describe("States screen", () => {
     }
   });
 
+  it("the pairing offer card asks for confirmation before forgetting the pair (T-345)", async () => {
+    const store = await mount("demo&still&trouble=peer-off&offer");
+    const pair = vi.spyOn(store, "pairAction");
+    await userEvent.click(screen.getByRole("button", { name: "Forget the old pair and pair" }));
+    expect(pair).not.toHaveBeenCalled();
+    expect(screen.getByText(/forgets PC-Desktop/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Confirm" }));
+    expect(pair.mock.calls.map((c) => c[0])).toEqual(["unpair", "start_pairing"]);
+  });
+
   it("no card talks about \"adding\" a machine (D1)", async () => {
     await mount();
     expect(document.body.textContent).not.toMatch(/add (another )?machine/i);

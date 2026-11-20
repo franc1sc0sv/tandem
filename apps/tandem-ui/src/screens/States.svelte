@@ -8,12 +8,20 @@
 
   const store = useStore();
   const desk = $derived(store.desk);
-  const cards = $derived(stateCards(desk, { gallery: store.demo, failedScene: store.failedScene, example: store.demo && new URLSearchParams(location.search).has("states") }));
+  // Forgetting the pair asks first, as on the Desk (T-345).
+  let confirmOffer = $state(false);
+  const cards = $derived(stateCards(desk, { gallery: store.demo, failedScene: store.failedScene, confirmOffer, example: store.demo && new URLSearchParams(location.search).has("states") }));
   const peer = $derived(desk.here === "a" ? "b" : "a");
 
   function run(does: StateDo, sceneId?: string) {
     if (does === "pair-peer") store.openWizard(WIZARD_PAIR);
-    else if (does === "forget-and-pair") void store.forgetAndPair();
+    else if (does === "forget-and-pair") {
+      if (!confirmOffer) confirmOffer = true;
+      else {
+        confirmOffer = false;
+        void store.forgetAndPair();
+      }
+    }
     else if (does === "power-on") void store.setPower(peer, true);
     else if (does === "tunnels") store.go({ screen: "tunnels" });
     else if (does === "permission") void store.openPermission("input_monitoring");
