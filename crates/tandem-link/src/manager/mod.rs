@@ -1,9 +1,14 @@
 //! Multiple-link manager and plane policy (DESIGN §6).
 //!
 //! Each configured link (USB4, Ethernet, Wi-Fi) has its own connection
-//! to the other agent and a health ping every second. The active link is
-//! the healthy one of highest priority: if it drops, it moves to the next as soon as a
-//! single ping fails (without waiting for QUIC's idle timeout). To go back to a
+//! to the other agent and a health ping: every second on the backups and every
+//! 200 ms on the active one, so a cut cable is noticed well inside DESIGN §6's
+//! 1 s budget (T-310). The active link is the healthy one of highest priority: if it
+//! drops, it moves to the next as soon as its ping goes unanswered for
+//! [`HealthConfig::misses_to_drop`] windows in a row, or fails outright (without
+//! waiting for QUIC's idle timeout). With no healthy backup to move to, the active
+//! link waits longer for its Pong ([`HealthConfig::ping_interval`]): dropping it
+//! early would gain nothing and cost a reconnect. To go back to a
 //! better link that already dropped, it has to have
 //! [`HealthConfig::settle`] answering without cuts (hysteresis: a cable that
 //! flickers does not drag traffic back and forth), and it does not go up while there is
@@ -27,7 +32,7 @@ use std::time::Duration;
 
 use tokio::sync::{mpsc, watch};
 use tokio::task::{AbortHandle, JoinHandle, JoinSet};
-use tokio::time::{self, Instant, MissedTickBehavior};
+use tokio::time::{self, Instant};
 
 pub use kind::{LinkCandidate, LinkKind};
 pub use probe::Prober;
@@ -38,13 +43,24 @@ pub use table::{LinkEvent, LinkStatus};
 use table::LinkTable;
 
 /// Health check timings.
+///
+/// A cut on the active link is noticed at most [`HealthConfig::worst_detection`]
+/// after its last answer (200 ms + 2 × 200 ms = 600 ms by default), and the switch to
+/// an already healthy backup is immediate: DESIGN §6 asks for under 1 s.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct HealthConfig {
-    /// How often each link is pinged (DESIGN §6: 1 s).
+    /// How often each backup link is pinged (DESIGN §6: 1 s). Slow on purpose:
+    /// it only has to know the backup is there, and it keeps Wi-Fi radios quiet.
     pub ping_interval: Duration,
-    /// How long to wait for the Pong. `ping_interval + ping_timeout` is the most
-    /// it takes to detect a drop, and it has to stay under 1.5 s.
+    /// How often the active link is pinged: its cut has to be seen fast.
+    pub active_ping_interval: Duration,
+    /// One window of waiting for the Pong. A window without it is a missed probe.
     pub ping_timeout: Duration,
+    /// Windows in a row without the Pong before the link counts as down. The
+    /// control stream is reliable, so the next window keeps waiting for the same
+    /// Pong: a single lost packet is retransmitted by QUIC and only costs one
+    /// window, which does not switch (hysteresis on the way down).
+    pub misses_to_drop: u32,
     /// Cap for opening the connection of a dropped link.
     pub connect_timeout: Duration,
     /// How long a link that already dropped before has to answer without cuts before
@@ -56,9 +72,53 @@ impl Default for HealthConfig {
     fn default() -> Self {
         Self {
             ping_interval: Duration::from_secs(1),
-            ping_timeout: Duration::from_millis(250),
+            active_ping_interval: Duration::from_millis(200),
+            ping_timeout: Duration::from_millis(200),
+            misses_to_drop: 2,
             connect_timeout: Duration::from_secs(1),
             settle: Duration::from_secs(3),
+        }
+    }
+}
+
+impl HealthConfig {
+    /// The longest a cut on the active link can go unnoticed: from its last answer
+    /// to the next ping, plus every window that ping waits for its Pong.
+    pub fn worst_detection(&self) -> Duration {
+        self.active_ping_interval + self.drop_after()
+    }
+
+    /// How long a ping waits for its Pong while there is a healthy link to move to.
+    fn drop_after(&self) -> Duration {
+        self.ping_timeout * self.misses_to_drop
+    }
+
+    /// How long the active link's ping waits when there is no healthy backup: a
+    /// drop would leave input with no path at all, so a stall is given as long
+    /// as a backup's ping interval (1 s), and never less than the normal wait.
+    fn lone_patience(&self) -> Duration {
+        self.ping_interval.max(self.drop_after())
+    }
+}
+
+/// What each ping task needs to know about the others to pick its pace.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+struct Cadence {
+    active: Option<LinkKind>,
+    /// Some link other than the active one is healthy.
+    backup_ready: bool,
+}
+
+impl Cadence {
+    fn of<H>(table: &LinkTable<H>) -> Self {
+        let active = table.active().map(|(kind, _)| kind);
+        let backup_ready = table
+            .statuses()
+            .iter()
+            .any(|l| Some(l.kind) != active && l.rtt.is_some());
+        Self {
+            active,
+            backup_ready,
         }
     }
 }
@@ -69,6 +129,7 @@ pub enum ManagerError {
     NoCandidates,
     #[error("the link {0} is configured twice")]
     DuplicateLink(LinkKind),
+    /// A timing or the miss count is 0.
     #[error("the health check timings cannot be 0")]
     ZeroDuration,
 }
@@ -169,10 +230,12 @@ impl<H: Clone + Send + Sync + 'static> LinkManager<H> {
     ) -> Result<(Self, mpsc::UnboundedReceiver<LinkEvent>), ManagerError> {
         if [
             config.ping_interval,
+            config.active_ping_interval,
             config.ping_timeout,
             config.connect_timeout,
         ]
         .contains(&Duration::ZERO)
+            || config.misses_to_drop == 0
         {
             return Err(ManagerError::ZeroDuration);
         }
@@ -186,13 +249,22 @@ impl<H: Clone + Send + Sync + 'static> LinkManager<H> {
         let (report_tx, mut reports) = mpsc::unbounded_channel::<Report<H>>();
         let holds = Arc::new(watch::Sender::new(0usize));
         let mut held = holds.subscribe();
+        // Each ping task looks at this to know whether it is the active link and
+        // has to ping at the fast rate.
+        let (active_tx, active_rx) = watch::channel(Cadence::default());
 
         let prober = Arc::new(prober);
         let mut links = JoinSet::new();
         let mut pingers: BTreeMap<LinkKind, AbortHandle> = BTreeMap::new();
         for c in table.candidates() {
             let kind = c.kind;
-            let handle = links.spawn(run_link(prober.clone(), c, config, report_tx.clone()));
+            let handle = links.spawn(run_link(
+                prober.clone(),
+                c,
+                config,
+                report_tx.clone(),
+                active_rx.clone(),
+            ));
             pingers.insert(kind, handle);
         }
         let (control_tx, mut commands) = mpsc::unbounded_channel::<Command>();
@@ -215,6 +287,7 @@ impl<H: Clone + Send + Sync + 'static> LinkManager<H> {
                                     c,
                                     config,
                                     report_tx.clone(),
+                                    active_rx.clone(),
                                 ));
                                 pingers.insert(c.kind, handle);
                             }
@@ -240,6 +313,12 @@ impl<H: Clone + Send + Sync + 'static> LinkManager<H> {
                 };
                 // The snapshot first: whoever receives the event already sees the new state.
                 state_tx.send_replace(snapshot(&table));
+                let cadence = Cadence::of(&table);
+                active_tx.send_if_modified(|c| {
+                    let changed = *c != cadence;
+                    *c = cadence;
+                    changed
+                });
                 if let Some(e) = event {
                     tracing::info!(
                         from = ?e.from,
@@ -344,15 +423,37 @@ async fn run_link<P: Prober>(
     link: LinkCandidate,
     config: HealthConfig,
     reports: mpsc::UnboundedSender<Report<P::Handle>>,
+    mut active: watch::Receiver<Cadence>,
 ) {
-    let mut tick = time::interval(config.ping_interval);
-    // After a slow connection, late pings are not chained.
-    tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
     let mut session = None;
     let mut was_up = false;
+    let mut last_start: Option<Instant> = None;
     loop {
-        tick.tick().await;
-        let up = match probe_once(&*prober, link.addr, &mut session, &config).await {
+        // The next ping is due one interval after the previous one started, and the
+        // interval depends on whether this link is the active one. If it becomes the
+        // active one while waiting, the wait is cut short. A probe slower than the
+        // interval is followed by the next one right away, never by a burst.
+        loop {
+            let is_active = active.borrow_and_update().active == Some(link.kind);
+            let every = if is_active {
+                config.active_ping_interval
+            } else {
+                config.ping_interval
+            };
+            let Some(due) = last_start.map(|s| s + every) else {
+                break;
+            };
+            tokio::select! {
+                () = time::sleep_until(due) => break,
+                changed = active.changed() => {
+                    if changed.is_err() {
+                        return;
+                    }
+                }
+            }
+        }
+        last_start = Some(Instant::now());
+        let up = match probe_once(&*prober, link, &mut session, &config, &active).await {
             Ok(up) => {
                 if !was_up {
                     tracing::info!(link = %link.kind, addr = %link.addr, "healthy link");
@@ -377,10 +478,12 @@ async fn run_link<P: Prober>(
 
 async fn probe_once<P: Prober>(
     prober: &P,
-    addr: SocketAddr,
+    link: LinkCandidate,
     session: &mut Option<P::Session>,
     config: &HealthConfig,
+    cadence: &watch::Receiver<Cadence>,
 ) -> Result<(P::Handle, Duration), Failure<P::Error>> {
+    let addr = link.addr;
     let s = match session {
         Some(s) => s,
         None => match time::timeout(config.connect_timeout, prober.connect(addr)).await {
@@ -390,15 +493,43 @@ async fn probe_once<P: Prober>(
         },
     };
     let start = Instant::now();
-    let result = match time::timeout(config.ping_timeout, prober.ping(s)).await {
-        Ok(Ok(())) => return Ok((P::handle(s), start.elapsed())),
-        Ok(Err(e)) => Failure::Ping(e),
-        Err(_) => Failure::PingTimeout,
+    let result = {
+        let ping = prober.ping(s);
+        tokio::pin!(ping);
+        let mut misses = 0;
+        loop {
+            match time::timeout(config.ping_timeout, &mut ping).await {
+                Ok(Ok(())) => break Ok(()),
+                // An error (the connection closed, for example) is a drop right away.
+                Ok(Err(e)) => break Err(Failure::Ping(e)),
+                Err(_) => {
+                    misses += 1;
+                    // Looked at on every window: a backup that turns healthy while
+                    // the active one stalls ends the extra patience.
+                    let c = *cadence.borrow();
+                    let lone = c.active == Some(link.kind) && !c.backup_ready;
+                    let limit = if lone {
+                        config.lone_patience()
+                    } else {
+                        config.drop_after()
+                    };
+                    if start.elapsed() >= limit {
+                        break Err(Failure::PingTimeout);
+                    }
+                    tracing::debug!(%addr, misses, "missed probe, still waiting for the Pong");
+                }
+            }
+        }
     };
-    // A ping cut off halfway may leave the stream misaligned: the
-    // session is discarded and the next tick connects again.
-    *session = None;
-    Err(result)
+    match result {
+        Ok(()) => Ok((P::handle(s), start.elapsed())),
+        Err(failure) => {
+            // A ping cut off halfway may leave the stream misaligned: the
+            // session is discarded and the next ping connects again.
+            *session = None;
+            Err(failure)
+        }
+    }
 }
 
 #[cfg(test)]

@@ -19,8 +19,8 @@ use tokio::sync::mpsc;
 
 const LOOPBACK: SocketAddr = SocketAddr::new(std::net::IpAddr::V4(Ipv4Addr::LOCALHOST), 0);
 const TIMEOUT: Duration = Duration::from_secs(10);
-/// The task's criterion.
-const MAX_SWITCH: Duration = Duration::from_millis(1500);
+/// DESIGN §6 and ACCEPTANCE F6: input moves to the next path in under 1 s (T-310).
+const MAX_SWITCH: Duration = Duration::from_secs(1);
 
 struct Only(PublicKey);
 

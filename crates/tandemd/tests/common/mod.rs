@@ -1,6 +1,6 @@
 //! Shared timings for the two-agent tests.
 //!
-//! The production ones (250 ms ping, 1 s connect, 3 s heartbeat) are too tight for a slow
+//! The production ones (2 × 200 ms ping windows, 1 s connect, 3 s heartbeat) are too tight for a slow
 //! CI runner with a debug-build QUIC handshake: the link was declared down and the agents
 //! never paired. They are relaxed here but still bounded: a real drop is detected in
 //! seconds, well within each test's `TIMEOUT`.
