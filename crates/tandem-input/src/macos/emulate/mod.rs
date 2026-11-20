@@ -37,7 +37,7 @@ use crate::geometry::{Point, Rect};
 use crate::macos::INJECTED_MARKER;
 
 #[cfg(target_os = "macos")]
-pub use cg::{CgSink, displays};
+pub use cg::{CgSink, displays, power_displays};
 pub use sink::RecordingSink;
 
 /// Bits of `CGEventFlags`. The ones below (`DEVICE_*`) are the `NX_DEVICE*` that

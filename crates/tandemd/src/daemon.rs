@@ -104,6 +104,7 @@ pub fn start(
     agent.set_config_file(paths.config.clone());
     if platform {
         start_monitors(&agent);
+        start_displays(&agent, paths);
     }
     // Only macOS asks for Local Network (T-344): the probe also brings up its alert, and the
     // agent lives on after it, which the alert needs.
@@ -166,6 +167,34 @@ fn start_monitors(agent: &Arc<Agent>) {
     }
 }
 
+/// Display control (T-341): this machine's display of a monitor that shows the other goes off.
+/// What it turned off goes back on at start-up, at exit ([`Daemon::serve`]) and on a panic.
+fn start_displays(agent: &Arc<Agent>, paths: &Paths) {
+    let guard = Arc::new(crate::displays::DisplayGuard::new(
+        tandem_input::displays::system_display_power(),
+        Some(paths.displays_off_file()),
+    ));
+    match guard.control() {
+        tandem_input::displays::DisplayControl::NotNeeded => {}
+        tandem_input::displays::DisplayControl::Available => {
+            tracing::info!("display control available");
+        }
+        tandem_input::displays::DisplayControl::Unavailable(why) => {
+            tracing::info!("display control unavailable: {why}");
+        }
+    }
+    let weak = Arc::downgrade(&guard);
+    let previous = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        if let Some(g) = weak.upgrade() {
+            g.restore_on_panic();
+        }
+        previous(info);
+    }));
+    // The task lives as long as the agent.
+    drop(agent.start_displays(guard));
+}
+
 impl Daemon {
     /// Serves the UI until `shutdown` ends; then closes the network.
     pub async fn serve<L: Listener>(
@@ -173,7 +202,10 @@ impl Daemon {
         listener: L,
         shutdown: impl Future<Output = ()>,
     ) -> Result<(), StoreError> {
+        let agent = self.agent.clone();
         let result = run(self.agent, listener, shutdown).await;
+        // A display turned off by this machine does not stay off after it exits (T-341).
+        let _ = tokio::task::spawn_blocking(move || agent.restore_displays()).await;
         // First the capture is released: the keyboard and mouse return to this machine.
         drop(self.input);
         self.network.shutdown().await;

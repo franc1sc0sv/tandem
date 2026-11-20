@@ -18,6 +18,7 @@ use tandem_proto::{
 use tokio::sync::{broadcast, mpsc, watch};
 
 mod cursor;
+mod displays;
 mod env;
 mod modules;
 mod monitors;
@@ -166,6 +167,9 @@ pub struct Agent {
     net: net::NetState,
     /// The live cursor, while someone is watching it (T-128).
     cursor: cursor::CursorState,
+    /// This machine's display of a monitor that shows the other, off (T-341); `None` until
+    /// [`Agent::start_displays`].
+    displays: std::sync::RwLock<Option<Arc<crate::displays::DisplayGuard>>>,
 }
 
 /// What a start-up migration moved from this machine into the desk (review of #74): its
@@ -348,6 +352,7 @@ impl Agent {
             input: &input,
             power: &capabilities::power(&cfg, info.os),
             switches: &switches,
+            displays: &tandem_input::displays::DisplayControl::NotNeeded,
         });
         let here = capabilities::local(&cfg, me, info, &input, &process, modules);
         let saved = DeskStamp {
@@ -437,6 +442,7 @@ impl Agent {
             scene_backend: std::sync::RwLock::new(None),
             net: net::NetState::default(),
             cursor: cursor::CursorState::default(),
+            displays: std::sync::RwLock::new(None),
             wol: std::sync::RwLock::new(cfg.power.wol.clone()),
             wol_cleared: std::sync::atomic::AtomicBool::new(cfg.power.wol_cleared),
             cfg,

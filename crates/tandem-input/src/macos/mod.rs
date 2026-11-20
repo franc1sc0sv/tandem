@@ -6,8 +6,11 @@
 //!
 //! - [`capture`]: CGEventTap on the server (T-022).
 //! - [`emulate`]: injection with `CGEventPost` (T-023, docs/research/input-engine.md).
+//! - `display_power`: turning a display off and on (T-341).
 
 pub mod capture;
+#[cfg(target_os = "macos")]
+pub mod display_power;
 pub mod emulate;
 
 /// Tag that Tandem's injection writes into `kCGEventSourceUserData` of every event it

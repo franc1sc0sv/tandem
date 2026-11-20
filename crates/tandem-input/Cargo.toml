@@ -35,6 +35,8 @@ windows = { workspace = true, features = [
 ] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
+# `dlsym` of the private `CGSConfigureDisplayEnabled` (T-341).
+libc.workspace = true
 objc2.workspace = true
 # NSEvent: media key injection (T-023) and reading `subtype`/`data1` in the capture (T-022).
 objc2-app-kit = { workspace = true, features = ["std", "NSEvent", "NSGraphicsContext", "objc2-core-foundation", "objc2-core-graphics"] }

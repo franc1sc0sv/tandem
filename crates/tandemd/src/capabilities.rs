@@ -350,6 +350,7 @@ mod tests {
                 input: &InputStatus::new(Machine::A),
                 power: &power(&cfg, Os::MacOs),
                 switches: &Default::default(),
+                displays: &tandem_input::displays::DisplayControl::NotNeeded,
             });
         let c = local(
             &cfg,

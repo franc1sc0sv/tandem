@@ -181,6 +181,11 @@ impl MonitorHub {
         changed
     }
 
+    /// The EDID identity of each monitor this machine sees, channel or not.
+    pub fn keys(&self) -> BTreeMap<String, DisplayKey> {
+        lock(&self.keys).clone()
+    }
+
     /// Which of this machine's screens each monitor it sees is (T-340).
     pub fn screen_links(&self) -> BTreeMap<String, String> {
         link_screens(&lock(&self.keys), &lock(&self.screens))

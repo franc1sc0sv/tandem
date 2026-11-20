@@ -16,7 +16,7 @@ use objc2_core_graphics::{
 use objc2_foundation::{NSUserDefaults, ns_string};
 
 use super::{EmulateError, MacEvent, MacSink, MouseKind, ScrollUnit};
-use crate::displays::{Display, mac_display_key};
+use crate::displays::{Display, PowerDisplay, mac_display_key};
 use crate::geometry::{Point, Rect};
 
 /// Maximum number of screens requested from CoreGraphics; plenty for a desktop.
@@ -247,6 +247,26 @@ pub fn displays() -> Result<Vec<Display>, EmulateError> {
             (rect, key)
         })
         .filter(|(r, _)| r.width > 0 && r.height > 0)
+        .collect())
+}
+
+/// The same screens as [`displays`], in the same order (the one `screen-N` comes from), with
+/// their CoreGraphics id: the ones display control can turn off (T-341).
+pub fn power_displays() -> Result<Vec<PowerDisplay>, EmulateError> {
+    Ok(active_displays()?
+        .into_iter()
+        .filter(|id| {
+            let b = CGDisplayBounds(*id);
+            b.size.width.round() >= 1.0 && b.size.height.round() >= 1.0
+        })
+        .map(|id| PowerDisplay {
+            id,
+            key: mac_display_key(
+                CGDisplayVendorNumber(id),
+                CGDisplayModelNumber(id),
+                CGDisplaySerialNumber(id),
+            ),
+        })
         .collect())
 }
 
