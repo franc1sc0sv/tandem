@@ -31,7 +31,9 @@ pub use model::{
     Align, Arrangement, Config, DEFAULT_COLORS, Desk, Machine, MachineInfo, Machines, Os, PALETTE,
     Scale, ScreenSpec, Side, default_color,
 };
-pub use monitor::{CableEnd, Inputs, MonitorCable, MonitorInput};
+pub use monitor::{
+    CableEnd, DisplayKey, Inputs, MonitorCable, MonitorInput, learn_screens, link_screens,
+};
 pub use plan::{Abilities, Plan, PlanError, Step};
 pub use scene::{MonitorId, Scene, default_scenes};
 pub use state::{Powered, State};

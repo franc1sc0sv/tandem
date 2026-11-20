@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Instant;
 
 use tandem_clipboard::fake::FakeClipboard;
+use tandem_core::DisplayKey;
 use tandem_input::session::{Capture, Injector};
 use tandem_input::{InputEvent, Point, Screen};
 use tandem_peripherals::fake::{FakeDevices, FakeScanner};
@@ -28,6 +29,8 @@ pub enum CaptureCall {
 struct Inner {
     sink: Option<CaptureSink>,
     screens: Vec<Screen>,
+    /// The EDID identity of each screen, by its id (T-340).
+    screen_keys: Vec<(String, DisplayKey)>,
     missing: Vec<InputPermission>,
     /// How many times the permissions were requested from the system.
     requested: u32,
@@ -115,6 +118,10 @@ impl FakeInputBackends {
         self.lock().screens = screens;
     }
 
+    pub fn set_screen_keys(&self, keys: Vec<(String, DisplayKey)>) {
+        self.lock().screen_keys = keys;
+    }
+
     pub fn set_missing(&self, missing: Vec<InputPermission>) {
         self.lock().missing = missing;
     }
@@ -197,6 +204,10 @@ impl InputBackends for FakeInputBackends {
 
     fn screens(&self) -> Result<Vec<Screen>, String> {
         Ok(self.lock().screens.clone())
+    }
+
+    fn screen_keys(&self) -> Result<Vec<(String, DisplayKey)>, String> {
+        Ok(self.lock().screen_keys.clone())
     }
 
     fn missing_permissions(&self) -> Vec<InputPermission> {

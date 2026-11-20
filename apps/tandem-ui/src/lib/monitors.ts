@@ -4,7 +4,7 @@
 
 import { wallOf } from "./arrangement";
 import { MACHINES } from "./machines";
-import type { Machine, MonitorEventJson, MonitorInput, MonitorJson } from "./model";
+import type { CableJson, Machine, MonitorCompatJson, MonitorEventJson, MonitorInput, MonitorJson } from "./model";
 import type { MonitorEventView, MonitorUi } from "./store/types";
 
 export const INPUT_LABEL: Record<MonitorInput, string> = { display_port: "DP", hdmi: "HDMI" };
@@ -66,14 +66,42 @@ export function eventView(e: MonitorEventJson): MonitorEventView {
   }
 }
 
+/** The reason shown for a monitor no machine has a DDC channel to (T-340). */
+export const NO_CHANNEL = "Seen by its EDID only: no machine has a DDC channel to it now";
+
+function compatOf(c: MonitorCompatJson): MonitorUi["compat"] {
+  if (typeof c !== "object") return { ok: false, reason: NO_CHANNEL };
+  return "Compatible" in c ? { ok: true } : { ok: false, reason: c.NotCompatible.reason };
+}
+
 export function monitorUi(m: MonitorJson): MonitorUi {
-  const compat = "Compatible" in m.compat ? ({ ok: true } as const) : ({ ok: false, reason: m.compat.NotCompatible.reason } as const);
+  const compat = compatOf(m.compat);
   const ports: MonitorUi["ports"] = {};
   for (const [who, input] of m.via) ports[who] = input;
   const input = m.report?.input ?? null;
   const shows: Machine | null = input ? (MACHINES.find((who) => ports[who] === input) ?? null) : null;
   const events = [...(m.report?.events ?? [])].reverse().slice(0, EVENTS_SHOWN).map(eventView);
   return { id: m.id, name: m.name, compat, connected: m.seen_by.length > 0, owner: m.owner, input, ports, shows, events };
+}
+
+/**
+ * The screens of each machine that are a monitor showing the other machine (T-111, T-340): the
+ * screen of each cable end, by the real input the owner read and which machine that input goes
+ * to (the cable's declared one, otherwise the EDID's). Live desktops draws a monitor once, on the
+ * machine it shows, as the agent's geometry does.
+ */
+export function hiddenScreens(cables: CableJson[] | undefined, monitors: MonitorUi[]): Record<Machine, string[]> {
+  const hidden: Record<Machine, string[]> = { a: [], b: [] };
+  for (const c of cables ?? []) {
+    const m = monitors.find((x) => x.id === c.monitor);
+    if (!m?.compat.ok || !m.input) continue;
+    const shows = MACHINES.find((who) => (c[who]?.input ?? m.ports[who]) === m.input);
+    if (!shows) continue;
+    const other: Machine = shows === "a" ? "b" : "a";
+    const screen = c[other]?.screen;
+    if (screen) hidden[other].push(screen);
+  }
+  return hidden;
 }
 
 /** Compatible first, as the screen shows them; the agent's order is kept within each group. */

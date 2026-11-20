@@ -7,7 +7,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use tandem_core::{Machine, MonitorInput};
-use tandem_proto::{MonitorChannel, MonitorReport, MonitorView};
+use tandem_proto::{MonitorChannel, MonitorCompat, MonitorReport, MonitorView};
 
 use crate::election::elect;
 
@@ -175,9 +175,14 @@ impl Directory {
                     .collect();
                 // If one sees it as compatible and the other does not, what lets it be controlled wins (the
                 // owner sees it as compatible); otherwise, whichever one's.
+                // One seen only by its EDID tells the least (T-340).
                 let (_, shown) = seen
                     .iter()
                     .find(|(_, c)| c.compat.is_compatible())
+                    .or_else(|| {
+                        seen.iter()
+                            .find(|(_, c)| c.compat != MonitorCompat::NoChannel)
+                    })
                     .or_else(|| seen.first())?;
                 Some(MonitorView {
                     id: id.to_owned(),
@@ -199,7 +204,6 @@ impl Directory {
 #[cfg(test)]
 mod tests {
     use proptest::prelude::*;
-    use tandem_proto::MonitorCompat;
 
     use super::*;
 
@@ -296,6 +300,45 @@ mod tests {
         let std = &views[1];
         assert_eq!(std.seen_by, [Machine::A, Machine::B]);
         assert_eq!(std.owner, Some(Machine::B));
+    }
+
+    /// T-340: the PC has the channel (DP); the Mac only the EDID (HDMI). One monitor with both
+    /// connections, owned by the PC, and nothing changes when the Mac's comes second.
+    #[test]
+    fn a_machine_without_a_channel_adds_its_connection_but_never_owns() {
+        let pc = MonitorChannel {
+            via: Some(MonitorInput::DisplayPort),
+            ..ch("m34", true, 40)
+        };
+        let mac = MonitorChannel {
+            compat: MonitorCompat::NoChannel,
+            via: Some(MonitorInput::Hdmi),
+            ..ch("m34", true, 0)
+        };
+        for (a, b) in [(pc.clone(), mac.clone()), (mac.clone(), pc.clone())] {
+            let pc_side = if a == pc { Machine::A } else { Machine::B };
+            let (da, db) = pair(vec![a], vec![b]);
+            assert_eq!(da.owners(), db.owners());
+            assert_eq!(
+                da.owner("m34"),
+                Some(pc_side),
+                "a 0 ms latency does not win"
+            );
+            let views = da.views();
+            assert_eq!(views.len(), 1);
+            assert!(views[0].compat.is_compatible());
+            assert_eq!(views[0].seen_by.len(), 2);
+            let mut want = vec![
+                (pc_side, MonitorInput::DisplayPort),
+                (pc_side.other(), MonitorInput::Hdmi),
+            ];
+            want.sort();
+            assert_eq!(views[0].via, want);
+        }
+        // Only the Mac, without a channel: shown, without owner.
+        let (da, _) = pair(vec![mac], vec![]);
+        assert_eq!(da.owner("m34"), None);
+        assert_eq!(da.views()[0].compat, MonitorCompat::NoChannel);
     }
 
     /// T-280: `A` reports, then `B` reads the monitor while it still believes it owns it (it does

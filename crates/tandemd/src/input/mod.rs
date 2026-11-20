@@ -477,10 +477,17 @@ async fn read_screens(sh: Arc<Shared>) {
     loop {
         tick.tick().await;
         let backends = sh.backends.clone();
-        match tokio::task::spawn_blocking(move || backends.screens()).await {
-            Ok(Ok(list)) => {
+        let read = move || backends.screens().map(|s| (s, backends.screen_keys()));
+        match tokio::task::spawn_blocking(read).await {
+            Ok(Ok((list, keys))) => {
                 warned = false;
                 set(&sh.screens, list);
+                // Which monitor each screen is, so the desk learns it (T-340). Without it, the
+                // screens still count.
+                match keys {
+                    Ok(keys) => sh.agent.set_screen_keys(keys),
+                    Err(e) => tracing::debug!("could not read which monitor each screen is: {e}"),
+                }
             }
             Ok(Err(e)) => {
                 if !warned {

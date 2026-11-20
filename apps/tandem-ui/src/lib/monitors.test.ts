@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { EVENTS_SHOWN, accentOf, eventView, formatClock, monitorUi, monitorsUi, shortMonitor, whyNotSwitch } from "./monitors";
+import { EVENTS_SHOWN, NO_CHANNEL, accentOf, eventView, formatClock, hiddenScreens, monitorUi, monitorsUi, shortMonitor, whyNotSwitch } from "./monitors";
 import type { MonitorJson } from "./model";
 
 const std = (over: Partial<MonitorJson> = {}): MonitorJson => ({
@@ -50,6 +50,27 @@ describe("monitors (V3-Monitors)", () => {
     expect(eventView({ at_ms: 1, kind: "SwitchFailed", input: "hdmi" })).toMatchObject({ kind: "failed", text: "Switch to HDMI with no picture" });
     expect(eventView({ at_ms: 1, kind: "Boot", input: null })).toMatchObject({ kind: "boot" });
     expect(eventView({ at_ms: 1, kind: "Other", input: null })).toMatchObject({ kind: "other" });
+  });
+
+  it("T-340: one monitor carries both connections, also the one seen only by its EDID", () => {
+    const m = monitorUi(std({ seen_by: ["a", "b"] }));
+    expect(m.ports).toEqual({ a: "display_port", b: "hdmi" });
+    const alone = monitorUi(std({ compat: "NoChannel", seen_by: ["b"], via: [["b", "hdmi"]], owner: null, report: null }));
+    expect(alone).toMatchObject({ compat: { ok: false, reason: NO_CHANNEL }, connected: true, owner: null, ports: { b: "hdmi" } });
+  });
+
+  it("T-340: the screen a monitor is on the machine it does not show is hidden", () => {
+    const shown = monitorsUi([std()]); // HDMI on screen: it shows b
+    const cables = [{ monitor: "g5-34", a: { input: "display_port" as const, screen: "screen-1" }, b: { input: "hdmi" as const, screen: "screen-2" } }];
+    expect(hiddenScreens(cables, shown)).toEqual({ a: ["screen-1"], b: [] });
+    // The declared input rules over the EDID's.
+    const swapped = [{ monitor: "g5-34", a: { input: "hdmi" as const, screen: "screen-1" }, b: { input: "display_port" as const, screen: "screen-2" } }];
+    expect(hiddenScreens(swapped, shown)).toEqual({ a: [], b: ["screen-2"] });
+    // Without a screen, without a reading or not compatible: nothing is hidden.
+    expect(hiddenScreens([{ monitor: "g5-34", a: { input: "display_port" } }], shown)).toEqual({ a: [], b: [] });
+    expect(hiddenScreens(cables, monitorsUi([std({ report: null })]))).toEqual({ a: [], b: [] });
+    expect(hiddenScreens(cables, monitorsUi([{ ...factory, id: "g5-34" }]))).toEqual({ a: [], b: [] });
+    expect(hiddenScreens(undefined, shown)).toEqual({ a: [], b: [] });
   });
 
   it("a compatible monitor knows which machine shows through its input", () => {

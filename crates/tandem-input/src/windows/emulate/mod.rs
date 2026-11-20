@@ -17,7 +17,7 @@
 mod sys;
 
 #[cfg(windows)]
-pub use sys::{SendInputSink, set_per_monitor_v2_dpi_awareness};
+pub use sys::{SendInputSink, displays, set_per_monitor_v2_dpi_awareness};
 
 use crate::event::{
     Button, HidUsage, InputEvent, KeyState, ModifierKey, Modifiers, Pressed, Scroll, keymap,

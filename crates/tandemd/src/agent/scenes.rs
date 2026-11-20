@@ -19,6 +19,7 @@
 use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex, PoisonError};
 
+use tandem_core::learn_screens;
 use tandem_core::scene::{contradicted, detect, introduce_monitor};
 use tandem_core::{
     Config, DeskPatch, Machine, MonitorCable, MonitorId, MonitorInput, Plan, Scene, State, Step,
@@ -288,7 +289,38 @@ impl Agent {
     /// active scene comes from each one's real input.
     pub(super) fn reconcile_monitors(&self) {
         self.introduce_monitors();
+        self.learn_screens();
         self.recognize_scene();
+    }
+
+    /// This machine's end of each cable gets the screen the monitor is here (T-340), from the
+    /// EDID identity of the monitor (channel or not) and of each screen. An end that already
+    /// names a screen is kept: the user may have declared it. Not with `[[screens]]` declared
+    /// for this machine: their ids are the user's, not the `screen-N` the engine reads.
+    fn learn_screens(&self) {
+        let me = self.machine();
+        let links = self.monitors.screen_links();
+        let pending = |d: &Config| {
+            d.screens_of(me).next().is_none()
+                && d.cables
+                    .iter()
+                    .any(|c| c.end(me).screen.is_none() && links.contains_key(&c.monitor))
+        };
+        if links.is_empty() || !pending(&self.desk()) {
+            return;
+        }
+        let _editing = self.edit();
+        let mut desk = self.desk();
+        if !pending(&desk) || !learn_screens(&mut desk.cables, me, &links) {
+            return;
+        }
+        if let Err(e) = desk.validate() {
+            tracing::warn!("the learned screens would leave the desk invalid: {e}");
+            return;
+        }
+        tracing::info!(?links, "learned which screen each monitor is");
+        self.desk.send_replace(desk);
+        self.bump_desk();
     }
 
     /// Each compatible monitor this machine owns, without cabling in the desk and with

@@ -430,6 +430,39 @@ describe("real source", () => {
     expect(a!.native).toMatchObject({ id: "m32", w: 1920 });
   });
 
+  it("T-340: Live desktops draws the shared 34\" once, on the machine it shows", () => {
+    const m34 = { id: "m34", x: 0, y: 0, width: 3440, height: 1440, scale_milli: 1000 };
+    const report = (input: "display_port" | "hdmi") => ({ id: "lc34", input, power_on: true, signal: true, events: [] });
+    const snap = (input: "display_port" | "hdmi") => {
+      const s = connected({
+        agent: "b",
+        desk: {
+          machines: { a: { os: "windows", name: "PC", color: "#6cc59a" }, b: { os: "macos", name: "Mac", color: "#d9a75a" } },
+          screens: [],
+          arrangement: null,
+          scenes: [],
+          cables: [{ monitor: "lc34", a: { input: "display_port", screen: "screen-1" }, b: { input: "hdmi", screen: "screen-2" } }],
+        },
+        input: {
+          server: "b", hub_here: null, session: true, locked: false, missing: [], problem: null, defined: true,
+          screens: [{ id: "screen-1", x: 0, y: 0, width: 1512, height: 982, scale_milli: 1000 }, { ...m34, id: "screen-2", x: 1512 }],
+          peer_screens: [{ ...m34, id: "screen-1" }],
+        },
+        monitors: [{
+          id: "lc34", name: "LC34G55T", compat: { Compatible: { protocol: 2 } }, seen_by: ["a", "b"],
+          via: [["a", "display_port"], ["b", "hdmi"]], owner: "a", report: report(input),
+        }],
+      });
+      if (s.kind !== "connected") throw new Error("snapshot");
+      return s;
+    };
+    const ids = (input: "display_port" | "hdmi") => layoutFromDesk(snap(input)).screens.map((s) => s.id);
+    // On the PC (DP): the Mac's HDMI screen is not drawn.
+    expect(ids("display_port")).toEqual(["a:screen-1", "b:screen-1"]);
+    // On the Mac (HDMI): the PC has no other screen, so it draws nothing.
+    expect(ids("hdmi")).toEqual(["b:screen-1", "b:screen-2"]);
+  });
+
   it("watchCrossing delivers the real Crossed with the input measured on the arrival screen", async () => {
     const act = vi.fn(async (_a: unknown) => ({ kind: "done" as const }));
     let notice: ((n: Notice) => void) | undefined;

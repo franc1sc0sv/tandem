@@ -13,7 +13,7 @@ import { machineColor, machineName, other } from "../machines";
 import type { Action, ActionResult, AdminView, Bindings, Caps, Desk, DragStatus, Link, Machine, MachineCaps, MonitorInput, Side, Permission, ResourceSample, SceneJson, SetupView, ShortcutsView, Snapshot, TxnView } from "../model";
 import { devicesOfHub } from "../wizard";
 import { gbpsOf, measuredText, networkFromWire, primaryOf } from "../network";
-import { monitorsUi } from "../monitors";
+import { hiddenScreens, monitorsUi } from "../monitors";
 import { sceneView } from "../scenes";
 import { grantTo, permissionState } from "../permissions";
 import type { ActResult, Capability, CursorEvent, DeskChange, DeskView, FilesView, EnvView, HardwareView, LinkKind, LiveView, MachineView, ModuleView, NetworkView, OutputChunk, OutputCursor, PairActionKind, PermissionsView, PrefsView, ProcessRow, Source, Topic, TransferView, TunnelView } from "./types";
@@ -207,6 +207,8 @@ export function deskFromSnapshot(raw: Snapshot, live: LiveByMachine = {}, networ
  */
 export function layoutFromDesk(snap: Extract<Snapshot, { kind: "connected" }>): LayoutView {
   const screens: LayoutScreen[] = [];
+  // A monitor that shows the other machine is not a screen of this one (T-340): drawn once.
+  const hidden = hiddenScreens(snap.desk.cables, monitorsUi(snap.monitors));
   for (const m of ["a", "b"] as Machine[]) {
     const name = machineName(m, snap.caps, snap.desk);
     const known = snap.desk.machines?.[m] ?? (snap.caps.here.machine === m ? snap.caps.here : snap.caps.peer?.machine === m ? snap.caps.peer : null);
@@ -215,7 +217,10 @@ export function layoutFromDesk(snap: Extract<Snapshot, { kind: "connected" }>): 
     const declared = snap.desk.screens.filter((s) => s.machine === m);
     // Without `[[screens]]` (the normal case after pairing) the ones the engine of each system reads are used.
     const engine = (snap.agent === m ? snap.input.screens : snap.input.peer_screens) ?? [];
-    const own = declared.length > 0 ? declared : engine.map((s) => ({ id: s.id, x: s.x, y: s.y, width: s.width, height: s.height, scale: s.scale_milli / 1000 }));
+    const all = declared.length > 0 ? declared : engine.map((s) => ({ id: s.id, x: s.x, y: s.y, width: s.width, height: s.height, scale: s.scale_milli / 1000 }));
+    const own = all.filter((s) => !hidden[m].includes(s.id));
+    // Every screen it has shows the other machine: nothing of it to draw.
+    if (all.length > 0 && own.length === 0) continue;
     if (own.length === 0) {
       screens.push({ id: `desk-${m}`, machine: m, name, short: name.split(" ")[0] ?? name, ask: name, x: 0, y: 0, w: 16, h: 10, size: "—", res: "—", ratio: "—", scale: "—", usable: true, line: name });
       continue;

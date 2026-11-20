@@ -5,7 +5,7 @@
 //! the monitor, takes as long as its latency says (on the double's clock) and records each request with
 //! the machine that made it. That way it is checked who read and who wrote.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
@@ -32,6 +32,9 @@ struct Shared {
     /// Monitor → machine → the input its EDID says.
     via: BTreeMap<MonitorHandle, BTreeMap<Machine, MonitorInput>>,
     ops: Vec<(Machine, BusOp)>,
+    /// Cables whose DDC does not answer: the system lists the monitor with its EDID, but
+    /// nothing reaches it (the 34" only answers on the input it shows, T-340).
+    silent: BTreeSet<(MonitorHandle, Machine)>,
 }
 
 /// The desk's physical monitors.
@@ -129,6 +132,18 @@ impl SimMonitors {
         self.lock().ops.clear();
     }
 
+    /// Whether DDC answers over `machine`'s cable to monitor `i`. Silent, the monitor is still
+    /// listed with its EDID (T-340).
+    pub fn set_ddc(&self, i: usize, machine: Machine, answers: bool) {
+        let h = self.handles[i];
+        let mut s = self.lock();
+        if answers {
+            s.silent.remove(&(h, machine));
+        } else {
+            s.silent.insert((h, machine));
+        }
+    }
+
     /// Unplugs (or plugs, with `Some(latency)`) `machine`'s cable to monitor `i`.
     pub fn set_cable(&self, i: usize, machine: Machine, latency: Option<Duration>) {
         let h = self.handles[i];
@@ -155,12 +170,11 @@ impl MachineBus {
         if self.world.power_of(self.machine) != Power::On {
             return None;
         }
-        self.monitors
-            .lock()
-            .cables
-            .get(&h)
-            .and_then(|c| c.get(&self.machine))
-            .copied()
+        let s = self.monitors.lock();
+        if s.silent.contains(&(h, self.machine)) {
+            return None;
+        }
+        s.cables.get(&h).and_then(|c| c.get(&self.machine)).copied()
     }
 
     fn record(&self, op: BusOp) {
