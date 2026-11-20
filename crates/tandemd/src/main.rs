@@ -8,7 +8,7 @@ use tandemd::cli::{self, Command, RunArgs};
 use tandemd::daemon::{self, Backends};
 use tandemd::network::NetOptions;
 use tandemd::paths::{self, Paths};
-use tandemd::{AgentConfig, autoconfig, ipc, logging};
+use tandemd::{AgentConfig, autoconfig, instance, ipc, logging};
 
 fn main() -> ExitCode {
     let cmd = match cli::parse(std::env::args_os().skip(1)) {
@@ -188,6 +188,10 @@ fn run(args: RunArgs) -> anyhow::Result<()> {
         .with_context(|| format!("could not create {}", paths.data_dir.display()))?;
     let log = logging::init(&paths.log_dir()).context("could not initialize the log")?;
     tracing::info!(version = env!("CARGO_PKG_VERSION"), log = %log.display(), "tandemd starting");
+
+    // Before the configuration, the IPC and the link: a second agent on this directory must
+    // not touch anything of the first (T-343). Held until the process ends.
+    let _instance = instance::acquire(&paths)?;
 
     // Without `tandem.toml`, it is generated with an empty desk (T-087).
     let loaded = autoconfig::load_or_generate(&paths.config, autoconfig::initial_side())?;
