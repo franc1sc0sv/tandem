@@ -96,7 +96,8 @@ impl SimSteps {
             Step::SwitchMonitor { .. }
             | Step::ShowMachine { .. }
             | Step::Arrange { .. }
-            | Step::Geometry => Err(format!("{}: not a power step", describe(step))),
+            | Step::Geometry
+            | Step::DisplayOn { .. } => Err(format!("{}: not a power step", describe(step))),
         }
     }
 

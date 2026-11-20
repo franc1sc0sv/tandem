@@ -51,6 +51,10 @@ pub enum Step {
     Arrange { layout: Option<Arrangement> },
     /// Scene step: the input engine takes the geometry left by the previous steps.
     Geometry,
+    /// `machine` turns its display of monitor `monitor` back on (T-341). Never in a plan: the
+    /// orchestrator asks for it right before a [`Step::SwitchMonitor`] to that machine's input,
+    /// so the monitor does not land on a dark input.
+    DisplayOn { monitor: String, machine: Machine },
 }
 
 impl Step {
@@ -63,6 +67,7 @@ impl Step {
             Step::SwitchMonitor { .. } => {}
             // The active scene is recorded when the transaction ends, not step by step.
             Step::ShowMachine { .. } | Step::Arrange { .. } | Step::Geometry => {}
+            Step::DisplayOn { .. } => {}
         }
     }
 

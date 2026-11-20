@@ -1263,6 +1263,10 @@ pub(crate) mod samples {
                 layout: Some(Arrangement::default()),
             },
             Step::Geometry,
+            Step::DisplayOn {
+                monitor: "lc34g55t-0a1b2c3d".into(),
+                machine: Machine::B,
+            },
         ]
     }
 
@@ -1274,6 +1278,7 @@ pub(crate) mod samples {
             Step::ShowMachine { .. } => 3,
             Step::Arrange { .. } => 4,
             Step::Geometry => 5,
+            Step::DisplayOn { .. } => 6,
         }
     }
 
@@ -2454,7 +2459,7 @@ mod tests {
 
     #[test]
     fn samples_cover_every_variant() {
-        covers(&steps(), step_arm, 6);
+        covers(&steps(), step_arm, 7);
         covers(&hellos(), |h| peer_arm(&h.peer), 4);
         covers(&control(), control_arm, 25);
         let cmds: Vec<_> = ui_requests().into_iter().map(|r| r.command).collect();

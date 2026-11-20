@@ -12,6 +12,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use tandem_core::Os;
+use tandem_input::displays::DisplayControl;
 use tandem_proto::{InputPermission, InputStatus, ModuleId, ModuleInfo, ModuleState, PowerCaps};
 
 /// Reasons for "Files" (T-158): the module exists and works; it only says it is
@@ -38,6 +39,8 @@ pub struct ModuleContext<'a> {
     pub input: &'a InputStatus,
     pub power: &'a PowerCaps,
     pub switches: &'a ModuleSwitches,
+    /// Whether this machine can turn off its display of a monitor that shows the other (T-341).
+    pub displays: &'a DisplayControl,
 }
 
 /// What the user turned off and the problems each running module reported.
@@ -332,8 +335,16 @@ impl Module for Monitors {
     fn name(&self) -> &'static str {
         "Monitors"
     }
-    fn detail(&self, _ctx: &ModuleContext<'_>) -> String {
-        "Monitor input over DDC".into()
+    fn detail(&self, ctx: &ModuleContext<'_>) -> String {
+        match ctx.displays {
+            DisplayControl::NotNeeded => "Monitor input over DDC".into(),
+            DisplayControl::Available => {
+                "Monitor input over DDC. Display control: its display of a monitor that shows the other machine goes off".into()
+            }
+            DisplayControl::Unavailable(why) => {
+                format!("Monitor input over DDC. Display control unavailable: {why}")
+            }
+        }
     }
     fn state(&self, _ctx: &ModuleContext<'_>) -> ModuleState {
         ModuleState::Active
@@ -430,6 +441,7 @@ mod tests {
             input,
             power: &p,
             switches: s,
+            displays: &DisplayControl::NotNeeded,
         };
         state_of(reg, &ctx, id)
     }
@@ -472,6 +484,7 @@ mod tests {
                 input: &input,
                 power: &p,
                 switches: &switches,
+                displays: &DisplayControl::NotNeeded,
             };
             assert_eq!(state_of(&reg, &ctx, ModuleId::Tunnels), ModuleState::Active);
             assert_eq!(state_of(&reg, &ctx, ModuleId::Files), ModuleState::Active);
@@ -542,6 +555,7 @@ mod tests {
                 input: &input,
                 power: &p,
                 switches: &switches,
+                displays: &DisplayControl::NotNeeded,
             };
             for m in Registry::for_os(os).snapshot(&ctx) {
                 assert!(!m.name.is_empty() && !m.detail.is_empty(), "{m:?}");
@@ -579,6 +593,7 @@ mod tests {
             input: &input,
             power: &p,
             switches: &switches,
+            displays: &DisplayControl::NotNeeded,
         };
         let detail = SecureDesktop.detail(&ctx);
         assert_eq!(
@@ -586,6 +601,31 @@ mod tests {
             "The mouse and keyboard also work on UAC prompts and at the sign-in screen."
         );
         assert_eq!(detail, mockup_detail("Protected screens"));
+    }
+
+    /// T-341: the Mac's "Monitors" line says whether its display can be turned off; Windows
+    /// does not need it and says nothing.
+    #[test]
+    fn monitors_say_whether_display_control_is_available() {
+        let input = InputStatus::new(Machine::A);
+        let switches = ModuleSwitches::default();
+        let p = power(false, false, false);
+        let detail = |displays: &DisplayControl| {
+            Monitors.detail(&ModuleContext {
+                os: Os::MacOs,
+                input: &input,
+                power: &p,
+                switches: &switches,
+                displays,
+            })
+        };
+        assert_eq!(detail(&DisplayControl::NotNeeded), "Monitor input over DDC");
+        assert!(detail(&DisplayControl::Available).contains("Display control:"));
+        let none = detail(&DisplayControl::Unavailable("no symbol".into()));
+        assert!(
+            none.contains("Display control unavailable: no symbol"),
+            "{none}"
+        );
     }
 
     #[test]
@@ -624,6 +664,7 @@ mod tests {
             input: &input,
             power: &p,
             switches: &switches,
+            displays: &DisplayControl::NotNeeded,
         };
         assert_eq!(
             state_of(&reg, &ctx, ModuleId::Input),
@@ -644,6 +685,7 @@ mod tests {
             input: &input,
             power: &none,
             switches: &switches,
+            displays: &DisplayControl::NotNeeded,
         };
         let ModuleState::Unavailable { reason } = state_of(&reg, &ctx, ModuleId::Power) else {
             panic!("with nothing to do, power is not available");
@@ -718,6 +760,7 @@ mod tests {
             input: &input,
             power: &p,
             switches: &switches,
+            displays: &DisplayControl::NotNeeded,
         };
         assert_eq!(state_of(&reg, &ctx, ModuleId::Input), ModuleState::Off);
         assert_eq!(

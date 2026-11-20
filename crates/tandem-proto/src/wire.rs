@@ -29,6 +29,10 @@ enum StepWire {
         layout: Option<Arrangement>,
     },
     Geometry,
+    DisplayOn {
+        monitor: String,
+        machine: Machine,
+    },
 }
 
 impl From<&Step> for StepWire {
@@ -46,6 +50,10 @@ impl From<&Step> for StepWire {
             },
             Step::Arrange { layout } => StepWire::Arrange { layout: *layout },
             Step::Geometry => StepWire::Geometry,
+            Step::DisplayOn { monitor, machine } => StepWire::DisplayOn {
+                monitor: monitor.clone(),
+                machine: *machine,
+            },
         }
     }
 }
@@ -59,6 +67,7 @@ impl From<StepWire> for Step {
             StepWire::ShowMachine { monitor, machine } => Step::ShowMachine { monitor, machine },
             StepWire::Arrange { layout } => Step::Arrange { layout },
             StepWire::Geometry => Step::Geometry,
+            StepWire::DisplayOn { monitor, machine } => Step::DisplayOn { monitor, machine },
         }
     }
 }
@@ -117,6 +126,8 @@ mod tests {
                 .prop_map(|(monitor, machine)| Step::ShowMachine { monitor, machine }),
             arrangement().prop_map(|layout| Step::Arrange { layout }),
             Just(Step::Geometry),
+            (".{0,24}", machine())
+                .prop_map(|(monitor, machine)| Step::DisplayOn { monitor, machine }),
         ]
     }
 

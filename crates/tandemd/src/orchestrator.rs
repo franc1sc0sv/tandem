@@ -84,6 +84,14 @@ pub trait MonitorControl: Send + Sync {
     }
 }
 
+/// The machines' displays of each monitor (T-341, [`crate::displays`]).
+pub trait DisplayWake: Send + Sync {
+    /// The machine input `input` of `monitor` goes to, if it is known.
+    fn machine_on(&self, monitor: &str, input: MonitorInput) -> Option<Machine>;
+    /// Turns this machine's display of `monitor` back on, if it turned it off.
+    fn display_on<'a>(&'a self, monitor: &'a str) -> StepFuture<'a>;
+}
+
 /// How often the Wake-on-LAN is repeated while waiting for the other machine: a UDP
 /// packet can be lost, and the card takes time to be ready after a power cut.
 pub const WOL_RESEND: Duration = Duration::from_secs(5);
@@ -167,6 +175,7 @@ pub fn target(step: &Step) -> Option<Machine> {
         Step::SwitchMonitor { .. } => None,
         // Scene ones are done by whoever applies it ([`Orchestrator::run_scene`]).
         Step::ShowMachine { .. } | Step::Arrange { .. } | Step::Geometry => None,
+        Step::DisplayOn { machine, .. } => Some(*machine),
     }
 }
 
@@ -183,6 +192,9 @@ pub fn describe(step: &Step) -> String {
         }
         Step::Arrange { .. } => "arrange the desktops".to_owned(),
         Step::Geometry => "move the keyboard and mouse to the new geometry".to_owned(),
+        Step::DisplayOn { monitor, machine } => {
+            format!("turn on the display of monitor {monitor} on machine {machine}")
+        }
     }
 }
 
@@ -233,7 +245,7 @@ impl StepTimeouts {
             Step::SwitchMonitor { .. } => self.monitor,
             // A scene's monitor is a `SwitchMonitor` of the owner (T-111).
             Step::ShowMachine { .. } => self.monitor,
-            Step::Arrange { .. } | Step::Geometry => self.step,
+            Step::Arrange { .. } | Step::Geometry | Step::DisplayOn { .. } => self.step,
         }
     }
 }
@@ -265,6 +277,8 @@ pub struct Orchestrator {
     link_hold: Mutex<Option<LinkHold>>,
     /// The monitors; without them, every monitor change fails with [`NO_OWNER`].
     monitors: RwLock<Option<Arc<dyn MonitorControl>>>,
+    /// The displays; without them, a monitor change wakes no display first.
+    displays: RwLock<Option<Arc<dyn DisplayWake>>>,
 }
 
 impl std::fmt::Debug for Orchestrator {
@@ -292,6 +306,7 @@ impl Orchestrator {
             peer_turn: tokio::sync::Mutex::new(()),
             link_hold: Mutex::new(None),
             monitors: RwLock::new(None),
+            displays: RwLock::new(None),
         }
     }
 
@@ -306,6 +321,21 @@ impl Orchestrator {
             .monitors
             .write()
             .unwrap_or_else(PoisonError::into_inner) = Some(monitors);
+    }
+
+    /// Who turns the displays back on before a monitor change (T-341).
+    pub fn set_displays(&self, displays: Arc<dyn DisplayWake>) {
+        *self
+            .displays
+            .write()
+            .unwrap_or_else(PoisonError::into_inner) = Some(displays);
+    }
+
+    fn displays(&self) -> Option<Arc<dyn DisplayWake>> {
+        self.displays
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
     }
 
     fn monitors(&self) -> Option<Arc<dyn MonitorControl>> {
@@ -497,6 +527,9 @@ impl Orchestrator {
     }
 
     async fn attempt(&self, step: &Step) -> Result<(), StepFailure> {
+        if let Step::SwitchMonitor { monitor, input } = step {
+            self.wake_display(monitor, *input).await;
+        }
         let limit = self.timeouts.for_step(step);
         let work = async {
             let target = self.target_of(step).map_err(StepFailure::certain)?;
@@ -522,8 +555,41 @@ impl Orchestrator {
         }
     }
 
+    /// Before a change to `input` of `monitor`, the machine that input goes to turns its display
+    /// back on (T-341): with it off, the monitor would land on a dark input. Whatever happens,
+    /// the change goes ahead: a machine without display control simply has nothing to do.
+    async fn wake_display(&self, monitor: &str, input: MonitorInput) {
+        let Some(displays) = self.displays() else {
+            return;
+        };
+        let Some(machine) = displays.machine_on(monitor, input) else {
+            return;
+        };
+        let step = Step::DisplayOn {
+            monitor: monitor.to_owned(),
+            machine,
+        };
+        let work = async {
+            if machine == self.me() {
+                displays.display_on(monitor).await
+            } else {
+                self.peer().execute(&step).await
+            }
+        };
+        match tokio::time::timeout(self.timeouts.for_step(&step), work).await {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) if e == PEER_NOT_CONNECTED => {}
+            Ok(Err(e)) => tracing::warn!("{}: {e}", describe(&step)),
+            Err(_) => tracing::warn!("{}: {NO_ANSWER} the time limit", describe(&step)),
+        }
+    }
+
     async fn run_local(&self, step: &Step) -> Result<(), String> {
         match step {
+            Step::DisplayOn { monitor, .. } => match self.displays() {
+                Some(d) => d.display_on(monitor).await,
+                None => Ok(()),
+            },
             Step::PowerOn { machine } if *machine != self.me() => self.power_on_peer(step).await,
             Step::SwitchMonitor { monitor, input } => match self.monitors() {
                 Some(m) => {

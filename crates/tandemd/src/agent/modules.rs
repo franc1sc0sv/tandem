@@ -36,6 +36,7 @@ impl Agent {
             input: &input,
             power: &self.power_caps(info.os),
             switches: &switches,
+            displays: &self.display_control(),
         });
         let mut caps = capabilities::local(
             &self.cfg,

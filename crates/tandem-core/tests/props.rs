@@ -92,6 +92,7 @@ impl Executor for Sim {
                     Ok(())
                 }
                 Step::Geometry => Ok(()),
+                Step::DisplayOn { .. } => Err("never in a plan".to_owned()),
             }
         };
         async move { r }
