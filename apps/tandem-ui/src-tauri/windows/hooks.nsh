@@ -10,7 +10,8 @@
 ;   is installed, and `--uninstall` removes it. The service lives in its own folder
 ;   (%ProgramFiles%\Tandem Service), so stopping the user's agent never touches it.
 ; - On uninstall (not on an update): `tandemd --uninstall` removes the autostart. The
-;   user's data (%APPDATA%\Tandem) is deleted only if the delete-data checkbox is ticked.
+;   user's data (%APPDATA%\Tandem) is deleted only if the delete-data checkbox is ticked; the
+;   checkbox says that keeping the data keeps the pairing (T-345, windows/English.nsh and Spanish.nsh).
 
 !macro TANDEM_STOP_AGENT
   ; The launcher first (it waits for the agent) and then the agent. Only this user's processes.

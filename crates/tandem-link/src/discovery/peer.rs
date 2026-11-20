@@ -34,6 +34,8 @@ pub struct PeerResolver {
     own: Fingerprint,
     /// `None`: any agent except its own (to pair with a new one).
     wanted: Option<BTreeSet<Fingerprint>>,
+    /// Never accepted, even when `wanted` is `None`.
+    excluded: BTreeSet<Fingerprint>,
     /// Accepted announcements, per instance.
     found: BTreeMap<String, (Fingerprint, Vec<SocketAddr>)>,
 }
@@ -45,6 +47,7 @@ impl PeerResolver {
         Self {
             own,
             wanted: Some(wanted),
+            excluded: BTreeSet::new(),
             found: BTreeMap::new(),
         }
     }
@@ -56,6 +59,18 @@ impl PeerResolver {
         Self {
             own,
             wanted: None,
+            excluded: BTreeSet::new(),
+            found: BTreeMap::new(),
+        }
+    }
+
+    /// Accepts any agent except its own and the ones in `known`: whoever announces
+    /// itself for pairing while this machine already trusts `known` (T-345).
+    pub fn any_except(own: Fingerprint, known: impl IntoIterator<Item = Fingerprint>) -> Self {
+        Self {
+            own,
+            wanted: None,
+            excluded: known.into_iter().collect(),
             found: BTreeMap::new(),
         }
     }
@@ -64,7 +79,7 @@ impl PeerResolver {
     pub fn accepts(&self, ann: &Announcement) -> Option<Fingerprint> {
         let fp: Fingerprint = ann.fingerprint.as_deref()?.parse().ok()?;
         let wanted = self.wanted.as_ref().is_none_or(|w| w.contains(&fp));
-        (fp != self.own && wanted).then_some(fp)
+        (fp != self.own && wanted && !self.excluded.contains(&fp)).then_some(fp)
     }
 
     /// Applies an event; returns whether the peer's addresses changed.
@@ -220,6 +235,22 @@ mod tests {
         assert_eq!(r.accepts(&ann("me", Some(fp(ME).to_hex()), &[])), None);
         assert_eq!(r.accepts(&ann("without", None, &[])), None);
         assert!(r.apply(DiscoveryEvent::Resolved(stranger)));
+        assert_eq!(r.addrs(), vec!["192.168.1.30:47771".parse().unwrap()]);
+    }
+
+    /// T-345: whoever is pairing and is not the old peer is an offer; the old peer itself
+    /// (or this machine) is not.
+    #[test]
+    fn any_except_skips_the_known_peer_and_itself() {
+        let mut r = PeerResolver::any_except(fp(ME), [fp(PEER)]);
+        let old = ann("old", Some(fp(PEER).to_hex()), &["192.168.1.20:47771"]);
+        let me = ann("me", Some(fp(ME).to_hex()), &["192.168.1.10:47771"]);
+        let new = ann("new", Some(fp(STRANGER).to_hex()), &["192.168.1.30:47771"]);
+        assert_eq!(r.accepts(&old), None);
+        assert_eq!(r.accepts(&me), None);
+        assert_eq!(r.accepts(&new), Some(fp(STRANGER)));
+        assert!(!r.apply(DiscoveryEvent::Resolved(old)));
+        assert!(r.apply(DiscoveryEvent::Resolved(new)));
         assert_eq!(r.addrs(), vec!["192.168.1.30:47771".parse().unwrap()]);
     }
 

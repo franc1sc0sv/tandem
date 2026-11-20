@@ -10,6 +10,7 @@
 // - `still`: no resources that change by themselves (for deterministic screenshots).
 // - `peer=none`: unpaired; pairing simulates the other machine (code and confirmation).
 //   `pair=code` starts by showing the code; `pair=reject`: the other machine rejects.
+// - `offer` (with `trouble=peer-off`): another machine is looking for a pair while the paired one is silent.
 // - `cross=ok|wrong|timeout`: the crossing test crosses through the arrangement edge, through another one,
 //   or times out right away (for screenshots). Without this (and without `still`), it crosses
 //   fine after a few seconds.
@@ -98,6 +99,8 @@ export interface DemoOptions {
   palette?: boolean;
   /** The data `V3-Tray` draws: 0.4 ms link, Mac load at 18 %, "PC only" and tunnels in three projects. */
   tray?: boolean;
+  /** Another machine looks for a pair while the paired one is silent (T-345): use it with `trouble=peer-off`. */
+  offer?: boolean;
   /** The other machine changes the desk shortly after opening ("Changed from…" notice, D5). */
   peerEdit?: boolean;
 }
@@ -122,6 +125,7 @@ export function demoOptions(query: string): DemoOptions {
     palette: p.has("palette"),
     tray: p.has("tray"),
     peerEdit: p.has("peeredit"),
+    offer: p.has("offer"),
     admin: p.get("admin") === "pending" ? "pending" : p.get("admin") === "off" ? "off" : undefined,
     pcOnly: p.has("pconly") || p.has("palette") || p.has("tray"),
     cross: p.get("cross") === "ok" ? "ok" : p.get("cross") === "wrong" ? "wrong" : p.get("cross") === "timeout" ? "timeout" : undefined,
@@ -610,7 +614,7 @@ export function demoDesk(o: DemoOptions): DeskView {
     monitors,
     pair: {
       peer: o.unpaired ? { kind: "unpaired" } : { kind: "paired", name: peerSpec.name, link: linkUp ? "usb4" : null },
-      pairing: o.pairing === "code" ? { kind: "comparing", code: DEMO_CODE, peer: peerSpec.name, confirmed: false } : { kind: "idle" },
+      pairing: o.pairing === "code" ? { kind: "comparing", code: DEMO_CODE, peer: peerSpec.name, confirmed: false } : o.offer && !o.unpaired ? { kind: "offered" } : { kind: "idle" },
     },
     permissions: permissionsFor((o.here === "a" ? sa : sb).os, o.trouble === "permissions" || o.perms === "missing", o.perms === "missing"),
     layout: demoLayout(sa, sb, scenes, "work"),

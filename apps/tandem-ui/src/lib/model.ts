@@ -208,7 +208,9 @@ export type PairingView =
   | { kind: "searching" }
   | { kind: "comparing"; code: string; peer: string; confirmed: boolean }
   | { kind: "done"; peer: string }
-  | { kind: "failed"; reason: string };
+  | { kind: "failed"; reason: string }
+  /** The paired machine is silent and another one is looking for a pair (T-345). */
+  | { kind: "offered" };
 
 /** The shared keyboard and mouse (`tandem_ui::session::InputView`). */
 export interface InputView {

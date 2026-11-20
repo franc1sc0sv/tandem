@@ -99,6 +99,22 @@ impl MdnsDiscovery {
         Self::run(PAIRING_SERVICE_TYPE, own, port, PeerResolver::any(own))
     }
 
+    /// Only looks (announces nothing) for agents that are pairing and whose key is not in
+    /// `known`: a machine that is not the paired peer offering to pair (T-345).
+    pub fn pairing_offers(
+        own: &PublicKey,
+        known: impl IntoIterator<Item = PublicKey>,
+    ) -> Result<Self, DiscoveryError> {
+        let own = Fingerprint::of(own);
+        let known = known.into_iter().map(|k| Fingerprint::of(&k));
+        Self::run(
+            PAIRING_SERVICE_TYPE,
+            own,
+            None,
+            PeerResolver::any_except(own, known),
+        )
+    }
+
     fn run(
         service_type: &str,
         own: Fingerprint,

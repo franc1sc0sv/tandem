@@ -54,6 +54,7 @@ pub mod migrate;
 pub mod modules;
 pub mod monitors;
 pub mod network;
+pub mod offer;
 pub mod orchestrator;
 pub mod pairing;
 pub mod paths;

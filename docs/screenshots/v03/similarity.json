@@ -429,6 +429,17 @@
     ],
     "errors": []
   },
+  "desk-offer": {
+    "mockup": "V3-Desk",
+    "screen": {
+      "name": "screen",
+      "similarity": 0.9319,
+      "worstTile": 0.1089,
+      "ok": true
+    },
+    "regions": [],
+    "errors": []
+  },
   "desk-scene-game": {
     "mockup": "V3-Desk--scene-game",
     "screen": {

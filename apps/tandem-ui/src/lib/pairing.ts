@@ -38,6 +38,7 @@ export function pairScreen(theOther: string, peer: PeerView, pairing: PairingVie
     case "failed":
       return { kind: "failed", reason: pairing.reason };
     case "idle":
+    case "offered":
       if (peer.kind === "paired") return askUnpair ? { kind: "unpair", name: peer.name } : { kind: "paired", name: peer.name };
       return { kind: "intro", other: theOther };
   }

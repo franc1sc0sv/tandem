@@ -55,6 +55,23 @@ describe("lib/states: which cards apply", () => {
     expect(ids(demoDesk(demoOptions("demo&still&trouble=permissions")))).toContain("permission");
   });
 
+  it("a pairing offer from another machine brings the card that forgets the old pair (T-345)", () => {
+    const offered = (d: DeskView): DeskView => ({ ...d, pair: { peer: { kind: "paired", name: "Old Mac", link: null }, pairing: { kind: "offered" } } });
+    const d = offered(demoDesk(demoOptions("demo&still&trouble=peer-off")));
+    expect(ids(d)[0]).toBe("offer");
+    const card = stateCards(d).find((c) => c.id === "offer");
+    expect(card?.title).toBe("Old Mac is not answering");
+    expect(card?.body).toContain("Another Tandem machine is looking for a pair");
+    expect(card?.action).toMatchObject({ does: "forget-and-pair", label: "Forget the old pair and pair" });
+    // Asking again says what is lost and asks to confirm.
+    const sure = stateCards(d, { ...REAL, confirmOffer: true }).find((c) => c.id === "offer");
+    expect(sure?.body).toMatch(/forgets Old Mac/);
+    expect(sure?.action?.label).toBe("Confirm");
+    // Never without the offer, nor in the plain nine-card gallery.
+    expect(ids(demoDesk(demoOptions("demo&still&trouble=peer-off")))).not.toContain("offer");
+    expect(ids(base, GALLERY)).not.toContain("offer");
+  });
+
   it("the failed scene comes out with its name and id, not the first or the active one", () => {
     const cards = stateCards(base, { gallery: false, failedScene: { id: "game", name: "Game" } });
     const scene = cards.find((c) => c.id === "scene");
@@ -82,6 +99,16 @@ describe("States screen", () => {
     for (const name of ["Pair the other machine", "Power on", "View in Tunnels", "Retry", "Open System Settings"]) {
       expect(screen.getByRole("button", { name: new RegExp(name) })).toBeInTheDocument();
     }
+  });
+
+  it("the pairing offer card asks for confirmation before forgetting the pair (T-345)", async () => {
+    const store = await mount("demo&still&trouble=peer-off&offer");
+    const pair = vi.spyOn(store, "pairAction");
+    await userEvent.click(screen.getByRole("button", { name: "Forget the old pair and pair" }));
+    expect(pair).not.toHaveBeenCalled();
+    expect(screen.getByText(/forgets PC-Desktop/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Confirm" }));
+    expect(pair.mock.calls.map((c) => c[0])).toEqual(["unpair", "start_pairing"]);
   });
 
   it("no card talks about \"adding\" a machine (D1)", async () => {

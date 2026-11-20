@@ -8,7 +8,11 @@
         "installMode": "currentUser",
         "installerHooks": "windows/hooks.nsh",
         "languages": ["Spanish", "English"],
-        "displayLanguageSelector": false
+        "displayLanguageSelector": false,
+        "customLanguageFiles": {
+          "English": "windows/English.nsh",
+          "Spanish": "windows/Spanish.nsh"
+        }
       }
     }
   }

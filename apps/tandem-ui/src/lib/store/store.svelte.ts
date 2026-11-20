@@ -405,6 +405,15 @@ export class Store implements CommandContext {
     return this.report(this.source.pairAction(kind));
   }
 
+  /**
+   * Forgets the paired machine and looks for another one (T-345): for a pair that is stale because the other
+   * machine was reinstalled or reset. The setup opens by itself at the pairing step once it is searching.
+   */
+  async forgetAndPair(): Promise<ActResult> {
+    const forgot = await this.pairAction("unpair");
+    return forgot.ok ? this.pairAction("start_pairing") : forgot;
+  }
+
   lockHere(on: boolean): Promise<ActResult> {
     return this.report(this.source.lockHere(on));
   }

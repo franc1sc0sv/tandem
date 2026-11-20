@@ -135,7 +135,12 @@ unattended). The uninstaller:
 
 Configuration, state and logs (`%APPDATA%\Tandem`) are kept, unless you tick the
 *Delete application data* box in the uninstaller. Careful: the agent's
-identity also lives there, so deleting them forces pairing again.
+identity and its trust file (`trust.toml`, the pairing) also live there. Keeping them
+keeps the pairing, which is why the box says "leave unticked to keep the pairing"
+(`windows/English.nsh` and `windows/Spanish.nsh` override Tauri's `deleteAppData` string; they are copies of the
+bundler's language files for the version `@tauri-apps/cli` pins, so refresh them when it is upgraded). If you
+reinstall with the data kept and the other machine was reset, Tandem offers to forget the old pair
+(T-345). Deleting them forces pairing again.
 
 On an update (installing one version over another) the installer stops the agent
 before copying, replaces the binaries, registers the start again and starts it again.

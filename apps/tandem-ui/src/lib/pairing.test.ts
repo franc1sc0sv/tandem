@@ -22,6 +22,16 @@ describe("screen", () => {
     expect(pairScreen("Workshop", UNPAIRED, IDLE, true).kind).toBe("intro");
   });
 
+  it("a pairing offer from another machine leaves the screen as if idle: the paired peer is still the pair (T-345)", () => {
+    const OFFERED: PairingView = { kind: "offered" };
+    expect(pairScreen("Workshop", PAIRED, OFFERED)).toEqual({ kind: "paired", name: "Workshop" });
+    expect(pairScreen("Workshop", UNPAIRED, OFFERED)).toEqual({ kind: "intro", other: "Workshop" });
+    // It is not a live pairing: closing the dialog has nothing to cancel.
+    expect(isActive(OFFERED)).toBe(false);
+    expect(needsDismiss(OFFERED)).toBe(false);
+    expect(shouldOpen(null, OFFERED)).toBe(false);
+  });
+
   it("searching says what to do on the other machine", () => {
     const s = pairScreen("Workshop", UNPAIRED, SEARCHING);
     expect(s).toMatchObject({ kind: "searching", other: "Workshop" });
