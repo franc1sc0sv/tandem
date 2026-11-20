@@ -82,14 +82,22 @@ where
 
 pub(crate) const CLOSED: &str = "tandemd closed the connection without responding";
 
+/// No socket/pipe, or an old socket of an agent that already died: no `tandemd` process.
+pub(crate) fn nobody_listening(e: &IpcError) -> bool {
+    matches!(
+        e,
+        IpcError::Io(io)
+            if matches!(io.kind(), io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused)
+    )
+}
+
 /// An IPC error worded so the user knows what to do.
 pub(crate) fn explain(e: &IpcError) -> String {
+    if nobody_listening(e) {
+        return "tandemd is not running: nobody is listening on the local IPC".into();
+    }
     match e {
         IpcError::Io(io) => match io.kind() {
-            // No socket/pipe, or an old socket of an agent that already died.
-            io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused => {
-                "tandemd is not running: nobody is listening on the local IPC".into()
-            }
             // It dropped midway through the conversation.
             io::ErrorKind::BrokenPipe
             | io::ErrorKind::ConnectionReset
@@ -215,6 +223,21 @@ machine = "b"
             let r = reason(status_with(here(), failed, QUERY_TIMEOUT).await);
             assert!(r.contains("is not running"), "{r}");
         }
+    }
+
+    #[test]
+    fn only_a_missing_listener_counts_as_nobody_listening() {
+        for kind in [io::ErrorKind::NotFound, io::ErrorKind::ConnectionRefused] {
+            assert!(nobody_listening(&io::Error::from(kind).into()), "{kind:?}");
+        }
+        for kind in [
+            io::ErrorKind::PermissionDenied,
+            io::ErrorKind::ConnectionReset,
+            io::ErrorKind::TimedOut,
+        ] {
+            assert!(!nobody_listening(&io::Error::from(kind).into()), "{kind:?}");
+        }
+        assert!(!nobody_listening(&IpcError::Closed));
     }
 
     #[tokio::test]

@@ -58,8 +58,11 @@ up to date (`tandem_ui::launch_agent`):
 - it points to the `tandemd` of the app that is running and carries its version
   (`TANDEM_APP_VERSION`): updating the app changes the plist, and the app takes the old agent out
   of launchd (`launchctl bootout`) and loads the new one (`launchctl bootstrap gui/<uid>`);
-- if the plist is already correct and loaded, it touches nothing (opening the app does not restart
-  `tandemd`); if it is there but not loaded, it loads it again;
+- if the plist is already correct, loaded and `tandemd` is running, it touches nothing (opening the
+  app does not restart `tandemd`); if it is loaded but has no process, it starts it
+  (`launchctl kickstart`, T-331); if it is there but not loaded, it loads it again;
+- while the app is open, if the window finds nobody on the IPC three times in a row and launchd has
+  the agent loaded without a process, the app starts it, at most once every 30 s (T-331);
 - `AssociatedBundleIdentifiers = [com.franc1sc0sv.tandem]`: macOS takes the app as the code
   responsible for `tandemd`, which is what makes it show the Local Network alert for a
   LaunchAgent that is not installed with `SMAppService` (T-344, see [Local Network](#local-network-t-344));
