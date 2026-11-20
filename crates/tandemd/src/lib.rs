@@ -14,6 +14,7 @@
 //! - [`capabilities`]: what each machine has and knows how to do, and what the plan can ask of
 //!   each one (T-084).
 //! - [`desk_sync`]: the desk's shared configuration between the two machines (T-084).
+//! - [`displays`]: this machine's display of a monitor that shows the other, off (T-341).
 //! - [`modules`]: each system's modules and their state (active, off, unavailable;
 //!   T-098).
 //! - [`monitors`]: the desk's monitors (chosen owner, events, changes with a verdict;
@@ -43,6 +44,7 @@ pub mod config;
 pub mod config_edit;
 pub mod daemon;
 pub mod desk_sync;
+pub mod displays;
 pub mod drag;
 pub mod input;
 pub mod install;

@@ -9,6 +9,8 @@ use std::path::{Path, PathBuf};
 const APP_DIR: &str = "Tandem";
 const CONFIG_FILE: &str = "tandem.toml";
 const STATE_FILE: &str = "state.json";
+/// The displays this machine turned off (T-341), next to the state.
+const DISPLAYS_OFF_FILE: &str = "displays-off.json";
 const LOG_DIR: &str = "logs";
 const IDENTITY_FILE: &str = "identity.key";
 const TRUST_FILE: &str = "trust.toml";
@@ -57,6 +59,11 @@ impl Paths {
 
     pub fn state_file(&self) -> PathBuf {
         self.data_dir.join(STATE_FILE)
+    }
+
+    /// What display control turned off, so a restart after a crash turns it back on (T-341).
+    pub fn displays_off_file(&self) -> PathBuf {
+        self.data_dir.join(DISPLAYS_OFF_FILE)
     }
 
     pub fn log_dir(&self) -> PathBuf {
