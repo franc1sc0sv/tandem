@@ -11,7 +11,7 @@ use std::time::Duration;
 use tandem_core::{Machine, Step};
 use tandem_link::identity::{Identity, PublicKey, TrustStore, TrustedPeer};
 use tandem_proto::{AgentToUi, Capabilities, ModuleId, ModuleState, Reply, UiCommand};
-use tandemd::daemon::{self, Backends, Daemon};
+use tandemd::daemon::{self, Backends, Daemon, ShutdownReason};
 use tandemd::ipc::{IpcClient, mem};
 use tandemd::network::NetOptions;
 use tandemd::orchestrator::{LocalSteps, StepFuture};
@@ -60,7 +60,7 @@ fn loopback(port: u16) -> SocketAddr {
 struct Running {
     ui: IpcClient<DuplexStream>,
     stop: Option<oneshot::Sender<()>>,
-    task: JoinHandle<Result<(), StoreError>>,
+    task: JoinHandle<Result<ShutdownReason, StoreError>>,
     _dir: tempfile::TempDir,
 }
 

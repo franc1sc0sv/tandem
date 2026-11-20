@@ -14,7 +14,7 @@ use tandem_files::FilesError;
 use tandem_files::drag::{DragDetector, DragEnd, DragIn, DragStarter, Upload};
 use tandem_link::identity::{Identity, PublicKey, TrustStore, TrustedPeer};
 use tandem_proto::{DragStatus, Reply, UiCommand};
-use tandemd::daemon::{self, Backends, Daemon};
+use tandemd::daemon::{self, Backends, Daemon, ShutdownReason};
 use tandemd::drag;
 use tandemd::ipc::{IpcClient, mem};
 use tandemd::network::NetOptions;
@@ -65,7 +65,7 @@ struct Running {
     agent: Arc<Agent>,
     ui: IpcClient<DuplexStream>,
     stop: Option<oneshot::Sender<()>>,
-    task: JoinHandle<Result<(), StoreError>>,
+    task: JoinHandle<Result<ShutdownReason, StoreError>>,
     _dir: tempfile::TempDir,
 }
 

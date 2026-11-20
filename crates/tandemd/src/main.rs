@@ -5,7 +5,8 @@ use std::process::ExitCode;
 
 use anyhow::Context;
 use tandemd::cli::{self, Command, RunArgs};
-use tandemd::daemon::{self, Backends};
+use tandemd::daemon::{self, Backends, ShutdownReason};
+use tandemd::exit::Exit;
 use tandemd::network::NetOptions;
 use tandemd::paths::{self, Paths};
 use tandemd::{AgentConfig, autoconfig, instance, ipc, logging};
@@ -86,13 +87,7 @@ fn main() -> ExitCode {
                 return ExitCode::FAILURE;
             }
         }
-        Command::Run(args) => {
-            if let Err(e) = run_hosted(args) {
-                tracing::error!("{e:#}");
-                eprintln!("tandemd: {e:#}");
-                return ExitCode::FAILURE;
-            }
-        }
+        Command::Run(args) => return ExitCode::from(u8::try_from(run_hosted(args)).unwrap_or(1)),
     }
     ExitCode::SUCCESS
 }
@@ -149,44 +144,58 @@ async fn network_status(data_dir: &std::path::Path) -> Option<tandem_proto::Netw
         .flatten()
 }
 
+/// Logs how the agent ended as the log's last line (T-334) and returns the exit code.
+fn finish(result: anyhow::Result<ShutdownReason>) -> i32 {
+    let exit = match result {
+        Ok(reason) => Exit::Stopped(reason),
+        Err(e) => {
+            tracing::error!("{e:#}");
+            eprintln!("tandemd: {e:#}");
+            Exit::Failed(format!("{e:#}"))
+        }
+    };
+    exit.log()
+}
+
 /// On macOS, AppKit requires the main thread for the synthetic file drag (T-121):
 /// the agent runs on another thread and this one serves the run loop. When the agent ends the
 /// process exits, because that run loop does not return on its own.
 #[cfg(target_os = "macos")]
-fn run_hosted(args: RunArgs) -> anyhow::Result<()> {
+fn run_hosted(args: RunArgs) -> i32 {
     let agent = std::thread::Builder::new()
         .name("tandemd".into())
         .spawn(move || {
             // If `run` panics the thread dies, but the main thread's run loop
             // does not return: without this the process would stay alive without an agent.
-            let _guard = ExitOnPanic::new(|code| std::process::exit(code));
-            let code = match run(args) {
-                Ok(()) => 0,
-                Err(e) => {
-                    tracing::error!("{e:#}");
-                    eprintln!("tandemd: {e:#}");
-                    1
-                }
-            };
-            std::process::exit(code)
-        })
-        .context("could not create the agent thread")?;
-    tandem_files::drag_macos::run_app_loop();
+            let _guard = ExitOnPanic::new(|_| std::process::exit(Exit::Panicked.log()));
+            std::process::exit(finish(run(args)))
+        });
+    let agent = match agent {
+        Ok(agent) => agent,
+        Err(e) => return finish(Err(e).context("could not create the agent thread")),
+    };
+    // AppKit ends the process itself at the end of the session (T-333), past the agent's
+    // shutdown: the displays go back on (T-341) and the line goes first.
+    tandem_files::drag_macos::run_app_loop(|end| {
+        tandemd::displays::restore_at_process_exit();
+        Exit::SessionEnd(end.to_string()).log();
+    });
     // It only gets here if the run loop did not start: the agent continues on its way.
     let _ = agent.join();
-    Ok(())
+    0
 }
 
 #[cfg(not(target_os = "macos"))]
-fn run_hosted(args: RunArgs) -> anyhow::Result<()> {
-    run(args)
+fn run_hosted(args: RunArgs) -> i32 {
+    finish(run(args))
 }
 
-fn run(args: RunArgs) -> anyhow::Result<()> {
+fn run(args: RunArgs) -> anyhow::Result<ShutdownReason> {
     let paths = Paths::resolve(args.config.clone(), args.data_dir.clone())?;
     paths::create_private_dir(&paths.data_dir)
         .with_context(|| format!("could not create {}", paths.data_dir.display()))?;
     let log = logging::init(&paths.log_dir()).context("could not initialize the log")?;
+    logging::log_panics();
     tracing::info!(version = env!("CARGO_PKG_VERSION"), log = %log.display(), "tandemd starting");
 
     // Before the configuration, the IPC and the link: a second agent on this directory must
@@ -208,6 +217,10 @@ fn run(args: RunArgs) -> anyhow::Result<()> {
         .build()
         .context("could not create the runtime")?;
     rt.block_on(async {
+        // The signals before anything answers on the IPC: a stop sent once the agent is
+        // reachable (launchd's SIGTERM, a test) waits for the orderly shutdown instead of
+        // killing the process during the start (T-334).
+        let shutdown = daemon::shutdown_signal();
         // The IPC first: if a tandemd is already running, the error says so clearly.
         let endpoint = ipc::default_endpoint(&paths.data_dir)?;
         let listener = ipc::bind(&endpoint).await?;
@@ -215,8 +228,8 @@ fn run(args: RunArgs) -> anyhow::Result<()> {
         let (backends, net) = backends(&args, &paths);
         let daemon = daemon::start(cfg, &paths, backends, net)?;
         daemon.agent.set_generated(generated);
-        daemon.serve(listener, daemon::shutdown_signal()).await?;
-        Ok(())
+        let reason = daemon.serve(listener, shutdown).await?;
+        Ok(reason)
     })
 }
 

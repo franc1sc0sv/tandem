@@ -12,7 +12,7 @@ use tandem_core::DeskPatch;
 use tandem_core::{Machine, Side, Step};
 use tandem_link::identity::{Identity, PublicKey, TrustStore, TrustedPeer};
 use tandem_proto::{AgentToUi, Link, PeerStatus, Reply, TxnEvent, UiCommand};
-use tandemd::daemon::{self, Backends, Daemon};
+use tandemd::daemon::{self, Backends, Daemon, ShutdownReason};
 use tandemd::ipc::{IpcClient, mem};
 use tandemd::network::NetOptions;
 use tandemd::orchestrator::{LocalSteps, StepFuture};
@@ -93,7 +93,7 @@ struct Running {
     steps: Arc<Fake>,
     ui: IpcClient<tokio::io::DuplexStream>,
     stop: Option<oneshot::Sender<()>>,
-    task: JoinHandle<Result<(), StoreError>>,
+    task: JoinHandle<Result<ShutdownReason, StoreError>>,
     _dir: tempfile::TempDir,
 }
 

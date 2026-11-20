@@ -168,7 +168,8 @@ fn start_monitors(agent: &Arc<Agent>) {
 }
 
 /// Display control (T-341): this machine's display of a monitor that shows the other goes off.
-/// What it turned off goes back on at start-up, at exit ([`Daemon::serve`]) and on a panic.
+/// What it turned off goes back on at start-up, at exit ([`Daemon::serve`]), on a panic and when
+/// AppKit ends the process at the end of the session ([`crate::displays::restore_at_process_exit`]).
 fn start_displays(agent: &Arc<Agent>, paths: &Paths) {
     let guard = Arc::new(crate::displays::DisplayGuard::new(
         tandem_input::displays::system_display_power(),
@@ -183,6 +184,7 @@ fn start_displays(agent: &Arc<Agent>, paths: &Paths) {
             tracing::info!("display control unavailable: {why}");
         }
     }
+    guard.register_for_process_exit();
     let weak = Arc::downgrade(&guard);
     let previous = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
@@ -196,14 +198,14 @@ fn start_displays(agent: &Arc<Agent>, paths: &Paths) {
 }
 
 impl Daemon {
-    /// Serves the UI until `shutdown` ends; then closes the network.
-    pub async fn serve<L: Listener>(
+    /// Serves the UI until `shutdown` ends; then closes the network. Returns why it stopped.
+    pub async fn serve<L: Listener, R: Into<ShutdownReason>>(
         self,
         listener: L,
-        shutdown: impl Future<Output = ()>,
-    ) -> Result<(), StoreError> {
+        shutdown: impl Future<Output = R>,
+    ) -> Result<ShutdownReason, StoreError> {
         let agent = self.agent.clone();
-        let result = run(self.agent, listener, shutdown).await;
+        let result = run_until(self.agent, listener, shutdown).await;
         // A display turned off by this machine does not stay off after it exits (T-341).
         let _ = tokio::task::spawn_blocking(move || agent.restore_displays()).await;
         // First the capture is released: the keyboard and mouse return to this machine.
@@ -216,21 +218,30 @@ impl Daemon {
 /// How long to wait for open connections to finish before cutting them.
 pub const DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
 
-/// Runs the agent until `shutdown` ends.
+/// [`run_until`] for whoever does not need the reason (the UI's and the CLI's tests).
+pub async fn run<L: Listener>(
+    agent: Arc<Agent>,
+    listener: L,
+    shutdown: impl Future<Output = ()>,
+) -> Result<(), StoreError> {
+    run_until(agent, listener, shutdown).await.map(drop)
+}
+
+/// Runs the agent until `shutdown` ends, and returns why it ended (T-334).
 ///
 /// Orderly shutdown: it stops accepting (the listener is dropped and, on Unix, deletes its
 /// socket), connections are notified, they are given [`DRAIN_TIMEOUT`] and the state is saved.
-pub async fn run<L: Listener>(
+pub async fn run_until<L: Listener, R: Into<ShutdownReason>>(
     agent: Arc<Agent>,
     mut listener: L,
-    shutdown: impl Future<Output = ()>,
-) -> Result<(), StoreError> {
+    shutdown: impl Future<Output = R>,
+) -> Result<ShutdownReason, StoreError> {
     let (stop, stop_rx) = watch::channel(false);
     let mut conns = JoinSet::new();
     tokio::pin!(shutdown);
-    loop {
+    let reason = loop {
         tokio::select! {
-            () = &mut shutdown => break,
+            reason = &mut shutdown => break reason.into(),
             accepted = listener.accept() => match accepted {
                 Ok(stream) => {
                     let (agent, stop_rx) = (agent.clone(), stop_rx.clone());
@@ -248,9 +259,9 @@ pub async fn run<L: Listener>(
             },
             Some(_) = conns.join_next(), if !conns.is_empty() => {}
         }
-    }
+    };
 
-    tracing::info!("shutting down");
+    tracing::info!("shutting down ({reason})");
     drop(listener);
     stop.send_replace(true);
     let drained = tokio::time::timeout(DRAIN_TIMEOUT, async {
@@ -263,47 +274,90 @@ pub async fn run<L: Listener>(
     }
     agent.persist()?;
     tracing::info!("state saved at {}", agent.store_path().display());
-    Ok(())
+    Ok(reason)
 }
 
-/// Ends with Ctrl+C, or with SIGTERM (launchd) / system shutdown (Windows).
-pub async fn shutdown_signal() {
+/// Why the agent's orderly shutdown started (T-334), for the log.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ShutdownReason {
+    /// Ctrl+C in a terminal (SIGINT on Unix).
+    CtrlC,
+    /// launchd's stop (`bootout`, logout) or a `kill`.
+    Sigterm,
+    /// Windows: the console window was closed.
+    ConsoleClosed,
+    /// Windows: the system is shutting down.
+    SystemShutdown,
+    /// Whoever embeds the agent stopped it (the tests).
+    Requested,
+}
+
+/// A shutdown future that only says "stop" is [`ShutdownReason::Requested`].
+impl From<()> for ShutdownReason {
+    fn from((): ()) -> Self {
+        ShutdownReason::Requested
+    }
+}
+
+impl std::fmt::Display for ShutdownReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            ShutdownReason::CtrlC => "Ctrl+C",
+            ShutdownReason::Sigterm => "SIGTERM",
+            ShutdownReason::ConsoleClosed => "console closed",
+            ShutdownReason::SystemShutdown => "system shutdown",
+            ShutdownReason::Requested => "stop requested",
+        })
+    }
+}
+
+/// Ends with Ctrl+C, or with SIGTERM (launchd) / system shutdown (Windows), and says which.
+///
+/// The signals are registered when this is called, not on the first poll, so a signal that
+/// arrives before the agent's loop starts is not lost. Call it inside the runtime.
+pub fn shutdown_signal() -> impl Future<Output = ShutdownReason> {
     #[cfg(unix)]
-    {
-        use tokio::signal::unix::{SignalKind, signal};
-        match signal(SignalKind::terminate()) {
+    let term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate());
+    #[cfg(windows)]
+    let windows = (
+        tokio::signal::windows::ctrl_close(),
+        tokio::signal::windows::ctrl_shutdown(),
+    );
+    async move {
+        #[cfg(unix)]
+        match term {
             Ok(mut term) => {
                 tokio::select! {
-                    _ = tokio::signal::ctrl_c() => {}
-                    _ = term.recv() => {}
+                    _ = tokio::signal::ctrl_c() => ShutdownReason::CtrlC,
+                    _ = term.recv() => ShutdownReason::Sigterm,
                 }
             }
             Err(e) => {
                 tracing::warn!("could not listen for SIGTERM: {e}");
                 let _ = tokio::signal::ctrl_c().await;
+                ShutdownReason::CtrlC
             }
         }
-    }
-    #[cfg(windows)]
-    {
-        use tokio::signal::windows::{ctrl_close, ctrl_shutdown};
-        match (ctrl_close(), ctrl_shutdown()) {
+        #[cfg(windows)]
+        match windows {
             (Ok(mut close), Ok(mut shut)) => {
                 tokio::select! {
-                    _ = tokio::signal::ctrl_c() => {}
-                    _ = close.recv() => {}
-                    _ = shut.recv() => {}
+                    _ = tokio::signal::ctrl_c() => ShutdownReason::CtrlC,
+                    _ = close.recv() => ShutdownReason::ConsoleClosed,
+                    _ = shut.recv() => ShutdownReason::SystemShutdown,
                 }
             }
             _ => {
                 tracing::warn!("could not listen for the Windows shutdown");
                 let _ = tokio::signal::ctrl_c().await;
+                ShutdownReason::CtrlC
             }
         }
-    }
-    #[cfg(not(any(unix, windows)))]
-    {
-        let _ = tokio::signal::ctrl_c().await;
+        #[cfg(not(any(unix, windows)))]
+        {
+            let _ = tokio::signal::ctrl_c().await;
+            ShutdownReason::CtrlC
+        }
     }
 }
 
@@ -368,6 +422,64 @@ mod tests {
             store.load().unwrap(),
             Some(State::initial(tandem_core::Machine::A))
         );
+    }
+
+    #[tokio::test]
+    async fn run_returns_the_reason_its_shutdown_gave() {
+        let dir = tempfile::tempdir().unwrap();
+        let agent = Arc::new(agent(dir.path()));
+        let (listener, _connector) = mem::pair();
+        let reason = run_until(agent, listener, async { ShutdownReason::Sigterm }).await;
+        assert_eq!(reason.unwrap(), ShutdownReason::Sigterm);
+    }
+
+    #[tokio::test]
+    async fn a_shutdown_that_only_says_stop_is_requested() {
+        let dir = tempfile::tempdir().unwrap();
+        let agent = Arc::new(agent(dir.path()));
+        let (listener, _connector) = mem::pair();
+        let reason = run_until(agent, listener, async {}).await;
+        assert_eq!(reason.unwrap(), ShutdownReason::Requested);
+    }
+
+    #[test]
+    fn the_shutdown_reason_reads_well_in_the_log() {
+        let texts: Vec<String> = [
+            ShutdownReason::CtrlC,
+            ShutdownReason::Sigterm,
+            ShutdownReason::ConsoleClosed,
+            ShutdownReason::SystemShutdown,
+            ShutdownReason::Requested,
+        ]
+        .iter()
+        .map(|r| format!("shutting down ({r})"))
+        .collect();
+        assert_eq!(
+            texts,
+            [
+                "shutting down (Ctrl+C)",
+                "shutting down (SIGTERM)",
+                "shutting down (console closed)",
+                "shutting down (system shutdown)",
+                "shutting down (stop requested)",
+            ]
+        );
+    }
+
+    /// The signal is registered when `shutdown_signal` is called, so this SIGTERM is caught by
+    /// it and does not kill the test process.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn sigterm_is_reported_by_shutdown_signal() {
+        let signal = shutdown_signal();
+        let sent = std::process::Command::new("kill")
+            .arg("-TERM")
+            .arg(std::process::id().to_string())
+            .status()
+            .unwrap();
+        assert!(sent.success());
+        let reason = tokio::time::timeout(Duration::from_secs(10), signal).await;
+        assert_eq!(reason.unwrap(), ShutdownReason::Sigterm);
     }
 
     #[test]

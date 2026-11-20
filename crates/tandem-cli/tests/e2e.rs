@@ -58,7 +58,7 @@ struct Running {
     /// A client (`tandem mcp`) connected to this machine's IPC.
     client: Option<IpcClient<DuplexStream>>,
     stops: Vec<oneshot::Sender<()>>,
-    task: JoinHandle<Result<(), StoreError>>,
+    task: JoinHandle<Result<tandemd::daemon::ShutdownReason, StoreError>>,
     _dir: tempfile::TempDir,
 }
 

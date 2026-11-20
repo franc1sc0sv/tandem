@@ -29,3 +29,13 @@ pub fn init(log_dir: &Path) -> io::Result<PathBuf> {
         .map_err(io::Error::other)?;
     Ok(path)
 }
+
+/// Also writes panics to the log (T-334): the default hook only prints to stderr, which the
+/// LaunchAgent and the Windows scheduled task do not keep.
+pub fn log_panics() {
+    let previous = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        tracing::error!("panic: {info}");
+        previous(info);
+    }));
+}

@@ -15,7 +15,7 @@ use tandem_proto::{
     TunnelProcess, UiCommand,
 };
 use tandem_tunnel::process::fake::FakeSpawner;
-use tandemd::daemon::{self, Backends, Daemon};
+use tandemd::daemon::{self, Backends, Daemon, ShutdownReason};
 use tandemd::ipc::{IpcClient, mem};
 use tandemd::network::NetOptions;
 use tandemd::orchestrator::{LocalSteps, StepFuture};
@@ -69,7 +69,7 @@ struct Running {
     /// A client (`tandem mcp`) connected to this machine's IPC.
     client: IpcClient<DuplexStream>,
     stops: Vec<oneshot::Sender<()>>,
-    task: JoinHandle<Result<(), StoreError>>,
+    task: JoinHandle<Result<ShutdownReason, StoreError>>,
     _dir: tempfile::TempDir,
 }
 

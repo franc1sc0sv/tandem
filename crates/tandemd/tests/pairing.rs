@@ -18,7 +18,7 @@ use tandem_proto::{
     AgentToUi, InputStatus, Link, PairingStatus, PeerStatus, Reply, TxnEvent, UiCommand,
 };
 use tandemd::agent::NO_NETWORK;
-use tandemd::daemon::{self, Backends, Daemon};
+use tandemd::daemon::{self, Backends, Daemon, ShutdownReason};
 use tandemd::input::fake::FakeInputBackends;
 use tandemd::input::{InputOptions, InputSetup};
 use tandemd::ipc::{IpcClient, mem};
@@ -97,7 +97,7 @@ struct Running {
     ui: IpcClient<tokio::io::DuplexStream>,
     paths: Paths,
     stop: Option<oneshot::Sender<()>>,
-    task: JoinHandle<Result<(), StoreError>>,
+    task: JoinHandle<Result<ShutdownReason, StoreError>>,
     _dir: tempfile::TempDir,
 }
 

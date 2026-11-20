@@ -31,7 +31,7 @@ use objc2_foundation::{
 };
 use tokio::sync::oneshot;
 
-use crate::app_quit::{self, QuitDecision, QuitRequest};
+use crate::app_quit::{self, QuitDecision, QuitRequest, SessionEnd};
 use crate::drag::{DragDetector, DragEnd, DragStarter};
 use crate::drag_os::{end_of, parse_file_url};
 use crate::error::{FilesError, Result};
@@ -61,14 +61,16 @@ pub fn main_queue() -> RunOnMain {
 ///
 /// The delegate answers AppKit's Quit (T-333): without it a Quit Apple event ends the
 /// process with `exit(0)`, past the agent's shutdown and past launchd's `KeepAlive`.
-pub fn run_app_loop() {
+/// `on_session_end` runs when it lets AppKit end the process anyway (the session is ending),
+/// so the agent can write its last log line before AppKit's `exit` (T-334).
+pub fn run_app_loop(on_session_end: impl Fn(SessionEnd) + 'static) {
     let Some(mtm) = MainThreadMarker::new() else {
         return;
     };
     let app = NSApplication::sharedApplication(mtm);
     app.setActivationPolicy(NSApplicationActivationPolicy::Accessory);
     // `delegate` is a weak property: the local keeps it alive, and `run` does not return.
-    let delegate = AppDelegate::new(mtm);
+    let delegate = AppDelegate::new(mtm, Box::new(on_session_end));
     app.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
     app.run();
 }
@@ -79,6 +81,7 @@ define_class!(
     #[unsafe(super(NSObject))]
     #[thread_kind = MainThreadOnly]
     #[name = "TandemAgentAppDelegate"]
+    #[ivars = AppIvars]
     struct AppDelegate;
 
     // SAFETY: `NSObjectProtocol` requires no methods of its own and `AppDelegate` inherits from `NSObject`.
@@ -97,6 +100,7 @@ define_class!(
                 }
                 QuitDecision::Allow(end) => {
                     tracing::info!(%request, "Quit AppleEvent for {end}: AppKit terminates tandemd");
+                    (self.ivars().on_session_end)(end);
                     NSApplicationTerminateReply::TerminateNow
                 }
             }
@@ -104,9 +108,13 @@ define_class!(
     }
 );
 
+struct AppIvars {
+    on_session_end: Box<dyn Fn(SessionEnd)>,
+}
+
 impl AppDelegate {
-    fn new(mtm: MainThreadMarker) -> Retained<Self> {
-        let this = Self::alloc(mtm).set_ivars(());
+    fn new(mtm: MainThreadMarker, on_session_end: Box<dyn Fn(SessionEnd)>) -> Retained<Self> {
+        let this = Self::alloc(mtm).set_ivars(AppIvars { on_session_end });
         // SAFETY: `init` of NSObject with no arguments.
         unsafe { msg_send![super(this), init] }
     }
