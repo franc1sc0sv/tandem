@@ -175,7 +175,7 @@ version signed with it satisfies:
 
 ```
 designated => identifier "com.franc1sc0sv.tandem" and certificate leaf = H"<SHA-1 of the certificate>"
-designated => identifier "tandemd" and certificate leaf = H"<the same SHA-1>"           # Contents/MacOS/tandemd
+designated => identifier tandemd and certificate leaf = H"<the same SHA-1>"             # Contents/MacOS/tandemd
 ```
 
 `tandemd` is what the LaunchAgent runs and what holds the permissions; with no Info.plist of its
@@ -183,8 +183,9 @@ own, codesign names it after the file. The certificate has no Organization on pu
 non-Apple certificate, codesign pins the last certificate of the chain that shares the leaf's
 Organization (`DRMaker::nonAppleAnchor` in Apple's open-source Security framework), and with a
 single self-signed certificate and no Organization that is `certificate leaf`. Either way it is
-the SHA-1 of the one certificate, the same in every build. CI prints the real lines in the job
-summary.
+the SHA-1 of the one certificate, the same in every build. These are the lines the
+`dmg (macos-latest)` job printed for its disposable identity (`scripts/macos/bundle.sh` prints them
+on every build, and the release summary shows them).
 
 ### Creating it (once)
 
@@ -220,7 +221,7 @@ repo**; keep the folder backed up somewhere private. Nothing else changes: the
   another SDK version in `LC_BUILD_VERSION`, so both cdhashes change) and signs it again with the
   same identity. For the app and for `tandemd` it fails if the DR is missing or a `cdhash`
   (ad hoc), if the two `codesign -d -r-` differ, if the second version does not satisfy the
-  first one's DR (`codesign --verify -R=<DR>`, what TCC evaluates), or if both have the same
+  first one's DR (`codesign --verify -R "=<DR>"`, what TCC evaluates), or if both have the same
   cdhash (then it proved nothing). In the release it also unpacks the updater package and checks
   that it keeps the DR and carries no `com.apple.quarantine`.
 

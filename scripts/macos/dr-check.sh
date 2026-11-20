@@ -50,7 +50,8 @@ compare() {
   esac
   [ "$dra" = "$drb" ] || die "the designated requirements differ: TCC would treat $b as another app"
   # What TCC does with the stored requirement: the new build must satisfy the old one's DR.
-  codesign --verify --strict -R="=$dra" "$b" || die "$b does not satisfy the designated requirement of $a"
+  # `-R` and the text as two arguments: the leading `=` marks it as requirement text, not a file.
+  codesign --verify --strict -R "=$dra" "$b" || die "$b does not satisfy the designated requirement of $a"
   local ca cb
   ca=$(cdhash_of "$a")
   cb=$(cdhash_of "$b")

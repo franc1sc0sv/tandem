@@ -142,11 +142,16 @@ contains "identity: prints the certificate secret command" "$idmsg" "gh secret s
 contains "identity: prints the password secret command" "$idmsg" "gh secret set MACOS_SIGNING_CERTIFICATE_PASSWORD < \"$idout/password\""
 not_contains "identity: never prints the password" "$idmsg" "$(cat "$idout/password")"
 [ "$(stat -c %a "$idout/identity.p12")" = 600 ] && ok "identity: private files" || bad "identity: private files"
-certtext=$(openssl pkcs12 -in "$idout/identity.p12" -passin "file:$idout/password" -nokeys 2>/dev/null | openssl x509 -noout -text)
-contains "identity: the .p12 opens with its password and carries the certificate" "$certtext" "Subject: CN = Tandem Self-Signed Code Signing"
+certpem=$(openssl pkcs12 -in "$idout/identity.p12" -passin "file:$idout/password" -nokeys 2>/dev/null)
+certtext=$(openssl x509 -noout -text <<<"$certpem")
+# RFC 2253 prints the subject the same way in every OpenSSL version.
+subject=$(openssl x509 -noout -subject -nameopt RFC2253 <<<"$certpem")
+[ "$subject" = "subject=CN=Tandem Self-Signed Code Signing" ] \
+  && ok "identity: the .p12 opens with its password and carries the certificate" \
+  || bad "identity: the .p12 opens with its password and carries the certificate ($subject)"
 contains "identity: code-signing usage" "$certtext" "Code Signing"
 contains "identity: not a CA" "$certtext" "CA:FALSE"
-not_contains "identity: no Organization (the DR pins the leaf)" "$certtext" "O = "
+not_contains "identity: no Organization (the DR pins the leaf)" "$subject" "O="
 openssl pkcs12 -in "$idout/identity.p12" -passin "file:$idout/password" -nocerts -nodes 2>/dev/null | grep -q "PRIVATE KEY" \
   && ok "identity: the .p12 carries the private key" || bad "identity: the .p12 carries the private key"
 [ "$(base64 -d <"$idout/identity.p12.b64" | cmp - "$idout/identity.p12" && echo same)" = same ] \
@@ -171,7 +176,7 @@ meta() { if [ -d "$path" ]; then cat "$path/.$1" 2>/dev/null; else cat "$path.$1
 case "$*" in
   "-d -r- "*) d=$(meta dr); [ -n "$d" ] && echo "designated => $d"; echo "Executable=$path" >&2 ;;
   "-d -vvv "*) echo "CDHash=$(meta cdhash)" >&2 ;;
-  "--verify --strict -R="*) req=${3#-R=}; req=${req#=}; [ "$req" = "$(meta dr)" ] ;;
+  "--verify --strict -R ="*) req=${4#=}; [ "$req" = "$(meta dr)" ] ;;
   "--verify --deep --strict "*) [ -n "$(meta dr)" ] ;;
   *) echo "fake codesign: unexpected $*" >&2; exit 2 ;;
 esac
