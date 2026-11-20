@@ -3,7 +3,8 @@
 //!
 //! - Owner election: the same on both machines, the one with the lower latency.
 //! - Input switch from the UI of the one that is not the owner: the owner does it, with a verdict.
-//! - Re-election when the owner shuts down, with a new event cursor.
+//! - Re-election when the owner shuts down: the new owner carries on the owner's last cursor
+//!   (T-346), never its own stale one.
 //! - Rollback if the switch is left without a verdict.
 //! - The factory monitor never receives a Set.
 
@@ -159,7 +160,7 @@ async fn the_owner_is_elected_the_same_on_both_and_switches_with_its_verdict() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn when_the_owner_powers_off_the_other_takes_over_with_a_fresh_cursor() {
+async fn when_the_owner_powers_off_the_other_takes_over_without_its_stale_cursor() {
     let d = desk_with(FakeMonitorConfig::new(Personality::Standard)).await;
     let sim = d.monitors().unwrap().clone();
     let std = sim.id(STD).to_owned();
@@ -169,7 +170,7 @@ async fn when_the_owner_powers_off_the_other_takes_over_with_a_fresh_cursor() {
 
     // While the PC reads, the user switches twice with the monitor menu. The Mac was the
     // owner before the PC started: if on becoming one again it used that cursor, it would report
-    // these two as well.
+    // these two as well. It carries on from the PC's last cursor instead (T-346), which is past them.
     sim.fake().osd_switch(sim.handle(STD), Input::Hdmi);
     sim.fake().osd_switch(sim.handle(STD), Input::DisplayPort);
     d.wait_monitors(Machine::A, "the switches read by the PC", |v| {
@@ -214,7 +215,7 @@ async fn when_the_owner_powers_off_the_other_takes_over_with_a_fresh_cursor() {
     assert_eq!(
         inputs,
         [Some(MonitorInput::Hdmi)],
-        "new cursor: only what came after taking the monitor: {:?}",
+        "the PC's cursor: only what came after the PC's last report: {:?}",
         report.events
     );
 

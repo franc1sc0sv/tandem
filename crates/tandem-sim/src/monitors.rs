@@ -4,6 +4,11 @@
 //! [`MachineBus`], which only answers while that machine is on and has a cable to
 //! the monitor, takes as long as its latency says (on the double's clock) and records each request with
 //! the machine that made it. That way it is checked who read and who wrote.
+//!
+//! The 34"'s DP and HDMI share one DDC/CI request buffer (monitor-firmware,
+//! `inactive-hdmi-ddc.md`): when two hosts ask at once, one can get the reply to the other's
+//! request. [`SimMonitors::cross_replies`] makes that happen on purpose, with a backend that does
+//! not check the code echoed in the reply (the worst case for Tandem's own checks).
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -35,6 +40,11 @@ struct Shared {
     /// Cables whose DDC does not answer: the system lists the monitor with its EDID, but
     /// nothing reaches it (the 34" only answers on the input it shows, T-340).
     silent: BTreeSet<(MonitorHandle, Machine)>,
+    /// Machine → how many of its next Gets get the reply to another request, and which code
+    /// (`None`: the other machine's latest request for another code).
+    crossed: BTreeMap<Machine, (u32, Option<u8>)>,
+    /// The codes each machine asked for, per monitor, the latest last (a few).
+    last_gets: BTreeMap<(MonitorHandle, Machine), Vec<u8>>,
 }
 
 /// The desk's physical monitors.
@@ -130,6 +140,19 @@ impl SimMonitors {
 
     pub fn clear_ops(&self) {
         self.lock().ops.clear();
+    }
+
+    /// The next `count` Gets of `machine` get the reply to another request, as the firmware's
+    /// shared buffer does: to `code` if given (one the other machine also reads), otherwise to the
+    /// other machine's latest request to that monitor for another code (`0xEB` if there is none).
+    /// A crossed reply to the same code would carry the right content anyway.
+    pub fn cross_replies(&self, machine: Machine, count: u32, code: Option<u8>) {
+        self.lock().crossed.insert(machine, (count, code));
+    }
+
+    /// How many crossed replies of `machine` are still due.
+    pub fn crossed_left(&self, machine: Machine) -> u32 {
+        self.lock().crossed.get(&machine).map_or(0, |(n, _)| *n)
     }
 
     /// Whether DDC answers over `machine`'s cable to monitor `i`. Silent, the monitor is still
@@ -231,8 +254,29 @@ impl DdcBus for MachineBus {
     }
 
     fn get_vcp(&self, monitor: MonitorHandle, code: u8) -> Result<VcpReply, DdcError> {
+        let reaches = self.channel(monitor).is_some();
+        let answered = {
+            let mut s = self.monitors.lock();
+            let theirs = s
+                .last_gets
+                .get(&(monitor, self.machine.other()))
+                .and_then(|codes| codes.iter().rev().find(|c| **c != code).copied())
+                .unwrap_or(0xEB);
+            let mine = s.last_gets.entry((monitor, self.machine)).or_default();
+            mine.push(code);
+            if mine.len() > 8 {
+                mine.remove(0);
+            }
+            match s.crossed.get_mut(&self.machine) {
+                Some((n, with)) if *n > 0 && reaches => {
+                    *n -= 1;
+                    with.unwrap_or(theirs)
+                }
+                _ => code,
+            }
+        };
         self.wire(monitor, code, BusOp::Get { monitor, code }, |f| {
-            f.get_vcp(monitor, code)
+            f.get_vcp(monitor, answered)
         })
     }
 

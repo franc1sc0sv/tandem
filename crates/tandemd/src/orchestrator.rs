@@ -68,7 +68,12 @@ pub trait MonitorControl: Send + Sync {
     fn owner(&self, monitor: &str) -> Option<Machine>;
     /// The input on screen according to the owner: it goes back to that if there is something to undo.
     fn input(&self, monitor: &str) -> Option<MonitorInput>;
-    /// Changes the input here (this machine is the owner) and waits for the verdict. An error that
+    /// This machine changes `monitor` itself although the other owns it: the owner is unreachable
+    /// and this machine has a channel to it (T-346).
+    fn direct(&self, _monitor: &str) -> bool {
+        false
+    }
+    /// Changes the input here (this machine is the owner, or [`MonitorControl::direct`]) and waits for the verdict. An error that
     /// starts with [`tandem_monitor::NO_VERDICT`] leaves in doubt whether it changed.
     fn switch<'a>(&'a self, monitor: &'a str, input: MonitorInput) -> StepFuture<'a>;
     /// The owner (here or on the other machine) confirmed `input` on `monitor` with the firmware's
@@ -310,13 +315,19 @@ impl Orchestrator {
             .clone()
     }
 
-    /// The machine that does `step`: the one from [`target`], or the monitor's owner.
+    /// The machine that does `step`: the one from [`target`], or the monitor's owner. While the
+    /// owner is unreachable, this machine changes a monitor it has a channel to (T-346).
     pub fn target_of(&self, step: &Step) -> Result<Machine, String> {
         match step {
-            Step::SwitchMonitor { monitor, .. } => self
-                .monitors()
-                .and_then(|m| m.owner(monitor))
-                .ok_or_else(|| format!("{}: {NO_OWNER}", describe(step))),
+            Step::SwitchMonitor { monitor, .. } => {
+                let monitors = self.monitors();
+                let owner = monitors
+                    .as_ref()
+                    .and_then(|m| m.owner(monitor))
+                    .ok_or_else(|| format!("{}: {NO_OWNER}", describe(step)))?;
+                let direct = monitors.is_some_and(|m| m.direct(monitor));
+                Ok(if direct { self.me() } else { owner })
+            }
             s if s.is_scene() => Err(format!("{}: {SCENE_ONLY}", describe(step))),
             _ => target(step).ok_or_else(|| describe(step)),
         }
@@ -1167,6 +1178,8 @@ pub(crate) mod tests {
     /// Test monitors: a fixed owner, an input and what each change answers.
     struct FakeMonitors {
         owner: Option<Machine>,
+        /// [`MonitorControl::direct`]: the owner is unreachable and this machine has a channel.
+        direct: bool,
         input: Option<MonitorInput>,
         answer: Mutex<Vec<Result<(), String>>>,
         switched: Mutex<Vec<MonitorInput>>,
@@ -1177,6 +1190,7 @@ pub(crate) mod tests {
         fn new(owner: Option<Machine>, answers: Vec<Result<(), String>>) -> Arc<Self> {
             Arc::new(FakeMonitors {
                 owner,
+                direct: false,
                 input: Some(MonitorInput::DisplayPort),
                 answer: Mutex::new(answers),
                 switched: Mutex::new(Vec::new()),
@@ -1199,6 +1213,9 @@ pub(crate) mod tests {
         }
         fn input(&self, _monitor: &str) -> Option<MonitorInput> {
             self.input
+        }
+        fn direct(&self, _monitor: &str) -> bool {
+            self.direct
         }
         fn switch<'a>(&'a self, _monitor: &'a str, input: MonitorInput) -> StepFuture<'a> {
             self.switched.lock().unwrap().push(input);
@@ -1259,6 +1276,23 @@ pub(crate) mod tests {
             let e = o.dispatch(&step).await.unwrap_err();
             assert!(e.contains(SCENE_ONLY), "{e}");
         }
+        assert!(local.steps().is_empty() && peer.steps().is_empty());
+    }
+
+    /// T-346: with the owner unreachable and a channel here, this machine switches by itself
+    /// instead of asking the other.
+    #[tokio::test]
+    async fn without_the_owner_a_machine_with_a_channel_switches_itself() {
+        let (o, local, peer) = mac(FakeSteps::default(), FakeSteps::default());
+        let m = Arc::new(FakeMonitors {
+            direct: true,
+            ..Arc::into_inner(FakeMonitors::new(Some(Machine::B), vec![])).unwrap()
+        });
+        o.set_monitors(m.clone());
+        assert_eq!(o.target_of(&to_hdmi()), Ok(Machine::A));
+        o.dispatch(&to_hdmi()).await.unwrap();
+        assert_eq!(m.switched(), [MonitorInput::Hdmi]);
+        assert_eq!(m.confirmed(), [MonitorInput::Hdmi]);
         assert!(local.steps().is_empty() && peer.steps().is_empty());
     }
 
@@ -1363,6 +1397,7 @@ pub(crate) mod tests {
         let (o, _, _) = mac(FakeSteps::default(), FakeSteps::default());
         let m = Arc::new(FakeMonitors {
             owner: Some(Machine::A),
+            direct: false,
             input: None,
             answer: Mutex::new(Vec::new()),
             switched: Mutex::new(Vec::new()),

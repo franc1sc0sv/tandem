@@ -242,6 +242,10 @@ impl DeskBuilder {
                         up.send_replace(active);
                         if active && !was {
                             near.set_peer(announce.clone());
+                        } else if !active && was {
+                            // As `tandemd::network` does: without a link the orchestrator has no
+                            // peer, and whoever looks at `peer_connected` sees it (T-346).
+                            near.orchestrator().clear_peer();
                         }
                         was = active;
                         if snapshots.changed().await.is_err() {
