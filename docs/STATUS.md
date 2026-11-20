@@ -10,7 +10,7 @@
 | | |
 |---|---|
 | Tasks | **192 done of 198** (`T-001`…`T-350`; open ones below) |
-| Tests | **1628 Rust + 732 UI (vitest)**, 0 failures, 11 ignored (`#[ignore = "hardware"]` and latency benches) |
+| Tests | **1762 Rust + 732 UI (vitest)**, 0 failures, 11 ignored (`#[ignore = "hardware"]` and latency benches) |
 | Quality | `fmt`, `clippy -D warnings`, `svelte-check` and `pnpm build` with no warnings |
 | CI per PR | Linux · Windows · macOS · UI x3 · coverage · `.dmg` · Windows installer |
 

@@ -163,19 +163,22 @@ fn finish(result: anyhow::Result<ShutdownReason>) -> i32 {
 #[cfg(target_os = "macos")]
 fn run_hosted(args: RunArgs) -> i32 {
     use std::sync::Arc;
-    use tandemd::ui_open::{SiblingUi, UiOpener};
+    use tandemd::ui_open::{NoUi, SiblingUi, UiLauncher, UiOpener};
 
     // Before the agent's thread touches the window server: `tandemd` is never a "Tandem" in
     // the Dock, ⌘Tab or Force Quit (T-350).
     tandem_files::drag_macos::become_accessory();
-    let launcher = SiblingUi::beside_current_exe().unwrap_or_else(|e| {
-        // The log is not open yet: launchd's StandardErrorPath gets it.
-        eprintln!("tandemd: cannot find tandemd's executable: {e}");
-        SiblingUi {
-            program: tandemd::ui_open::UI_EXECUTABLE.into(),
+    let launcher: Box<dyn UiLauncher> = match SiblingUi::beside_current_exe() {
+        Ok(ui) => Box::new(ui),
+        Err(e) => {
+            // The log is not open yet: launchd's StandardErrorPath gets it.
+            eprintln!("tandemd: cannot find tandemd's executable: {e}");
+            Box::new(NoUi(format!(
+                "tandemd's executable is unknown ({e}): cannot find the UI beside it"
+            )))
         }
-    });
-    let opener = Arc::new(UiOpener::new(Box::new(launcher)));
+    };
+    let opener = Arc::new(UiOpener::new(launcher));
     let attach = opener.clone();
     let agent = std::thread::Builder::new()
         .name("tandemd".into())

@@ -9,7 +9,7 @@
 
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, OnceLock};
 
 use tandem_files::app_open::{self, OpenDecision, OpenRequest};
@@ -90,9 +90,24 @@ impl Drop for UiConnection {
     }
 }
 
+/// What runs when a launched UI process ends.
+pub type OnExit = Box<dyn FnOnce() + Send>;
+
 /// Starts the UI. On macOS, the `tandem-ui` beside `tandemd` in the bundle ([`SiblingUi`]).
 pub trait UiLauncher: Send + Sync {
-    fn launch(&self) -> io::Result<()>;
+    /// Starts it without waiting; `on_exit` runs once the launched process has ended (not
+    /// called if the launch fails).
+    fn launch(&self, on_exit: OnExit) -> io::Result<()>;
+}
+
+/// The launcher when the UI's executable cannot be located: every launch fails with the reason,
+/// so the log says what really happens.
+pub struct NoUi(pub String);
+
+impl UiLauncher for NoUi {
+    fn launch(&self, _on_exit: OnExit) -> io::Result<()> {
+        Err(io::Error::new(io::ErrorKind::NotFound, self.0.clone()))
+    }
 }
 
 /// Name of the UI's executable in the bundle's `Contents/MacOS`, next to `tandemd`.
@@ -106,9 +121,13 @@ pub fn ui_beside(agent_exe: &Path) -> Option<PathBuf> {
 /// Does what the system asked when it opened Tandem through the agent. Created before the agent
 /// starts (AppKit's run loop serves requests from the first moment); [`UiOpener::attach`] gives
 /// it the agent's [`UiPresence`] once there is one. Until then no UI can be connected.
+///
+/// A UI it launched counts as on its way until it connects or its process ends: a second open
+/// while the first UI is still starting (its setup can take a while) launches no second copy.
 pub struct UiOpener {
     presence: OnceLock<UiPresence>,
     launcher: Box<dyn UiLauncher>,
+    launching: Arc<AtomicBool>,
 }
 
 impl UiOpener {
@@ -116,6 +135,7 @@ impl UiOpener {
         UiOpener {
             presence: OnceLock::new(),
             launcher,
+            launching: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -129,9 +149,19 @@ impl UiOpener {
         let decision = app_open::decide(request, connected);
         match decision {
             OpenDecision::LaunchUi => {
-                tracing::info!(%request, "open request from LaunchServices: launching the UI");
-                if let Err(e) = self.launcher.launch() {
-                    tracing::warn!("could not launch the UI: {e}");
+                if self.launching.swap(true, Ordering::SeqCst) {
+                    tracing::info!(
+                        %request,
+                        "open request from LaunchServices: the UI launched earlier is still starting"
+                    );
+                } else {
+                    tracing::info!(%request, "open request from LaunchServices: launching the UI");
+                    let launching = self.launching.clone();
+                    let on_exit = Box::new(move || launching.store(false, Ordering::SeqCst));
+                    if let Err(e) = self.launcher.launch(on_exit) {
+                        self.launching.store(false, Ordering::SeqCst);
+                        tracing::warn!("could not launch the UI: {e}");
+                    }
                 }
             }
             OpenDecision::ShowUi => {
@@ -169,7 +199,7 @@ impl SiblingUi {
 
 #[cfg(unix)]
 impl UiLauncher for SiblingUi {
-    fn launch(&self) -> io::Result<()> {
+    fn launch(&self, on_exit: OnExit) -> io::Result<()> {
         use std::os::unix::process::CommandExt;
         use std::process::{Command, Stdio};
 
@@ -189,6 +219,7 @@ impl UiLauncher for SiblingUi {
             .name("ui-launch".into())
             .spawn(move || {
                 let _ = child.wait();
+                on_exit();
             })?;
         Ok(())
     }
@@ -215,6 +246,7 @@ mod tests {
     #[derive(Clone, Default)]
     struct FakeLauncher {
         launches: Arc<Mutex<usize>>,
+        running: Arc<Mutex<Vec<OnExit>>>,
         fail: bool,
     }
 
@@ -222,14 +254,23 @@ mod tests {
         fn launches(&self) -> usize {
             *self.launches.lock().unwrap()
         }
+
+        /// Every launched UI process ends.
+        fn exit_all(&self) {
+            let running: Vec<_> = self.running.lock().unwrap().drain(..).collect();
+            for on_exit in running {
+                on_exit();
+            }
+        }
     }
 
     impl UiLauncher for FakeLauncher {
-        fn launch(&self) -> io::Result<()> {
+        fn launch(&self, on_exit: OnExit) -> io::Result<()> {
             *self.launches.lock().unwrap() += 1;
             if self.fail {
                 Err(io::Error::other("no ui"))
             } else {
+                self.running.lock().unwrap().push(on_exit);
                 Ok(())
             }
         }
@@ -267,6 +308,40 @@ mod tests {
         let opener = UiOpener::new(Box::new(launcher.clone()));
         assert_eq!(opener.handle(REOPEN), OpenDecision::LaunchUi);
         assert_eq!(launcher.launches(), 1);
+    }
+
+    #[test]
+    fn a_second_open_while_the_ui_starts_launches_no_second_copy() {
+        let (opener, launcher, presence) = opener();
+        assert_eq!(opener.handle(REOPEN), OpenDecision::LaunchUi);
+        assert_eq!(opener.handle(REOPEN), OpenDecision::LaunchUi);
+        assert_eq!(launcher.launches(), 1);
+        // It connects and later closes, and its process ends: the next open launches again.
+        drop(presence.connect());
+        launcher.exit_all();
+        assert_eq!(opener.handle(REOPEN), OpenDecision::LaunchUi);
+        assert_eq!(launcher.launches(), 2);
+    }
+
+    #[test]
+    fn a_failed_launch_does_not_block_the_next_one() {
+        let launcher = FakeLauncher {
+            fail: true,
+            ..FakeLauncher::default()
+        };
+        let opener = UiOpener::new(Box::new(launcher.clone()));
+        opener.handle(REOPEN);
+        opener.handle(REOPEN);
+        assert_eq!(launcher.launches(), 2);
+    }
+
+    #[test]
+    fn without_the_executable_the_launch_fails_with_the_reason() {
+        let err = NoUi("no tandem-ui".into())
+            .launch(Box::new(|| {}))
+            .unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::NotFound);
+        assert_eq!(err.to_string(), "no tandem-ui");
     }
 
     #[tokio::test]
@@ -340,11 +415,14 @@ mod tests {
         )
         .unwrap();
         std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
-        SiblingUi { program }.launch().unwrap();
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-        while !mark.exists() && std::time::Instant::now() < deadline {
-            std::thread::sleep(std::time::Duration::from_millis(10));
-        }
+        let (tx, rx) = std::sync::mpsc::channel();
+        SiblingUi { program }
+            .launch(Box::new(move || {
+                let _ = tx.send(());
+            }))
+            .unwrap();
+        rx.recv_timeout(std::time::Duration::from_secs(5))
+            .expect("the end of the UI was not reported");
         assert!(mark.exists(), "the UI was not launched");
     }
 
@@ -355,7 +433,10 @@ mod tests {
         let ui = SiblingUi {
             program: dir.path().join(UI_EXECUTABLE),
         };
-        assert_eq!(ui.launch().unwrap_err().kind(), io::ErrorKind::NotFound);
+        assert_eq!(
+            ui.launch(Box::new(|| {})).unwrap_err().kind(),
+            io::ErrorKind::NotFound
+        );
     }
 
     proptest! {
