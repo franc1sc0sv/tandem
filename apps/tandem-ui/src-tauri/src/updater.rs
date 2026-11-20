@@ -64,6 +64,23 @@ impl Updater {
             .as_deref()
             .map(update::load_settings)
             .unwrap_or_default();
+        let updated_from = update::just_updated(settings.seen.as_deref(), &parse(HERE));
+        // Remember this version right away: the "Updated to" result is shown once per update.
+        if settings.seen.as_deref() != Some(HERE)
+            && let Some(file) = settings_file.as_deref()
+        {
+            let seen = Settings {
+                auto: settings.auto,
+                seen: Some(HERE.to_owned()),
+            };
+            if let Err(e) = update::save_settings(file, seen) {
+                eprintln!("tandem-ui: could not save {}: {e}", file.display());
+            }
+        }
+        let admin = crate::admin_service::update_asks_admin(
+            &crate::app::admin_platform(),
+            &crate::app::admin_acl(),
+        );
         Updater {
             state: Mutex::new(State {
                 view: UpdateView {
@@ -76,6 +93,8 @@ impl Updater {
                     step: None,
                     error: None,
                     auto: settings.auto,
+                    admin,
+                    updated_from: updated_from.map(|v| v.to_string()),
                 },
                 found: None,
                 settings_file,
@@ -213,7 +232,8 @@ impl Updater {
     pub fn set_auto(&self, app: &AppHandle, on: bool) -> Result<UpdateView, String> {
         let file = lock(&self.state).settings_file.clone();
         if let Some(file) = file {
-            update::save_settings(&file, Settings { auto: on })
+            let seen = Some(HERE.to_owned());
+            update::save_settings(&file, Settings { auto: on, seen })
                 .map_err(|e| format!("could not save {}: {e}", file.display()))?;
         }
         Ok(self.change(app, |s| s.view.auto = on))

@@ -11,7 +11,8 @@
 //!   version and nothing else changes, so the desk stays usable with the machine that works.
 //! - [`drives_auto`] and [`requested_install`]: who updates automatically and when the other
 //!   machine asked to install.
-//! - [`Settings`]: the "Update automatically" switch in `update.toml`.
+//! - [`Settings`]: the "Update automatically" switch in `update.toml`, and the version this
+//!   app last ran as, so that after the restart it can say "Updated to x.y.z" ([`just_updated`]).
 
 use std::cmp::Ordering;
 use std::fmt;
@@ -358,17 +359,31 @@ pub fn requested_install(here: &Version, request: Option<&str>) -> Option<Versio
 // "Update automatically"
 
 /// What is saved in `update.toml`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Settings {
     /// Search and install automatically (by default, yes: that is how it comes in `F-Settings`).
     pub auto: bool,
+    /// The version this app last started as (T-348). An update restarts the app, so the
+    /// window that pressed "Update" is gone: this is how the new one knows it was updated.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub seen: Option<String>,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { auto: true }
+        Settings {
+            auto: true,
+            seen: None,
+        }
     }
+}
+
+/// The version this app was updated from, if it last started as an older one. A first start
+/// (nothing seen), the same version or a downgrade report nothing.
+pub fn just_updated(seen: Option<&str>, here: &Version) -> Option<Version> {
+    let before: Version = seen?.parse().ok()?;
+    (before < *here).then_some(before)
 }
 
 /// `update.toml` in the same directory as the agent's configuration.
@@ -423,6 +438,11 @@ pub struct UpdateView {
     pub error: Option<String>,
     /// "Update automatically".
     pub auto: bool,
+    /// Installing here asks for administrator once: Windows with Tandem under Program Files
+    /// (T-027 service). The installer's elevated hook also refreshes the service.
+    pub admin: bool,
+    /// This app was just updated from this version (T-348): the result of the last "Update".
+    pub updated_from: Option<String>,
 }
 
 /// Numbers a view that just changed: above every earlier one.
@@ -856,11 +876,42 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = settings_file_for(&dir.path().join("sub").join("tandem.toml"));
         assert_eq!(path, dir.path().join("sub").join(SETTINGS_FILE));
-        assert_eq!(load_settings(&path), Settings { auto: true });
-        save_settings(&path, Settings { auto: false }).unwrap();
-        assert_eq!(load_settings(&path), Settings { auto: false });
+        assert_eq!(load_settings(&path), Settings::default());
+        assert!(load_settings(&path).auto);
+        let off = Settings {
+            auto: false,
+            seen: Some("0.3.0".into()),
+        };
+        save_settings(&path, off.clone()).unwrap();
+        assert_eq!(load_settings(&path), off);
         std::fs::write(&path, "auto = \"maybe\"").unwrap();
         assert_eq!(load_settings(&path), Settings::default());
+        // A file from before T-348 (no `seen`) keeps its switch.
+        std::fs::write(&path, "auto = false\n").unwrap();
+        assert_eq!(
+            load_settings(&path),
+            Settings {
+                auto: false,
+                seen: None
+            }
+        );
+    }
+
+    #[test]
+    fn just_updated_only_from_an_older_version() {
+        assert_eq!(just_updated(None, &v("0.3.1")), None, "first start");
+        assert_eq!(
+            just_updated(Some("0.3.1"), &v("0.3.1")),
+            None,
+            "same version"
+        );
+        assert_eq!(just_updated(Some("0.3.2"), &v("0.3.1")), None, "downgrade");
+        assert_eq!(just_updated(Some("garbage"), &v("0.3.1")), None);
+        assert_eq!(just_updated(Some("0.3.0"), &v("0.3.1")), Some(v("0.3.0")));
+        assert_eq!(
+            just_updated(Some("0.3.1-rc.2"), &v("0.3.1")),
+            Some(v("0.3.1-rc.2"))
+        );
     }
 
     fn idle_view() -> UpdateView {
@@ -874,6 +925,8 @@ mod tests {
             step: None,
             error: Some("the other machine did not come back".into()),
             auto: true,
+            admin: false,
+            updated_from: None,
         }
     }
 
@@ -915,6 +968,8 @@ mod tests {
             step: Some(Step::WaitPeer),
             error: None,
             auto: true,
+            admin: true,
+            updated_from: Some("0.3.0".into()),
         };
         assert_eq!(
             serde_json::to_value(&view).unwrap(),
@@ -927,7 +982,9 @@ mod tests {
                 "checking": false,
                 "step": "wait_peer",
                 "error": null,
-                "auto": true
+                "auto": true,
+                "admin": true,
+                "updated_from": "0.3.0"
             })
         );
     }

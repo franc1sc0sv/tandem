@@ -297,7 +297,7 @@ fn admin_install() -> Result<crate::admin_service::AdminView, String> {
     Ok(a::view(&platform, &a::System, &admin_acl()))
 }
 
-fn admin_platform() -> crate::admin_service::Platform {
+pub(crate) fn admin_platform() -> crate::admin_service::Platform {
     match std::env::current_exe() {
         Ok(exe) => crate::admin_service::platform_for(&exe),
         Err(e) => crate::admin_service::Platform::Unsupported(format!(
@@ -307,12 +307,12 @@ fn admin_platform() -> crate::admin_service::Platform {
 }
 
 #[cfg(windows)]
-fn admin_acl() -> tandemd::install::WinAcl {
+pub(crate) fn admin_acl() -> tandemd::install::WinAcl {
     tandemd::install::WinAcl
 }
 
 #[cfg(not(windows))]
-fn admin_acl() -> crate::admin_service::UnixAcl {
+pub(crate) fn admin_acl() -> crate::admin_service::UnixAcl {
     crate::admin_service::UnixAcl
 }
 

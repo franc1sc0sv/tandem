@@ -6,6 +6,7 @@
   import Icon from "../ui/Icon.svelte";
   import type { IconName } from "../ui/icons";
   import Logo from "./Logo.svelte";
+  import UpdateNotice from "./UpdateNotice.svelte";
 
   const store = useStore();
 
@@ -52,6 +53,8 @@
     {/each}
   {/if}
   <span class="fill"></span>
+  <!-- "Update available" (T-348) above Settings; on Settings its Updates tab has the full row. -->
+  {#if store.route.screen !== "settings"}<UpdateNotice />{/if}
   <a class="nav" class:on={current === "#/settings"} href="#/settings" aria-current={current === "#/settings" ? "page" : undefined} onclick={(e) => go(e, { screen: "settings" })}>
     <Icon name="settings" />Settings
   </a>

@@ -24,12 +24,13 @@
 
   const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
-  onMount(async () => {
-    try {
-      view = await store.updates((v) => (view = v));
-    } catch (e) {
-      error = message(e);
-    }
+  onMount(() => {
+    const listen = (v: UpdateView) => (view = v);
+    store.updates(listen).then(
+      (v) => (view = v),
+      (e) => (error = message(e)),
+    );
+    return () => store.offUpdates(listen);
   });
 
   async function check() {

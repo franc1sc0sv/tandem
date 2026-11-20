@@ -12,7 +12,7 @@ import { HOME, SCREEN_TOPICS, formatHash, parseHash, sameRoute, type Route } fro
 import { EMPTY_DESK, deskFromError } from "./live";
 import { changeToast, demoNotices, deskEvents, transferToast, type ToastSpec, type ToastTone } from "../notices";
 import type { ActResult, Capability, CursorEvent, DeskView, FilesView, LinkKind, OutputChunk, OutputCursor, PairActionKind, ProcessRow, Source, Topic } from "./types";
-import type { UpdateView } from "../updates";
+import { updatedResult, type UpdateView } from "../updates";
 import type { Arrangement } from "../arrangement";
 import type { CrossSample } from "../crossing";
 import { STEP_PAIR, STEP_PERMISSIONS } from "../wizard";
@@ -130,6 +130,8 @@ export class Store implements CommandContext {
     // It is not awaited: if the source is slow to give the notices (or has none), the window is already drawn.
     void this.listenTxn();
     void this.listenDrag();
+    // The "Update available" notice (T-348) lives in the main window's sidebar.
+    if (this.opensOnPairing) void this.updates().catch(() => {});
   }
 
   /** The file drag progress goes in a single notice that is updated (T-121). */
@@ -495,21 +497,53 @@ export class Store implements CommandContext {
     return this.source.hideMain();
   }
 
-  /** The newest Updates view seen, from an event or from a command reply (T-251). */
-  private updateView: UpdateView | null = null;
+  /**
+   * The newest Updates view seen, from an event or from a command reply (T-251). Reactive: the
+   * sidebar's "Update available" notice and Settings → Updates both draw it (T-348).
+   */
+  update: UpdateView | null = $state(null);
+  /** Who wants each newer view; the source has a single listener, so the store fans it out. */
+  private updateListeners = new Set<(v: UpdateView) => void>();
+  /** The source's listener is installed once; every caller waits for the same first view. */
+  private updatesHooked: Promise<UpdateView> | null = null;
+  /** The "Updated to" result was already shown in this window. */
+  private updatedShown = false;
 
   /** Keeps the newest view by its sequence: a late reply does not undo the steps that came by event. */
   private newestUpdate(v: UpdateView): UpdateView {
-    if (this.updateView !== null && v.seq < this.updateView.seq) return this.updateView;
-    this.updateView = v;
+    if (this.update !== null && v.seq < this.update.seq) return this.update;
+    this.update = v;
+    this.showUpdated(v);
+    for (const l of this.updateListeners) l(v);
     return v;
   }
 
-  async updates(onChange: (v: UpdateView) => void): Promise<UpdateView> {
-    const v = await this.source.updates((e) => {
-      if (this.newestUpdate(e) === e) onChange(e);
-    });
-    return this.newestUpdate(v);
+  /** After an update the app restarts: the new one says how it went, once (T-348). */
+  private showUpdated(v: UpdateView): void {
+    if (this.updatedShown || !this.opensOnPairing) return;
+    const result = updatedResult(v);
+    if (!result) return;
+    this.updatedShown = true;
+    this.notify({ text: result.text, body: result.body, tone: "ok" });
+  }
+
+  /** The current view, subscribing to its changes (`onChange`, until `offUpdates`). */
+  async updates(onChange?: (v: UpdateView) => void): Promise<UpdateView> {
+    if (onChange) this.updateListeners.add(onChange);
+    if (this.updatesHooked === null) {
+      const hooked = this.source.updates((e) => void this.newestUpdate(e)).then((v) => this.newestUpdate(v));
+      this.updatesHooked = hooked;
+      // A failed first try (agent not ready) is tried again by the next caller.
+      hooked.catch(() => {
+        if (this.updatesHooked === hooked) this.updatesHooked = null;
+      });
+    }
+    const v = await this.updatesHooked;
+    return this.update ?? v;
+  }
+
+  offUpdates(onChange: (v: UpdateView) => void): void {
+    this.updateListeners.delete(onChange);
   }
 
   async checkUpdates(): Promise<UpdateView> {

@@ -306,6 +306,15 @@ pub fn uninstall(platform: &Platform, elevator: &dyn Elevator) -> Result<(), Adm
     elevator.run(&what)
 }
 
+/// Whether an in-app update asks for administrator (T-348): only on Windows with Tandem in an
+/// administrator-only folder (Program Files, the T-027 service install). The per-user install
+/// (`%LOCALAPPDATA%`) updates in passive mode with no UAC; under Program Files the installer
+/// needs UAC once, and its elevated `tandemd --install` refreshes the service too
+/// (`windows/hooks.nsh`). On macOS the updater replaces the `.app` as the user.
+pub fn update_asks_admin(platform: &Platform, acl: &dyn PathAcl) -> bool {
+    matches!(platform, Platform::Windows { .. }) && check(platform, acl).is_ok()
+}
+
 /// The platform according to the app's executable.
 pub fn platform_for(exe: &Path) -> Platform {
     if cfg!(target_os = "macos") {
@@ -738,5 +747,17 @@ mod tests {
             prop_assert!(!plist.contains('\''));
             prop_assert!(mac_install_script(Path::new(&path)).contains(DAEMON_PLIST));
         }
+    }
+
+    // T-348: only a Windows install under Program Files asks for UAC on updating.
+    #[test]
+    fn update_asks_admin_only_under_program_files_on_windows() {
+        assert!(update_asks_admin(&win(), &Acl(true)));
+        assert!(!update_asks_admin(&win(), &Acl(false)), "per-user install");
+        assert!(!update_asks_admin(&mac(), &Acl(true)));
+        assert!(!update_asks_admin(
+            &Platform::Unsupported("linux".into()),
+            &Acl(true)
+        ));
     }
 }

@@ -88,6 +88,11 @@ export interface DemoOptions {
   net?: "denied" | "unknown";
   /** The macOS administrator service not installed: the setup shows it pending (`F-Setup1`). */
   admin?: "pending" | "off";
+  /**
+   * Updates (T-348): a new version already found, found with "Update all" failing (rollback),
+   * found on a PC under Program Files, or the app just updated (the result after the restart).
+   */
+  update?: "available" | "fail" | "admin" | "updated";
   /** How the crossing test ends. */
   cross?: "ok" | "wrong" | "timeout";
   /** The third scene is called "PC only", as in `F-Settings` (the rest of the mockup calls it "Game"). */
@@ -131,9 +136,19 @@ export function demoOptions(query: string): DemoOptions {
     peerEdit: p.has("peeredit"),
     offer: p.has("offer"),
     admin: p.get("admin") === "pending" ? "pending" : p.get("admin") === "off" ? "off" : undefined,
+    update: (["available", "fail", "admin", "updated"] as const).find((u) => u === p.get("update")),
     pcOnly: p.has("pconly") || p.has("palette") || p.has("tray"),
     cross: p.get("cross") === "ok" ? "ok" : p.get("cross") === "wrong" ? "wrong" : p.get("cross") === "timeout" ? "timeout" : undefined,
   };
+}
+
+/** The demo's starting Updates view: both on 0.3.0 and nothing found, unless `update=` says otherwise. */
+function demoUpdate(update: DemoOptions["update"]): UpdateView {
+  const base: UpdateView = { seq: 0, here: "0.3.0", peer: "0.3.0", paired: true, available: null, checking: false, step: null, error: null, auto: true, admin: false, updated_from: null };
+  if (update === "updated") return { ...base, here: "0.3.1", peer: "0.3.1", updated_from: "0.3.0" };
+  if (update === "admin") return { ...base, available: "0.3.1", admin: true };
+  if (update) return { ...base, available: "0.3.1" };
+  return base;
 }
 
 export function isDemo(query: string): boolean {
@@ -655,6 +670,7 @@ export class DemoSource implements Source {
 
   constructor(private readonly opts: DemoOptions) {
     this.desk = demoDesk(opts);
+    this.upd = demoUpdate(opts.update);
   }
 
   async start(onDesk: (d: DeskView) => void, onChange?: (c: DeskChange) => void, onTransfer?: (t: TransferView) => void): Promise<void> {
@@ -1221,7 +1237,7 @@ export class DemoSource implements Source {
   }
 
   // Simulated updates (`F-Settings`): both on 0.3.0 and, when searching, 0.3.1 appears.
-  private upd: UpdateView = { seq: 0, here: "0.3.0", peer: "0.3.0", paired: true, available: null, checking: false, step: null, error: null, auto: true };
+  private upd: UpdateView = demoUpdate(undefined);
   private onUpd: ((v: UpdateView) => void) | null = null;
 
   private setUpd(v: UpdateView): UpdateView {
@@ -1240,10 +1256,17 @@ export class DemoSource implements Source {
     return this.setUpd({ ...this.upd, checking: false, available: "0.3.1", error: null });
   }
 
-  /** Nothing is installed in the demo: the first step is shown and stays there. */
+  /**
+   * Nothing is installed in the demo: the first step is shown and stays there. With
+   * `update=fail` the other machine never comes back and this one stays on its version.
+   */
   async updateAll(): Promise<UpdateView> {
     if (!this.upd.available) throw new Error("there is no new version: check first");
-    return this.setUpd({ ...this.upd, step: "ask_peer" });
+    if (this.opts.update === "fail") {
+      this.setUpd({ ...this.upd, step: "ask_peer", error: null });
+      return this.setUpd({ ...this.upd, step: null, error: `the other machine did not come back with ${this.upd.available} in 10 min: this one stays on its version` });
+    }
+    return this.setUpd({ ...this.upd, step: this.upd.paired ? "ask_peer" : "install_here", error: null });
   }
 
   async setAutoUpdate(on: boolean): Promise<UpdateView> {

@@ -180,8 +180,10 @@ jobs:
             docs/screenshots/v03
             ${{ runner.temp }}/app-diff
 
-  # The macOS installer (T-070): Tandem.app with tandemd inside and the .dmg, signed ad-hoc
-  # (no secrets in CI). The script also checks the sidecar, the Info.plist and the signature.
+  # The macOS installer (T-070): Tandem.app with tandemd inside and the .dmg, signed with a
+  # disposable self-signed identity (no secrets in CI; the release uses the stable one, T-348).
+  # The script also checks the sidecar, the Info.plist and the signature, and dr-check.sh that
+  # a second version signed with the same identity keeps the designated requirement.
   bundle-macos:
     name: dmg (macos-latest)
     runs-on: macos-latest
@@ -202,7 +204,14 @@ jobs:
           key: bundle
       - run: pnpm install --frozen-lockfile
         working-directory: apps/tandem-ui
+      - name: Disposable signing identity
+        run: echo "APPLE_SIGNING_IDENTITY=$(scripts/macos/keychain.sh disposable "$RUNNER_TEMP/tandem-signing.keychain-db")" >> "$GITHUB_ENV"
       - run: scripts/macos/bundle.sh
+      - name: Same designated requirement across versions
+        run: scripts/macos/dr-check.sh all "$APPLE_SIGNING_IDENTITY" "$(echo target/*-apple-darwin/release/bundle/macos/Tandem.app)"
+      - name: Remove the signing keychain
+        if: always()
+        run: scripts/macos/keychain.sh remove "$RUNNER_TEMP/tandem-signing.keychain-db"
       - uses: actions/upload-artifact@v4
         with:
           name: tandem-macos-dmg

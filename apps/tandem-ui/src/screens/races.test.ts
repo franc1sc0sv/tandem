@@ -156,7 +156,7 @@ describe("T-250: Changes in progress waits for the transaction the window asked 
   });
 });
 
-const BASE: UpdateView = { seq: 1, here: "0.1.0", peer: "0.1.0", paired: true, available: "0.2.0", checking: false, step: null, error: null, auto: true };
+const BASE: UpdateView = { seq: 1, here: "0.1.0", peer: "0.1.0", paired: true, available: "0.2.0", checking: false, step: null, error: null, auto: true, admin: false, updated_from: null };
 
 /** The app core of `updater.rs`: the step events of the run leave before the reply, which carries the older view. */
 function updatesBridge() {
