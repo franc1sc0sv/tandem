@@ -6,6 +6,8 @@
 //!   an `NSDraggingSession` with the already copied file URLs. AppKit is only touched from
 //!   the main thread, which belongs to whoever hosts the agent (the Tauri UI): so it is
 //!   given a function that runs a closure there ([`RunOnMain`]).
+//! - [`run_app_loop`] serves that main thread, with a delegate that ignores a plain Quit
+//!   Apple event ([`crate::app_quit`], T-333).
 
 use std::cell::RefCell;
 use std::path::PathBuf;
@@ -16,17 +18,20 @@ use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
 use objc2::{AnyThread, DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send};
 use objc2_app_kit::{
-    NSApplication, NSApplicationActivationPolicy, NSBackingStoreType, NSColor, NSDragOperation,
-    NSDraggingContext, NSDraggingItem, NSDraggingSession, NSDraggingSource, NSEvent,
-    NSEventModifierFlags, NSEventType, NSPasteboard, NSPasteboardNameDrag, NSPasteboardTypeFileURL,
-    NSPasteboardWriting, NSWindow, NSWindowStyleMask,
+    NSApplication, NSApplicationActivationPolicy, NSApplicationDelegate,
+    NSApplicationTerminateReply, NSBackingStoreType, NSColor, NSDragOperation, NSDraggingContext,
+    NSDraggingItem, NSDraggingSession, NSDraggingSource, NSEvent, NSEventModifierFlags,
+    NSEventType, NSPasteboard, NSPasteboardNameDrag, NSPasteboardTypeFileURL, NSPasteboardWriting,
+    NSWindow, NSWindowStyleMask,
 };
 use objc2_core_graphics::{CGEventSource, CGEventSourceStateID, CGMouseButton};
 use objc2_foundation::{
-    NSArray, NSObject, NSObjectProtocol, NSPoint, NSRect, NSSize, NSString, NSURL,
+    NSAppleEventDescriptor, NSAppleEventManager, NSArray, NSObject, NSObjectProtocol, NSPoint,
+    NSRect, NSSize, NSString, NSURL,
 };
 use tokio::sync::oneshot;
 
+use crate::app_quit::{self, QuitDecision, QuitRequest};
 use crate::drag::{DragDetector, DragEnd, DragStarter};
 use crate::drag_os::{end_of, parse_file_url};
 use crate::error::{FilesError, Result};
@@ -53,13 +58,83 @@ pub fn main_queue() -> RunOnMain {
 /// icon in the Dock (`Accessory`): the agent is not an app with windows, it only needs the
 /// events for the drag session. Call only from the main thread; on another thread it
 /// does nothing.
+///
+/// The delegate answers AppKit's Quit (T-333): without it a Quit Apple event ends the
+/// process with `exit(0)`, past the agent's shutdown and past launchd's `KeepAlive`.
 pub fn run_app_loop() {
     let Some(mtm) = MainThreadMarker::new() else {
         return;
     };
     let app = NSApplication::sharedApplication(mtm);
     app.setActivationPolicy(NSApplicationActivationPolicy::Accessory);
+    // `delegate` is a weak property: the local keeps it alive, and `run` does not return.
+    let delegate = AppDelegate::new(mtm);
+    app.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
     app.run();
+}
+
+define_class!(
+    // SAFETY: NSObject asks nothing special of its subclasses; it lives and is used only on the
+    // main thread.
+    #[unsafe(super(NSObject))]
+    #[thread_kind = MainThreadOnly]
+    #[name = "TandemAgentAppDelegate"]
+    struct AppDelegate;
+
+    // SAFETY: `NSObjectProtocol` requires no methods of its own and `AppDelegate` inherits from `NSObject`.
+    unsafe impl NSObjectProtocol for AppDelegate {}
+
+    // SAFETY: `AppDelegate` only implements methods with the `NSApplicationDelegate` signature
+    // and lives on the main thread (`MainThreadOnly`), as the protocol requires.
+    unsafe impl NSApplicationDelegate for AppDelegate {
+        #[unsafe(method(applicationShouldTerminate:))]
+        fn should_terminate(&self, _sender: &NSApplication) -> NSApplicationTerminateReply {
+            let request = current_quit_request();
+            match app_quit::decide(request) {
+                QuitDecision::Ignore => {
+                    tracing::warn!(%request, "ignoring Quit AppleEvent (tandemd is stopped by launchd)");
+                    NSApplicationTerminateReply::TerminateCancel
+                }
+                QuitDecision::Allow(end) => {
+                    tracing::info!(%request, "Quit AppleEvent for {end}: AppKit terminates tandemd");
+                    NSApplicationTerminateReply::TerminateNow
+                }
+            }
+        }
+    }
+);
+
+impl AppDelegate {
+    fn new(mtm: MainThreadMarker) -> Retained<Self> {
+        let this = Self::alloc(mtm).set_ivars(());
+        // SAFETY: `init` of NSObject with no arguments.
+        unsafe { msg_send![super(this), init] }
+    }
+}
+
+/// The Apple event AppKit is handling while it asks whether to terminate.
+fn current_quit_request() -> QuitRequest {
+    match NSAppleEventManager::sharedAppleEventManager().currentAppleEvent() {
+        Some(event) => apple_event_request(&event),
+        None => QuitRequest::NoAppleEvent,
+    }
+}
+
+/// Through `msg_send!` because the typed `eventClass`, `eventID` and
+/// `paramDescriptorForKeyword:` need the whole `objc2-core-services` crate for three `u32`s.
+fn apple_event_request(event: &NSAppleEventDescriptor) -> QuitRequest {
+    // SAFETY: `eventClass` and `eventID` take no arguments and return a `FourCharCode` (`u32`).
+    let (class, id): (u32, u32) =
+        unsafe { (msg_send![event, eventClass], msg_send![event, eventID]) };
+    // SAFETY: `paramDescriptorForKeyword:` takes an `AEKeyword` (`u32`) and returns a
+    // descriptor or nil.
+    let reason: Option<Retained<NSAppleEventDescriptor>> =
+        unsafe { msg_send![event, paramDescriptorForKeyword: app_quit::QUIT_REASON] };
+    QuitRequest::AppleEvent {
+        class,
+        id,
+        reason: reason.map(|r| r.enumCodeValue()),
+    }
 }
 
 /// Is the left mouse button pressed? Without that, whatever remains in the drag

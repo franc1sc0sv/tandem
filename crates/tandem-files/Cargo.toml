@@ -24,7 +24,7 @@ dispatch2 = { workspace = true, features = ["std"] }
 objc2.workspace = true
 objc2-app-kit = { workspace = true, features = ["std", "NSApplication", "NSDragging", "NSDraggingItem", "NSDraggingSession", "NSEvent", "NSGraphics", "NSGraphicsContext", "NSPasteboard", "NSPasteboardItem", "NSResponder", "NSRunningApplication", "NSView", "NSWindow", "NSColor"] }
 objc2-core-graphics = { workspace = true, features = ["std", "CGEventSource", "CGEventTypes"] }
-objc2-foundation = { workspace = true, features = ["std", "NSArray", "NSGeometry", "NSEnumerator", "NSString", "NSURL", "NSObject"] }
+objc2-foundation = { workspace = true, features = ["std", "NSAppleEventDescriptor", "NSAppleEventManager", "NSArray", "NSGeometry", "NSEnumerator", "NSString", "NSURL", "NSObject"] }
 
 [dev-dependencies]
 proptest.workspace = true
