@@ -8,11 +8,13 @@
 //! - [`Files`]: what an agent hangs on (the destination side and the origin's forwards).
 //! - [`drag`]: drag files when crossing the edge (D14), with the system behind traits.
 //! - [`app_quit`]: what the agent's AppKit host answers to a Quit Apple event (T-333).
+//! - [`app_open`]: what it does when Tandem is opened while it holds the app's place (T-350).
 //! - [`mem`]: in-memory paths with cuts, to test with two agents in one process.
 //!
 //! Chunks and requests go over `Channel::Tunnel` (T-103), so they inherit the
 //! low priority and the bandwidth cap of data (T-101).
 
+pub mod app_open;
 pub mod app_quit;
 pub mod drag;
 #[cfg(target_os = "macos")]

@@ -936,6 +936,10 @@ pub enum AgentToUi {
     Transfer(TransferProgress),
     /// Progress of a file drag between the machines (T-121).
     Drag(DragStatus),
+    /// Someone opened Tandem from the system while the UI was already running (T-350): on
+    /// macOS LaunchServices takes the agent for the app's instance and the agent passes the
+    /// request on. Only to UI connections; the UI brings its main window to the front.
+    ShowWindow,
 }
 
 /// Pairing as seen from the UI.
@@ -2102,6 +2106,7 @@ pub(crate) mod samples {
             AgentToUi::Drag(DragStatus::Dropped),
             AgentToUi::Drag(DragStatus::Cancelled),
             AgentToUi::Drag(DragStatus::Failed("no space".into())),
+            AgentToUi::ShowWindow,
         ]);
         v.push(AgentToUi::Reply {
             id: 7,
@@ -2356,6 +2361,7 @@ pub(crate) mod samples {
             AgentToUi::Crossed { .. } => 17,
             AgentToUi::Transfer(_) => 18,
             AgentToUi::Drag(_) => 19,
+            AgentToUi::ShowWindow => 20,
         }
     }
 
@@ -2465,7 +2471,7 @@ mod tests {
         let cmds: Vec<_> = ui_requests().into_iter().map(|r| r.command).collect();
         covers(&cmds, ui_command_arm, 47);
         covers(&modules(), |m| module_state_arm(&m.state), 3);
-        covers(&to_ui(), to_ui_arm, 20);
+        covers(&to_ui(), to_ui_arm, 21);
         covers(&monitor_event_kinds(), monitor_event_kind_arm, 10);
         let kinds: Vec<_> = capabilities()
             .iter()

@@ -19,6 +19,8 @@
 //! [`AgentToUi::Crossed`] (T-128). [`UiCommand::MeasureLink`] is
 //! answered when the test finishes, without holding up the notices of that connection.
 //! [`AgentToUi::Update`] goes when the version of either of the two changes.
+//! [`AgentToUi::ShowWindow`] goes only to UI connections, when Tandem is opened from the system
+//! and the agent gets the request (T-350).
 //!
 //! The transport goes behind [`Listener`]: the logic is tested with [`mem`] and the
 //! real socket or pipe in the integration tests.
@@ -162,6 +164,8 @@ where
             });
         }
     };
+    // Only the UI counts as "a UI is open" and hears the show requests (T-350).
+    let mut ui = client.is_none().then(|| agent.ui().connect());
     let mut states = agent.subscribe();
     states.mark_unchanged();
     let mut txns = agent.subscribe_txns();
@@ -387,8 +391,16 @@ where
                 tunnels.borrow_and_update();
                 conn.send(&AgentToUi::Tunnels(agent.tunnels().view())).await?;
             }
+            () = shown(&mut ui) => conn.send(&AgentToUi::ShowWindow).await?,
             () = stopped(&mut shutdown) => return Ok(()),
         }
+    }
+}
+
+async fn shown(ui: &mut Option<crate::ui_open::UiConnection>) {
+    match ui {
+        Some(ui) => ui.shown().await,
+        None => std::future::pending().await,
     }
 }
 
@@ -877,6 +889,42 @@ mod tests {
             }
         );
         assert_eq!(c.get_state().await.unwrap(), agent.state());
+    }
+
+    // T-350: opening Tandem through the agent shows the window of the connected UI.
+    #[tokio::test]
+    async fn show_window_goes_only_to_ui_connections() {
+        let dir = tempfile::tempdir().unwrap();
+        let agent = Arc::new(agent(dir.path()));
+        let (_stop, stop_rx) = watch::channel(false);
+        let (ui_io, ui_server) = duplex(4096);
+        tokio::spawn(serve_connection(ui_server, agent.clone(), stop_rx.clone()));
+        let (cli_io, cli_server) = duplex(4096);
+        tokio::spawn(serve_connection(cli_server, agent.clone(), stop_rx));
+        let mut ui = IpcClient::handshake(ui_io).await.unwrap();
+        let mut cli = IpcClient::handshake_as(cli_io, Peer::Client(tandem_proto::ClientKind::Cli))
+            .await
+            .unwrap();
+        // Once a request was answered, each connection is registered.
+        ui.get_state().await.unwrap();
+        cli.get_state().await.unwrap();
+        assert_eq!(agent.ui().connected(), 1, "only the UI counts");
+
+        assert_eq!(agent.ui().show(), 1);
+        let event = time::timeout(Duration::from_secs(1), ui.next_event()).await;
+        assert!(
+            matches!(event, Ok(Ok(Some(AgentToUi::ShowWindow)))),
+            "{event:?}"
+        );
+        let nothing = time::timeout(Duration::from_millis(100), cli.next_event()).await;
+        assert!(nothing.is_err(), "the client got {nothing:?}");
+
+        drop(ui);
+        let deadline = time::Instant::now() + Duration::from_secs(1);
+        while agent.ui().connected() > 0 && time::Instant::now() < deadline {
+            time::sleep(Duration::from_millis(5)).await;
+        }
+        assert_eq!(agent.ui().connected(), 0, "a closed UI no longer counts");
     }
 
     #[tokio::test]

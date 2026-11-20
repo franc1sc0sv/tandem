@@ -162,13 +162,28 @@ fn finish(result: anyhow::Result<ShutdownReason>) -> i32 {
 /// process exits, because that run loop does not return on its own.
 #[cfg(target_os = "macos")]
 fn run_hosted(args: RunArgs) -> i32 {
+    use std::sync::Arc;
+    use tandemd::ui_open::{SiblingUi, UiOpener};
+
+    // Before the agent's thread touches the window server: `tandemd` is never a "Tandem" in
+    // the Dock, ⌘Tab or Force Quit (T-350).
+    tandem_files::drag_macos::become_accessory();
+    let launcher = SiblingUi::beside_current_exe().unwrap_or_else(|e| {
+        // The log is not open yet: launchd's StandardErrorPath gets it.
+        eprintln!("tandemd: cannot find tandemd's executable: {e}");
+        SiblingUi {
+            program: tandemd::ui_open::UI_EXECUTABLE.into(),
+        }
+    });
+    let opener = Arc::new(UiOpener::new(Box::new(launcher)));
+    let attach = opener.clone();
     let agent = std::thread::Builder::new()
         .name("tandemd".into())
         .spawn(move || {
             // If `run` panics the thread dies, but the main thread's run loop
             // does not return: without this the process would stay alive without an agent.
             let _guard = ExitOnPanic::new(|_| std::process::exit(Exit::Panicked.log()));
-            std::process::exit(finish(run(args)))
+            std::process::exit(finish(run(args, Some(attach))))
         });
     let agent = match agent {
         Ok(agent) => agent,
@@ -176,10 +191,16 @@ fn run_hosted(args: RunArgs) -> i32 {
     };
     // AppKit ends the process itself at the end of the session (T-333), past the agent's
     // shutdown: the displays go back on (T-341) and the line goes first.
-    tandem_files::drag_macos::run_app_loop(|end| {
-        tandemd::displays::restore_at_process_exit();
-        Exit::SessionEnd(end.to_string()).log();
-    });
+    // Opening Tandem while LaunchServices takes the agent for the app brings the UI up (T-350).
+    tandem_files::drag_macos::run_app_loop(
+        |end| {
+            tandemd::displays::restore_at_process_exit();
+            Exit::SessionEnd(end.to_string()).log();
+        },
+        move |request| {
+            opener.handle(request);
+        },
+    );
     // It only gets here if the run loop did not start: the agent continues on its way.
     let _ = agent.join();
     0
@@ -187,10 +208,15 @@ fn run_hosted(args: RunArgs) -> i32 {
 
 #[cfg(not(target_os = "macos"))]
 fn run_hosted(args: RunArgs) -> i32 {
-    finish(run(args))
+    finish(run(args, None))
 }
 
-fn run(args: RunArgs) -> anyhow::Result<ShutdownReason> {
+/// `opener` answers the open requests AppKit delivers to the agent (macOS, T-350): it gets the
+/// agent's UI connections as soon as the agent exists.
+fn run(
+    args: RunArgs,
+    opener: Option<std::sync::Arc<tandemd::ui_open::UiOpener>>,
+) -> anyhow::Result<ShutdownReason> {
     let paths = Paths::resolve(args.config.clone(), args.data_dir.clone())?;
     paths::create_private_dir(&paths.data_dir)
         .with_context(|| format!("could not create {}", paths.data_dir.display()))?;
@@ -228,6 +254,9 @@ fn run(args: RunArgs) -> anyhow::Result<ShutdownReason> {
         let (backends, net) = backends(&args, &paths);
         let daemon = daemon::start(cfg, &paths, backends, net)?;
         daemon.agent.set_generated(generated);
+        if let Some(opener) = &opener {
+            opener.attach(daemon.agent.ui().clone());
+        }
         let reason = daemon.serve(listener, shutdown).await?;
         Ok(reason)
     })

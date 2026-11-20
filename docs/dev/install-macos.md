@@ -81,6 +81,29 @@ launchctl print gui/$(id -u)/com.franc1sc0sv.tandem.tandemd   # state, PID, last
 launchctl kickstart -k gui/$(id -u)/com.franc1sc0sv.tandem.tandemd   # restart it
 ```
 
+### Opening Tandem while only the agent runs (T-350)
+
+`tandemd` lives inside `Tandem.app` (`Contents/MacOS/tandemd`, so it keeps the code identity that
+holds the permissions, T-348) and runs AppKit's event loop for the file drags, so LaunchServices
+can take it for the running "Tandem". Opening the app (Finder, Launchpad, the Dock, `open -a Tandem`)
+then reaches the agent, not a new `tandem-ui`. The agent passes it on:
+
+- no UI connected to its IPC: it launches `Contents/MacOS/tandem-ui` beside it
+  (`open request from LaunchServices: launching the UI` in `tandemd`'s log);
+- a UI connected (its window hidden, or in the menu bar only): it asks it to show the main window
+  (`open request from LaunchServices: showing the UI`).
+
+The agent is an `Accessory` process from its first instruction: it should never show as a "Tandem"
+in the Dock, ⌘Tab or Force Quit; only the UI does. Quit on the UI quits the UI; the agent keeps
+ignoring a plain Quit (T-333) and only launchd stops it. If opening the app still shows nothing,
+these bring the window up by hand and the log line above tells whether the agent got the request:
+
+```sh
+open -n /Applications/Tandem.app                       # a new instance of the app
+/Applications/Tandem.app/Contents/MacOS/tandem-ui &    # the UI directly
+lsappinfo list | grep -A6 com.franc1sc0sv.tandem       # which executable macOS takes for "Tandem"
+```
+
 ## Permissions
 
 `tandemd` is the one that captures and injects, so the permissions are its own. The first-launch guide

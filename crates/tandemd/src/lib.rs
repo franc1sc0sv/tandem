@@ -72,6 +72,7 @@ pub mod sim;
 pub mod store;
 pub mod test_ports;
 pub mod tunnels;
+pub mod ui_open;
 
 pub use agent::{Agent, PairingControl};
 pub use config::{AgentConfig, ConfigError, NetworkConfig, OrchestratorConfig, PowerConfig};

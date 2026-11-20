@@ -1121,6 +1121,10 @@ pub trait Sink: Send + Sync + 'static {
     fn transfer(&self, transfer: &TransferItem) {
         let _ = transfer;
     }
+
+    /// Bring the main window to the front: Tandem was opened from the system while the agent
+    /// held the app's place on macOS (T-350).
+    fn show_window(&self) {}
 }
 
 struct Pending {
@@ -1535,6 +1539,8 @@ impl Runner {
             AgentToUi::Crossed { from, to, edge } => {
                 self.sink.notice(&Notice::Crossed { from, to, edge });
             }
+            // Tandem was opened from the system and the request reached the agent (T-350).
+            AgentToUi::ShowWindow => self.sink.show_window(),
             AgentToUi::Drag(status) => self.sink.notice(&Notice::Drag {
                 status: status.into(),
             }),
@@ -1688,6 +1694,7 @@ mac = "aa:bb:cc:dd:ee:ff"
         resources: Mutex<Vec<(Machine, Resources)>>,
         networks: Mutex<Vec<NetworkView>>,
         tunnels: Mutex<Vec<Vec<ProjectItem>>>,
+        shown: std::sync::atomic::AtomicUsize,
         changed: Notify,
     }
 
@@ -1710,6 +1717,10 @@ mac = "aa:bb:cc:dd:ee:ff"
         }
         fn tunnels(&self, t: &[ProjectItem]) {
             self.tunnels.lock().unwrap().push(t.to_vec());
+            self.changed.notify_waiters();
+        }
+        fn show_window(&self) {
+            self.shown.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             self.changed.notify_waiters();
         }
     }
@@ -2292,6 +2303,31 @@ mac = "aa:bb:cc:dd:ee:ff"
                 "status": { "kind": "failed", "reason": "no space" }
             })
         );
+    }
+
+    /// Opening Tandem through the agent brings the window of the connected UI up (T-350).
+    #[tokio::test]
+    async fn the_agent_can_ask_the_ui_to_show_its_window() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = agent_in(dir.path());
+        let slot = Arc::new(Mutex::new(Some(a.connector.clone())));
+        let (_handle, rec) = session(&slot);
+        rec.until(|s, _| connected(s)).await;
+        assert_eq!(a.agent.ui().connected(), 1);
+
+        a.agent.ui().show();
+        within_secs(async {
+            while rec.shown.load(std::sync::atomic::Ordering::SeqCst) == 0 {
+                let changed = rec.changed.notified();
+                tokio::pin!(changed);
+                changed.as_mut().enable();
+                if rec.shown.load(std::sync::atomic::Ordering::SeqCst) > 0 {
+                    break;
+                }
+                changed.await;
+            }
+        })
+        .await;
     }
 
     async fn within_secs<F: Future>(f: F) -> F::Output {
