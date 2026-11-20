@@ -12,6 +12,8 @@ const STATE_FILE: &str = "state.json";
 const LOG_DIR: &str = "logs";
 const IDENTITY_FILE: &str = "identity.key";
 const TRUST_FILE: &str = "trust.toml";
+const LOCK_FILE: &str = "tandemd.lock";
+const PID_FILE: &str = "tandemd.pid";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Paths {
@@ -70,6 +72,16 @@ impl Paths {
     pub fn trust_file(&self) -> PathBuf {
         self.data_dir.join(TRUST_FILE)
     }
+
+    /// Held by the running agent for its whole life (T-343).
+    pub fn lock_file(&self) -> PathBuf {
+        self.data_dir.join(LOCK_FILE)
+    }
+
+    /// The PID of whoever holds [`Self::lock_file`], for the error of the next one.
+    pub fn pid_file(&self) -> PathBuf {
+        self.data_dir.join(PID_FILE)
+    }
 }
 
 /// Creates the directory (and its parents) accessible only to the current user.
@@ -109,6 +121,8 @@ mod tests {
         assert_eq!(p.log_dir(), data.join("logs"));
         assert_eq!(p.identity_file(), data.join("identity.key"));
         assert_eq!(p.trust_file(), data.join("trust.toml"));
+        assert_eq!(p.lock_file(), data.join("tandemd.lock"));
+        assert_eq!(p.pid_file(), data.join("tandemd.pid"));
     }
 
     #[test]

@@ -30,6 +30,7 @@
 //!   helper and their installation (T-027).
 //! - [`ipc`]: the local API for the UI (Unix socket / named pipe).
 //! - [`daemon`]: the assembled agent, the main loop and the orderly shutdown.
+//! - [`instance`]: the lock that keeps one agent per data directory (T-343).
 //! - [`logging`]: `tracing` to stdout and to a file.
 //! - `sim` (feature `sim-backends`): simulated steps to test the binary without hardware.
 //! - [`test_ports`]: loopback ports for tests with real agents.
@@ -45,6 +46,7 @@ pub mod desk_sync;
 pub mod drag;
 pub mod input;
 pub mod install;
+pub mod instance;
 pub mod ipc;
 pub mod links_cmd;
 pub mod logging;
