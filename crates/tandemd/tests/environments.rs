@@ -15,7 +15,7 @@ use tandem_env::scan::PROBE_SCRIPT;
 use tandem_env::{Host, MeterInfo, Platform, Reading};
 use tandem_link::identity::{Identity, PublicKey, TrustStore, TrustedPeer};
 use tandem_proto::{AgentToUi, Capabilities, EnvKind, Reply, UiCommand};
-use tandemd::daemon::{self, Backends, Daemon};
+use tandemd::daemon::{self, Backends, Daemon, ShutdownReason};
 use tandemd::ipc::{IpcClient, mem};
 use tandemd::network::NetOptions;
 use tandemd::orchestrator::{LocalSteps, StepFuture};
@@ -96,7 +96,7 @@ fn machine(shell: &str, cores: u32, load: f32) -> (FakeRunner, FakeMeter, Arc<Ho
 struct Running {
     ui: IpcClient<DuplexStream>,
     stop: Option<oneshot::Sender<()>>,
-    task: JoinHandle<Result<(), StoreError>>,
+    task: JoinHandle<Result<ShutdownReason, StoreError>>,
     _dir: tempfile::TempDir,
 }
 

@@ -13,7 +13,7 @@ use std::time::Duration;
 use tandem_core::{Machine, Step};
 use tandem_link::identity::{Identity, PublicKey, TrustStore, TrustedPeer};
 use tandem_proto::{PeerStatus, Reply, UiCommand};
-use tandemd::daemon::{self, Backends, Daemon};
+use tandemd::daemon::{self, Backends, Daemon, ShutdownReason};
 use tandemd::ipc::{IpcClient, mem};
 use tandemd::network::NetOptions;
 use tandemd::orchestrator::{LocalSteps, StepFuture};
@@ -64,7 +64,7 @@ struct Running {
     ui: IpcClient<tokio::io::DuplexStream>,
     config: PathBuf,
     stop: Option<oneshot::Sender<()>>,
-    task: JoinHandle<Result<(), StoreError>>,
+    task: JoinHandle<Result<ShutdownReason, StoreError>>,
     _dir: tempfile::TempDir,
 }
 

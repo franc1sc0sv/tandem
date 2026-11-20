@@ -25,7 +25,7 @@ use tandem_input::{HidUsage, InputEvent, KeyState, ModifierKey};
 use tandem_link::identity::{Identity, PublicKey, TrustStore, TrustedPeer};
 use tandem_peripherals::{UsbId, WatchConfig};
 use tandem_proto::{AgentToUi, InputPermission, InputStatus, Reply, UiCommand};
-use tandemd::daemon::{self, Backends, Daemon};
+use tandemd::daemon::{self, Backends, Daemon, ShutdownReason};
 use tandemd::drag::FileDragBackend;
 use tandemd::input::fake::{CaptureCall, FakeInputBackends};
 use tandemd::input::{InputOptions, InputSetup};
@@ -137,7 +137,7 @@ struct Running {
     agent: Arc<Agent>,
     ui: IpcClient<tokio::io::DuplexStream>,
     stop: Option<oneshot::Sender<()>>,
-    task: JoinHandle<Result<(), StoreError>>,
+    task: JoinHandle<Result<ShutdownReason, StoreError>>,
     _dir: tempfile::TempDir,
 }
 

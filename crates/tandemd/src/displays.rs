@@ -13,7 +13,7 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError, TryLockError};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError, TryLockError, Weak};
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
@@ -301,6 +301,33 @@ impl DisplayGuard {
     }
 }
 
+/// The agent's guard, for an exit that does not go back through the agent: on macOS AppKit ends
+/// the process itself at the end of the session (T-333, T-334).
+static AT_PROCESS_EXIT: Mutex<Option<Weak<DisplayGuard>>> = Mutex::new(None);
+
+impl DisplayGuard {
+    /// Makes this guard the one [`restore_at_process_exit`] turns back on.
+    pub fn register_for_process_exit(self: &Arc<Self>) {
+        *AT_PROCESS_EXIT
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = Some(Arc::downgrade(self));
+    }
+}
+
+/// Right before the process ends outside the agent's shutdown: the displays this machine turned
+/// off go back on. It runs on AppKit's main thread, so like a panic it never waits for the
+/// guard's lock ([`DisplayGuard::restore_on_panic`]).
+pub fn restore_at_process_exit() {
+    let guard = AT_PROCESS_EXIT
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .as_ref()
+        .and_then(Weak::upgrade);
+    if let Some(guard) = guard {
+        guard.restore_on_panic();
+    }
+}
+
 fn load(file: &Path) -> BTreeMap<String, OffDisplay> {
     match std::fs::read(file) {
         Ok(bytes) => serde_json::from_slice(&bytes).unwrap_or_else(|e| {
@@ -441,6 +468,22 @@ mod tests {
         g.reconcile(ME, &shows(Machine::A), &keys(), t);
         assert!(fake.is_on(HDMI));
         assert_eq!(fake.calls(), [(HDMI, false), (HDMI, true)]);
+    }
+
+    /// AppKit's exit at the end of the session (T-333) skips the agent's shutdown: the registered
+    /// guard still turns its displays back on.
+    #[test]
+    fn the_process_exit_outside_the_agent_turns_the_displays_on() {
+        let fake = mac();
+        let g = Arc::new(DisplayGuard::new(fake.clone(), None));
+        g.register_for_process_exit();
+        g.reconcile(ME, &shows(Machine::A), &keys(), Instant::now());
+        assert!(!fake.is_on(HDMI));
+        restore_at_process_exit();
+        assert!(fake.is_on(HDMI));
+        assert!(g.off().is_empty());
+        drop(g);
+        restore_at_process_exit();
     }
 
     #[test]
