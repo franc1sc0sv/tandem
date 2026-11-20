@@ -78,11 +78,11 @@ async fn scene_until(d: &Desk, m: Machine, scene: Option<&str>) {
 /// Both on and paired; the PC (owner) presented the compatible monitors whose
 /// inputs are known, and both recognize "Work" by the real input (all on DP, the PC).
 async fn paired(switch27: SwitchBehavior, known27: bool) -> Desk {
-    let d = Desk::builder()
-        .monitors(specs(switch27, known27))
-        .build()
-        .await
-        .unwrap();
+    paired_with(Desk::builder().monitors(specs(switch27, known27)), known27).await
+}
+
+async fn paired_with(builder: tandem_sim::DeskBuilder, known27: bool) -> Desk {
+    let d = builder.build().await.unwrap();
     let run = d.power_on(Machine::B).await.unwrap();
     assert_eq!(run.outcome(), Some(Outcome::Committed), "{:#?}", run.events);
     let (m34, m27) = (id(&d, M34), id(&d, M27));
@@ -457,4 +457,65 @@ async fn an_early_claim_of_the_non_owner_does_not_hide_the_owners_report() {
     let run = d.apply_scene(Machine::A, "only-a").await.unwrap();
     assert_eq!(run.outcome(), Some(Outcome::Committed), "{:#?}", run.events);
     assert_eq!(on_screen(&d, M34), Some(Input::Hdmi));
+}
+
+/// T-342: on the real desk a scene took about 7 s although the 34" switched at once. The
+/// geometry step waited for the owner's next full reading of the bus (the event ring again, over
+/// DDC) instead of the firmware's verdict. Here DDC takes time as on the real bus: tens of ms
+/// per request and the verdict 300 ms after the `Set 0x60`. "Work" <-> "Only A", from both
+/// machines: each one is applied in under a second, and at that moment the machine that asked
+/// already shows the scene and the monitor's new input.
+#[tokio::test(start_paused = true)]
+async fn a_scene_is_applied_right_after_the_verdict() {
+    // Without the 27"'s input, the scenes only have the 34".
+    let mut monitors = specs(SwitchBehavior::Done, false);
+    // The PC (owner) over DP, the Mac over HDMI: what a request takes over each cable.
+    for spec in &mut monitors {
+        for (machine, latency) in &mut spec.cables {
+            *latency = if *machine == Machine::B {
+                ms(40)
+            } else {
+                ms(60)
+            };
+        }
+    }
+    assert_eq!(monitors[M34].config.switch_delay, ms(300));
+    let d = paired_with(Desk::builder().monitors(monitors).ddc_takes_time(), false).await;
+    let m34 = id(&d, M34);
+    for (from, scene, shows) in [
+        (Machine::A, "only-a", Machine::A),
+        (Machine::A, "work", Machine::B),
+        (Machine::B, "only-a", Machine::A),
+        (Machine::B, "work", Machine::B),
+    ] {
+        // The click comes a moment later, when the owner has finished reading what the previous
+        // change left in the ring: a click in the middle of a reading waits for it to end.
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        let start = tokio::time::Instant::now();
+        let run = d.apply_scene(from, scene).await.unwrap();
+        let took = start.elapsed();
+        assert_eq!(run.outcome(), Some(Outcome::Committed), "{:#?}", run.events);
+        assert_eq!(steps(&run)[0], show(&m34, shows));
+        assert!(
+            took < Duration::from_secs(1),
+            "{from} applied {scene:?} in {took:?}"
+        );
+        let agent = d.agent(from);
+        assert_eq!(agent.state().scene.as_deref(), Some(scene));
+        let seen = tandemd::monitors::shows(&agent.monitors(), &agent.desk());
+        assert_eq!(seen.get(&m34), Some(&shows), "{from} after {scene:?}");
+        // The other machine too, without waiting for the owner's next reading.
+        let other = d.agent(from.other());
+        tokio::time::timeout(Duration::from_secs(1) - took, async {
+            let mut views = other.subscribe_monitors();
+            views
+                .wait_for(|v| tandemd::monitors::shows(v, &other.desk()).get(&m34) == Some(&shows))
+                .await
+                .map(|_| ())
+        })
+        .await
+        .unwrap_or_else(|_| panic!("{} still shows the old input", from.other()))
+        .unwrap();
+        scene_until(&d, from.other(), Some(scene)).await;
+    }
 }
