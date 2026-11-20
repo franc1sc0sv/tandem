@@ -111,7 +111,7 @@ Own external dependency: `monitor-ddc` (repo `monitor-firmware`, A5), pinned by 
 
 - A **desk document** (`Desk`) with sections: machines (name, color), arrangement, scenes, shortcuts, keyboard/mouse preferences, enabled modules. It carries a version (`desk_rev`) and author.
 - The UI edits over IPC (`UiCommand::EditDesk { patch }`); the agent applies it, bumps the version, saves to `tandem.toml` and sends it to the other machine.
-- **Last write wins** (D5). The other UI shows "Changed from <machine>" with **Undo** (history of the last 20 versions).
+- **Last write wins** (D5), except right after both machines migrate an old desk at once: each keeps its own moved settings (DECISIONS T-322). The other UI shows "Changed from <machine>" with **Undo** (history of the last 20 versions).
 - Each machine's local data (paths, permissions, environments) is not synced.
 
 ### 4.5 Protocol versioning
