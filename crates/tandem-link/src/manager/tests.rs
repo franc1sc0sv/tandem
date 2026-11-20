@@ -23,12 +23,25 @@ struct Refused;
 #[derive(Default)]
 struct FakeNet {
     wires: Mutex<HashMap<SocketAddr, Wire>>,
+    /// The next ping on that address answers this late (a lost packet that the
+    /// transport retransmits).
+    slow_once: Mutex<HashMap<SocketAddr, Duration>>,
+    /// Pongs answered per address.
+    answered: Mutex<HashMap<SocketAddr, u32>>,
     connects: Mutex<u32>,
 }
 
 impl FakeNet {
     fn set(&self, addr: SocketAddr, wire: Wire) {
         self.wires.lock().unwrap().insert(addr, wire);
+    }
+
+    fn slow_next_ping(&self, addr: SocketAddr, by: Duration) {
+        self.slow_once.lock().unwrap().insert(addr, by);
+    }
+
+    fn pongs(&self, addr: SocketAddr) -> u32 {
+        *self.answered.lock().unwrap().get(&addr).unwrap_or(&0)
     }
 
     fn get(&self, addr: SocketAddr) -> Wire {
@@ -61,7 +74,9 @@ impl Prober for FakeProber {
     async fn ping(&self, s: &mut Handle) -> Result<(), Refused> {
         match self.0.get(s.0) {
             Wire::Up => {
-                time::sleep(Duration::from_millis(2)).await;
+                let slow = self.0.slow_once.lock().unwrap().remove(&s.0);
+                time::sleep(slow.unwrap_or(Duration::from_millis(2))).await;
+                *self.0.answered.lock().unwrap().entry(s.0).or_default() += 1;
                 Ok(())
             }
             Wire::Refused => Err(Refused),
@@ -131,12 +146,16 @@ impl Rig {
     }
 }
 
-/// Worst case of the design: it fails right after a good ping, so it is noticed
-/// on the next one (1 s) plus the Pong's maximum time (0.25 s).
-const MAX_SWITCH: Duration = Duration::from_millis(1500);
+/// DESIGN §6 and ACCEPTANCE F6: input moves to the next path in under 1 s.
+const MAX_SWITCH: Duration = Duration::from_secs(1);
+
+/// What the default timings give at worst: the cut lands right after a good ping of
+/// the active link, so it is noticed at the next one (200 ms) after both windows of
+/// waiting for its Pong (2 × 200 ms). The fake ping takes 2 ms, hence the slack.
+const WORST_SWITCH: Duration = Duration::from_millis(610);
 
 #[tokio::test(start_paused = true)]
-async fn preferred_dropping_switches_in_under_1_5_s_and_comes_back() {
+async fn preferred_dropping_switches_in_under_1_s_and_comes_back() {
     use LinkKind::*;
     let mut rig = Rig::new(&ALL_KINDS, &ALL_KINDS);
     rig.until_active(Some(Usb4)).await;
@@ -245,15 +264,177 @@ async fn with_a_transaction_in_progress_it_only_switches_if_the_active_one_drops
 
 #[tokio::test(start_paused = true)]
 async fn the_switch_respects_the_budget_at_any_phase_of_the_ping() {
-    // Cuts the cable at different moments between two pings.
-    for offset_ms in [0u64, 1, 150, 500, 900, 999, 1000, 1001, 1299] {
+    // Cuts the cable at every millisecond across more than one active ping period
+    // and beyond a backup period, so the cut right after a good ping (the worst
+    // case, T-310) is among them. With the old 1 s ping and 250 ms timeout that one
+    // took ~1.25 s.
+    let mut worst = Duration::ZERO;
+    for offset_ms in (0u64..=420).chain([500, 999, 1000, 1001, 1299]) {
         let mut rig = Rig::new(&ALL_KINDS, &ALL_KINDS);
         rig.until_active(Some(LinkKind::Usb4)).await;
         time::sleep(Duration::from_millis(offset_ms)).await;
         rig.net.set(addr(LinkKind::Usb4), Wire::Cut);
         let took = rig.until_active(Some(LinkKind::Ethernet)).await;
         assert!(took < MAX_SWITCH, "cut at +{offset_ms} ms: {took:?}");
+        assert!(took <= WORST_SWITCH, "cut at +{offset_ms} ms: {took:?}");
+        worst = worst.max(took);
     }
+    // The sweep did hit the worst case, not only the easy phases.
+    assert!(worst >= Duration::from_millis(590), "worst {worst:?}");
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_cut_right_after_a_good_ping_switches_in_under_1_s() {
+    use LinkKind::*;
+    let mut rig = Rig::new(&ALL_KINDS, &ALL_KINDS);
+    rig.until_active(Some(Usb4)).await;
+    // Settle into the active link's cadence, then wait for one of its good pings to
+    // land and cut the cable within the same millisecond.
+    time::sleep(Duration::from_secs(2)).await;
+    right_after_a_good_ping(&rig, Usb4).await;
+    rig.net.set(addr(Usb4), Wire::Cut);
+    let took = rig.until_active(Some(Ethernet)).await;
+    assert!(took < MAX_SWITCH, "switched in {took:?}");
+    assert!(
+        took >= Duration::from_millis(590),
+        "not the worst case: {took:?}"
+    );
+    assert!(took <= WORST_SWITCH, "switched in {took:?}");
+}
+
+/// Counts the Pongs on `kind` over `span`.
+async fn pongs_over(rig: &Rig, kind: LinkKind, span: Duration) -> u32 {
+    let before = rig.net.pongs(addr(kind));
+    time::sleep(span).await;
+    rig.net.pongs(addr(kind)) - before
+}
+
+/// Waits until a good ping on `kind` lands, within the same millisecond.
+async fn right_after_a_good_ping(rig: &Rig, kind: LinkKind) {
+    let pongs = rig.net.pongs(addr(kind));
+    while rig.net.pongs(addr(kind)) == pongs {
+        time::sleep(Duration::from_millis(1)).await;
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_fast_pace_follows_the_active_link_after_a_failover() {
+    use LinkKind::*;
+    let mut rig = Rig::new(&ALL_KINDS, &ALL_KINDS);
+    rig.until_active(Some(Usb4)).await;
+    time::sleep(Duration::from_secs(2)).await;
+    // While USB4 carries the traffic, it is pinged ~5 times a second and the backups
+    // once a second.
+    let span = Duration::from_secs(5);
+    let (usb4, eth, wifi) = tokio::join!(
+        pongs_over(&rig, Usb4, span),
+        pongs_over(&rig, Ethernet, span),
+        pongs_over(&rig, Wifi, span),
+    );
+    assert!(
+        (24..=26).contains(&usb4),
+        "USB4 active: {usb4} pongs in 5 s"
+    );
+    assert!(
+        (4..=6).contains(&eth),
+        "Ethernet backup: {eth} pongs in 5 s"
+    );
+    assert!((4..=6).contains(&wifi), "Wi-Fi backup: {wifi} pongs in 5 s");
+
+    rig.net.set(addr(Usb4), Wire::Cut);
+    rig.until_active(Some(Ethernet)).await;
+    time::sleep(Duration::from_secs(2)).await;
+
+    // The promoted backup now gets the fast pace; Wi-Fi stays at 1 per second.
+    let (eth, wifi) = tokio::join!(
+        pongs_over(&rig, Ethernet, span),
+        pongs_over(&rig, Wifi, span)
+    );
+    assert!(
+        (24..=26).contains(&eth),
+        "Ethernet active: {eth} pongs in 5 s"
+    );
+    assert!((4..=6).contains(&wifi), "Wi-Fi backup: {wifi} pongs in 5 s");
+
+    // So a second cut in a row, at its worst phase, is just as fast.
+    right_after_a_good_ping(&rig, Ethernet).await;
+    rig.net.set(addr(Ethernet), Wire::Cut);
+    let took = rig.until_active(Some(Wifi)).await;
+    assert!(took <= WORST_SWITCH, "Ethernet → Wi-Fi in {took:?}");
+    assert!(
+        took >= Duration::from_millis(590),
+        "not the worst case: {took:?}"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn without_a_healthy_backup_a_stall_is_tolerated_longer() {
+    use LinkKind::*;
+    let config = HealthConfig::default();
+    let mut rig = Rig::new(&ALL_KINDS, &[Wifi]);
+    rig.until_active(Some(Wifi)).await;
+    time::sleep(Duration::from_secs(2)).await;
+
+    // Pongs 700 ms late (more than the 400 ms that drops a link with a backup, less
+    // than the 1 s of patience): Wi-Fi is the only path, so it is kept.
+    let stall = Duration::from_millis(700);
+    assert!(stall > config.ping_timeout * config.misses_to_drop);
+    for _ in 0..10 {
+        rig.net.slow_next_ping(addr(Wifi), stall);
+        time::sleep(Duration::from_secs(2)).await;
+    }
+    assert!(drain(&mut rig).is_empty(), "{:?}", rig.seen);
+    assert_eq!(rig.manager.active().unwrap().kind, Wifi);
+
+    // A real cut is still noticed: within one fast interval plus the patience.
+    right_after_a_good_ping(&rig, Wifi).await;
+    rig.net.set(addr(Wifi), Wire::Cut);
+    let took = rig.until_active(None).await;
+    assert!(
+        took <= config.active_ping_interval + config.ping_interval + Duration::from_millis(10),
+        "{took:?}"
+    );
+
+    // With a healthy backup the same stall is a drop.
+    rig.net.set(addr(Wifi), Wire::Up);
+    rig.net.set(addr(Ethernet), Wire::Up);
+    rig.until_active(Some(Ethernet)).await;
+    time::sleep(Duration::from_secs(5)).await;
+    assert!(
+        rig.manager
+            .links()
+            .iter()
+            .all(|l| l.kind == Usb4 || l.rtt.is_some())
+    );
+    rig.net.slow_next_ping(addr(Ethernet), stall);
+    let took = rig.until_active(Some(Wifi)).await;
+    assert!(took < MAX_SWITCH, "{took:?}");
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_single_missed_probe_does_not_switch() {
+    use LinkKind::*;
+    let config = HealthConfig::default();
+    let mut rig = Rig::new(&ALL_KINDS, &ALL_KINDS);
+    rig.until_active(Some(Usb4)).await;
+    time::sleep(Duration::from_secs(2)).await;
+
+    // The Pong misses one window and arrives in the next one, many times over.
+    let late = config.ping_timeout + config.ping_timeout / 2;
+    for _ in 0..20 {
+        rig.net.slow_next_ping(addr(Usb4), late);
+        time::sleep(Duration::from_secs(1)).await;
+    }
+    assert!(drain(&mut rig).is_empty(), "{:?}", rig.seen);
+    assert_eq!(rig.manager.active().unwrap().kind, Usb4);
+
+    // Missing every window is a drop.
+    rig.net.slow_next_ping(
+        addr(Usb4),
+        config.ping_timeout * config.misses_to_drop + Duration::from_millis(1),
+    );
+    let took = rig.until_active(Some(Ethernet)).await;
+    assert!(took < MAX_SWITCH, "switched in {took:?}");
 }
 
 #[tokio::test(start_paused = true)]
@@ -373,14 +554,25 @@ async fn dropping_the_manager_stops_the_pings() {
 #[tokio::test]
 async fn an_invalid_config_is_rejected() {
     let net = Arc::new(FakeNet::default());
-    let bad = HealthConfig {
-        ping_interval: Duration::ZERO,
-        ..HealthConfig::default()
-    };
-    assert_eq!(
-        LinkManager::spawn(&cands(&ALL_KINDS), FakeProber(net.clone()), bad).err(),
-        Some(ManagerError::ZeroDuration)
-    );
+    for bad in [
+        HealthConfig {
+            ping_interval: Duration::ZERO,
+            ..HealthConfig::default()
+        },
+        HealthConfig {
+            active_ping_interval: Duration::ZERO,
+            ..HealthConfig::default()
+        },
+        HealthConfig {
+            misses_to_drop: 0,
+            ..HealthConfig::default()
+        },
+    ] {
+        assert_eq!(
+            LinkManager::spawn(&cands(&ALL_KINDS), FakeProber(net.clone()), bad).err(),
+            Some(ManagerError::ZeroDuration)
+        );
+    }
     assert_eq!(
         LinkManager::spawn(&[], FakeProber(net.clone()), HealthConfig::default()).err(),
         Some(ManagerError::NoCandidates)
@@ -396,7 +588,13 @@ async fn an_invalid_config_is_rejected() {
 fn the_default_budget_meets_the_design() {
     let c = HealthConfig::default();
     assert_eq!(c.ping_interval, Duration::from_secs(1));
-    assert!(c.ping_interval + c.ping_timeout < MAX_SWITCH);
+    assert_eq!(c.active_ping_interval, Duration::from_millis(200));
+    assert_eq!(c.ping_timeout, Duration::from_millis(200));
+    assert_eq!(c.misses_to_drop, 2);
+    assert_eq!(c.worst_detection(), Duration::from_millis(600));
+    // Comfortably inside the 1 s budget, leaving room for the switch itself.
+    assert!(c.worst_detection() + Duration::from_millis(100) <= Duration::from_millis(700));
+    assert!(c.worst_detection() < MAX_SWITCH);
 }
 
 #[tokio::test(start_paused = true)]

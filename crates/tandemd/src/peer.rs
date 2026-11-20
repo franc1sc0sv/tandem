@@ -228,7 +228,7 @@ async fn client_loop<C: ControlChannel>(
 
 /// A request to the other agent that travels over link `kind`: fails with [`PEER_LOST`]
 /// as soon as the link manager considers that link down (DESIGN §6: without waiting
-/// for long timeouts). The drop is noticed in a ping, about 1.25 s; the step's
+/// for long timeouts). The drop is noticed in a ping, at most 0.6 s on the active link; the step's
 /// maximum time is 10 s. This way the transaction undoes (or continues) right away over the next
 /// link.
 pub async fn over_link<H, F, T>(
