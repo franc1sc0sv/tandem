@@ -23,6 +23,7 @@
   let renaming = $state<string | null>(null);
   let draft = $state("");
   let leaving = $state(false);
+  let forgetting = $state(false);
 
   // The buttons of the settings mockups measure 34 px (12.5 px text, 15 icon).
   const B34 = "--btn-h:34px;--btn-px:13px;--btn-gap:7px";
@@ -67,6 +68,15 @@
     } catch {
       store.toast("Could not copy the command", "bad");
     }
+  }
+
+  async function forgetAndPair() {
+    if (!forgetting) {
+      forgetting = true;
+      return;
+    }
+    forgetting = false;
+    await store.forgetAndPair();
   }
 
   async function leave() {
@@ -153,6 +163,12 @@
               <span class="fill col">Leave desk<span class="mut sub">This machine forgets the other machines’ keys and, if they are connected, they forget its key; if not, they do once they leave too.</span></span>
               <Button icon="logout" variant="danger" size="sm" style={B34} onclick={leave}>{leaving ? "Confirm" : "Leave"}</Button>
             </div>
+            {#if desk.pair.peer.kind === "paired"}
+              <div class="row">
+                <span class="fill col">Forget this pair and pair again<span class="mut sub">For when the other machine was reinstalled or reset and this one still trusts its old key. It works even if the other machine is off; it keeps trusting this one until it leaves the desk too.</span></span>
+                <Button icon="refresh" size="sm" style={B34} onclick={forgetAndPair}>{forgetting ? "Confirm" : "Forget and pair"}</Button>
+              </div>
+            {/if}
           {:else if tab === "shortcuts"}
             <Shortcuts />
           {:else if tab === "keyboard"}

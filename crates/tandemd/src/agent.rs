@@ -1126,6 +1126,24 @@ impl Agent {
         });
     }
 
+    /// A machine that is not the paired peer offers to pair while the peer is silent (T-345):
+    /// `Idle` turns into `Offered` and back. Any other status (a pairing in progress, its
+    /// result) is never touched.
+    pub fn set_pairing_offer(&self, offered: bool) {
+        self.pairing_status
+            .send_if_modified(|s| match (&*s, offered) {
+                (PairingStatus::Idle, true) => {
+                    *s = PairingStatus::Offered;
+                    true
+                }
+                (PairingStatus::Offered, false) => {
+                    *s = PairingStatus::Idle;
+                    true
+                }
+                _ => false,
+            });
+    }
+
     fn pair(&self, f: impl FnOnce(&dyn PairingControl) -> Result<(), String>) -> Reply {
         let control = self
             .pairing

@@ -288,6 +288,7 @@ export const SETTINGS: ShotSpec[] = [
     { app: ".pane > .row:nth-child(3) > button", mockup: ".pane > .row:nth-child(3) > button.ic", reason: "Without \"Remove from desk\" next to it, the pencil of the other machine falls at the right edge of the row" },
     { app: ".pane > .row:nth-child(4) > .fill", mockup: ".pane > .row:nth-child(4) > span", reason: "D1: \"Change the other machine\" instead of \"Add a machine\"" },
     { app: ".pane > .row:nth-child(4) > button", mockup: ".pane > .row:nth-child(4) > a.btn", reason: "D1: \"Pair again\" instead of \"Show code\"" },
+    { app: ".pane > .row:nth-child(7)", reason: "T-345: \"Forget this pair and pair again\" has no counterpart in the mockup (the pair can go stale after a reinstall)" },
   ]),
   { ...settingsShot("settings-shortcuts", "shortcuts", [tab("Shortcuts")]), query: `${DEMO}&pconly` },
   settingsShot("settings-keyboard", "keyboard", [tab("Keyboard and mouse")]),
@@ -492,6 +493,9 @@ export const SHOTS: ShotSpec[] = [
     ["scene-macbook-only", "MacBook only"],
     ["scene-game", "Game"],
   ].map(([state, label]): ShotSpec => ({ name: `desk-${state}`, page: "index.html", query: DEMO, hash: "#/desk", mockup: "V3-Desk", state, width: W, height: H, clicks: [`.scene:has-text("${label}")`], ignore: [NO_ADD_MACHINE, NO_ADD_CARD], min: SCREEN_GATE })),
+  // T-345: the notice of another machine looking for a pair while the paired one is silent. The mockup has no such
+  // state: it is captured and measured but has no threshold.
+  { name: "desk-offer", page: "index.html", query: `${DEMO}&trouble=peer-off&offer`, hash: "#/desk", mockup: "V3-Desk", width: W, height: H, ignore: [NO_ADD_MACHINE, NO_ADD_CARD] },
   { name: "desk-win-win", page: "index.html", query: "demo=win-win&still", hash: "#/desk", mockup: "V3-Desk", width: W, height: H, ignore: [NO_ADD_MACHINE, NO_ADD_CARD, D2_DESKS], regions: [SIDEBAR] },
   { name: "desk-mac-mac", page: "index.html", query: "demo=mac-mac&still", hash: "#/desk", mockup: "V3-Desk", width: W, height: H, ignore: [NO_ADD_MACHINE, NO_ADD_CARD, D2_DESKS], regions: [SIDEBAR] },
   ...TUNNELS,

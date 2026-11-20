@@ -186,6 +186,7 @@ function pairStep(o: Onboarding, snap: Snapshot): StepView {
   }
   switch (pairing.kind) {
     case "idle":
+    case "offered":
     case "failed":
       v.checks.push({ state: pairing.kind === "failed" ? "fail" : "idle", label: "Not paired", detail: pairing.kind === "failed" ? pairing.reason : "open Tandem on the other machine too" });
       v.buttons.push({ id: "pair:start", label: "Look for the other machine", kind: "primary", enabled: true });

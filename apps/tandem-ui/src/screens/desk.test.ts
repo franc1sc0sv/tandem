@@ -46,6 +46,30 @@ describe("V3-Desk in demo mode", () => {
     expect(screen.getByRole("button", { name: /Work/, pressed: true })).toBeInTheDocument();
   });
 
+  it("without an offer there is no pairing notice (T-345)", async () => {
+    await mount("demo&still&trouble=peer-off");
+    expect(screen.queryByRole("region", { name: "Pairing offer" })).toBeNull();
+  });
+
+  it("a silent peer and another machine looking for a pair: notice that forgets the old pair after confirming (T-345)", async () => {
+    const { store } = await mount("demo&still&trouble=peer-off&offer");
+    const notice = within(screen.getByRole("region", { name: "Pairing offer" }));
+    expect(notice.getByText("PC-Desktop is not answering")).toBeInTheDocument();
+    expect(notice.getByText(/Another Tandem machine is looking for a pair/)).toBeInTheDocument();
+    const pair = vi.spyOn(store, "pairAction");
+    await userEvent.click(notice.getByRole("button", { name: "Forget the old pair and pair" }));
+    // Asks first: nothing was forgotten yet.
+    expect(pair).not.toHaveBeenCalled();
+    expect(notice.getByText(/forgets PC-Desktop/)).toBeInTheDocument();
+    await userEvent.click(notice.getByRole("button", { name: "Confirm" }));
+    expect(pair.mock.calls.map((c) => c[0])).toEqual(["unpair", "start_pairing"]);
+    await tick();
+    // Searching for the new machine: the setup opens at the pairing step and the notice is gone.
+    expect(store.desk.pair.pairing.kind).toBe("searching");
+    expect(store.wizardOpen).toBe(true);
+    expect(screen.queryByRole("region", { name: "Pairing offer" })).toBeNull();
+  });
+
   it("applying a scene marks it as active", async () => {
     await mount();
     await userEvent.click(screen.getByRole("button", { name: /MacBook only/ }));

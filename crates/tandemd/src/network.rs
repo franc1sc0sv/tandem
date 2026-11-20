@@ -74,6 +74,12 @@ pub struct NetOptions {
     /// Whether this agent dials the peer. Tests turn it off to play a peer whose firewall
     /// silently drops inbound UDP (T-237): the dial then hangs until the connect timeout.
     pub dial: bool,
+    /// How long the peer must be silent before another machine's pairing offer is reported
+    /// (T-345, [`crate::offer`]).
+    pub stale_after: Duration,
+    /// Tests feed here the pairing announcements the LAN would deliver (CI has no
+    /// multicast); without it they come from mDNS if `mdns` is on.
+    pub offers: Option<watch::Receiver<Vec<SocketAddr>>>,
 }
 
 impl Default for NetOptions {
@@ -85,6 +91,8 @@ impl Default for NetOptions {
             health: HealthConfig::default(),
             pairing: PairingTimeouts::default(),
             dial: true,
+            stale_after: crate::offer::DEFAULT_STALE_AFTER,
+            offers: None,
         }
     }
 }
@@ -568,6 +576,7 @@ impl Shared {
             None
         };
         let (reachable_tx, reachable) = watch::channel(false);
+        let offers = self.offer_feed(public_key);
         let mut following = lock(&self.peer);
         // First the previous one is silenced: its link is not the new peer's.
         if let Some(p) = following.take() {
@@ -579,7 +588,7 @@ impl Shared {
             shared: Arc::downgrade(self),
             generation: self.active.reset(),
         };
-        let tasks = vec![
+        let tasks: Vec<JoinHandle<()>> = vec![
             tokio::spawn(supervise(
                 agent.clone(),
                 self.endpoint.clone(),
@@ -598,11 +607,43 @@ impl Shared {
             )),
             // Both watch the other: either can be left alone (DESIGN §3.7).
             tokio::spawn(crate::peer_watch::watch(agent.clone(), reachable)),
-        ];
+        ]
+        .into_iter()
+        .chain(offers.map(|(feed, keep)| {
+            let (agent, after) = (agent.clone(), self.opts.stale_after);
+            tokio::spawn(async move {
+                // The announcements stop being watched when the peer is forgotten.
+                let _keep = keep;
+                crate::offer::watch(agent, feed, after).await;
+            })
+        }))
+        .collect();
         *following = Some(Following {
             key: public_key,
             tasks,
         });
+    }
+
+    /// Where the pairing announcements of machines other than `peer` come from (T-345), with
+    /// what has to stay alive for them to keep arriving.
+    #[allow(clippy::type_complexity)]
+    fn offer_feed(
+        &self,
+        peer: PublicKey,
+    ) -> Option<(watch::Receiver<Vec<SocketAddr>>, Option<MdnsDiscovery>)> {
+        if let Some(feed) = self.opts.offers.clone() {
+            return Some((feed, None));
+        }
+        if !self.opts.mdns {
+            return None;
+        }
+        match MdnsDiscovery::pairing_offers(&self.identity.public_key(), [peer]) {
+            Ok(d) => Some((d.peer_addrs(), Some(d))),
+            Err(e) => {
+                tracing::warn!("no mDNS: a pairing offer from another machine cannot be seen: {e}");
+                None
+            }
+        }
     }
 
     /// Forgets the peer: removes it from trust, stops looking for it and cuts its

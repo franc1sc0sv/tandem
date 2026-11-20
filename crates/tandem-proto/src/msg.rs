@@ -928,6 +928,10 @@ pub enum PairingStatus {
     Done { peer: String },
     /// Not paired; nothing was saved.
     Failed { reason: String },
+    /// Nobody asked to pair, but the paired peer has not answered for a while and another
+    /// machine announces itself for pairing on the LAN (T-345): the user may forget the old
+    /// pair and pair with it. It replaces `Idle` and goes back to it when the offer is gone.
+    Offered,
 }
 
 /// The shared keyboard and mouse, seen from this agent (the UI chip).
@@ -1642,6 +1646,7 @@ pub(crate) mod samples {
             PairingStatus::Failed {
                 reason: "the other machine rejected the code".into(),
             },
+            PairingStatus::Offered,
         ]
     }
 
@@ -1673,6 +1678,7 @@ pub(crate) mod samples {
             PairingStatus::Comparing { .. } => 2,
             PairingStatus::Done { .. } => 3,
             PairingStatus::Failed { .. } => 4,
+            PairingStatus::Offered => 5,
         }
     }
 
@@ -2424,7 +2430,7 @@ mod tests {
             .collect();
         covers(&kinds, |k| crate::env::samples::env_kind_arm(*k), 3);
         covers(&pairing(), pairing_arm, 5);
-        covers(&pairing_statuses(), pairing_status_arm, 5);
+        covers(&pairing_statuses(), pairing_status_arm, 6);
         covers(&links(), link_arm, 3);
         let replies: Vec<_> = to_ui()
             .into_iter()

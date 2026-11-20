@@ -245,6 +245,8 @@ pub enum PairingView {
     Failed {
         reason: String,
     },
+    /// Another machine offers to pair while the paired one is silent (T-345).
+    Offered,
 }
 
 impl From<PairingStatus> for PairingView {
@@ -263,6 +265,7 @@ impl From<PairingStatus> for PairingView {
             },
             PairingStatus::Done { peer } => PairingView::Done { peer },
             PairingStatus::Failed { reason } => PairingView::Failed { reason },
+            PairingStatus::Offered => PairingView::Offered,
         }
     }
 }
@@ -2390,6 +2393,10 @@ mac = "aa:bb:cc:dd:ee:ff"
                 confirmed: true,
             }),
             serde_json::json!({ "kind": "comparing", "code": "012345", "peer": "PC", "confirmed": true })
+        );
+        assert_eq!(
+            pairing(PairingStatus::Offered),
+            serde_json::json!({ "kind": "offered" })
         );
         assert_eq!(
             serde_json::to_value(PeerView::from(PeerStatus::Paired {

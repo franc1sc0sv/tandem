@@ -28,7 +28,7 @@ use tandemd::pairing::PairingTimeouts;
 use tandemd::paths::Paths;
 use tandemd::test_ports::{PortTaken, free_pair, port_taken};
 use tandemd::{Agent, AgentConfig, StoreError};
-use tokio::sync::oneshot;
+use tokio::sync::{oneshot, watch};
 use tokio::task::JoinHandle;
 
 const TIMEOUT: Duration = Duration::from_secs(30);
@@ -174,6 +174,33 @@ async fn start_trusting(
         PairingTimeouts::default(),
         None,
         Some(trusts),
+        None,
+    )
+    .await
+}
+
+/// A pairing announcement as the LAN would deliver it: the other machine looking for a pair.
+fn announcement() -> Vec<SocketAddr> {
+    vec![loopback(1)]
+}
+
+/// Like [`start_trusting`], with the pairing announcements of the LAN fed by the test and a
+/// peer that counts as stale after a moment.
+async fn start_trusting_with_lan(
+    machine: Machine,
+    identity: &Identity,
+    trusts: &Identity,
+    (port, peer_port): (u16, u16),
+    lan: watch::Receiver<Vec<SocketAddr>>,
+) -> Result<Running, PortTaken> {
+    start_inner(
+        (machine, name_of(machine)),
+        identity,
+        (port, peer_port),
+        PairingTimeouts::default(),
+        None,
+        Some(trusts),
+        Some(lan),
     )
     .await
 }
@@ -188,7 +215,7 @@ async fn start_with_input(
     timeouts: PairingTimeouts,
     input: Option<InputSetup>,
 ) -> Result<Running, PortTaken> {
-    start_inner(who, identity, ports, timeouts, input, None).await
+    start_inner(who, identity, ports, timeouts, input, None, None).await
 }
 
 async fn start_inner(
@@ -198,6 +225,7 @@ async fn start_inner(
     timeouts: PairingTimeouts,
     input: Option<InputSetup>,
     trusts: Option<&Identity>,
+    lan: Option<watch::Receiver<Vec<SocketAddr>>>,
 ) -> Result<Running, PortTaken> {
     let dir = tempfile::tempdir().unwrap();
     let paths = Paths {
@@ -238,6 +266,8 @@ async fn start_inner(
             mdns: false,
             pairing: timeouts,
             health: common::health(),
+            stale_after: Duration::from_millis(300),
+            offers: lan,
             ..NetOptions::default()
         },
     );
@@ -926,4 +956,89 @@ async fn a_rejection_before_the_other_saves_the_pairing_does_not_unpair() {
     assert!(mac.trusted(&pc_id));
     pc.stop().await;
     mac.stop().await;
+}
+
+/// T-345: the PC kept the old Mac's key in trust (reinstall without deleting data) and the
+/// Mac has a new identity. While the PC's peer is silent and another machine announces itself
+/// for pairing, the PC's UI is told so; when the announcement goes away, the notice goes away.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_stale_peer_and_a_pairing_announcement_is_reported_as_an_offer() {
+    let old_mac = Identity::from_seed([120; 32]);
+    let pc_id = Identity::from_seed([121; 32]);
+    let (lan, feed) = watch::channel(Vec::new());
+    let mut pc = tandemd::start_solo!(|pc_port, nobody| start_trusting_with_lan(
+        Machine::B,
+        &pc_id,
+        &old_mac,
+        (pc_port, nobody),
+        feed.clone()
+    ));
+    // Nobody announces anything yet: the silent peer alone is not an offer.
+    assert_eq!(pc.agent.pairing_status(), PairingStatus::Idle);
+
+    lan.send_replace(announcement());
+    pc.until_pairing(|s| *s == PairingStatus::Offered).await;
+    assert_eq!(
+        pc.ask(UiCommand::GetPairing).await,
+        Reply::Pairing(PairingStatus::Offered)
+    );
+
+    lan.send_replace(Vec::new());
+    pc.until_pairing(|s| *s == PairingStatus::Idle).await;
+    pc.stop().await;
+}
+
+/// T-345: the whole way out. The PC trusts the old Mac's key, the new Mac knows nobody. The
+/// PC sees the offer, forgets the old pair and both pair again; the PC's trust file ends with
+/// the new Mac's key and without the old one.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn forgetting_a_stale_pair_and_pairing_again_works() {
+    let old_mac = Identity::from_seed([130; 32]);
+    let (new_mac_id, pc_id) = sides(
+        Identity::from_seed([131; 32]),
+        Identity::from_seed([132; 32]),
+    );
+    let (lan, feed) = watch::channel(Vec::new());
+    let (mut mac, mut pc) = tandemd::start_pair!(
+        ports: free_pair; |mac_port, pc_port| start(Machine::A, &new_mac_id, mac_port, pc_port, PairingTimeouts::default()),
+        start_trusting_with_lan(Machine::B, &pc_id, &old_mac, (pc_port, mac_port), feed.clone())
+    );
+    assert!(pc.trusted(&old_mac));
+
+    // The new Mac opens pairing: the PC learns about it from the LAN.
+    assert_eq!(mac.ask(UiCommand::StartPairing).await, Reply::Done);
+    lan.send_replace(announcement());
+    pc.until_pairing(|s| *s == PairingStatus::Offered).await;
+    // While the old pair stands, pairing is refused: the old one has to be forgotten first.
+    assert!(matches!(
+        pc.ask(UiCommand::StartPairing).await,
+        Reply::Rejected(_)
+    ));
+
+    assert_eq!(pc.ask(UiCommand::Unpair).await, Reply::Done);
+    assert!(!pc.trusted(&old_mac));
+    assert_eq!(pc.agent.peer_status(), PeerStatus::Unpaired);
+    assert_eq!(pc.agent.pairing_status(), PairingStatus::Idle);
+
+    assert_eq!(pc.ask(UiCommand::StartPairing).await, Reply::Done);
+    let (m, p) = (
+        mac.until_pairing(comparing).await,
+        pc.until_pairing(comparing).await,
+    );
+    assert_eq!(code_of(&m), code_of(&p));
+    assert_eq!(mac.ask(UiCommand::ConfirmPairing).await, Reply::Done);
+    assert_eq!(pc.ask(UiCommand::ConfirmPairing).await, Reply::Done);
+    let usb4 = |name: &str| PeerStatus::Paired {
+        name: name.into(),
+        link: Some(Link::Usb4),
+    };
+    until_peer(&mac.agent, usb4("PC")).await;
+    until_peer(&pc.agent, usb4("Mac")).await;
+    assert!(pc.trusted(&new_mac_id));
+    assert!(!pc.trusted(&old_mac));
+    assert!(mac.trusted(&pc_id));
+    // Paired and connected: no offer is shown any more.
+    assert_ne!(pc.agent.pairing_status(), PairingStatus::Offered);
+    mac.stop().await;
+    pc.stop().await;
 }

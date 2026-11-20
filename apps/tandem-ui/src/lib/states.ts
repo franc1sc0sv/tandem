@@ -16,7 +16,7 @@ export const TONE_STYLE: Record<StateTone, { bg: string; fg: string }> = {
 };
 
 /** What a card's button does; the screen wires it to the store. */
-export type StateDo = "pair-peer" | "power-on" | "retry-scene" | "tunnels" | "permission";
+export type StateDo = "pair-peer" | "power-on" | "retry-scene" | "tunnels" | "permission" | "forget-and-pair";
 
 export interface StateAction {
   label: string;
@@ -64,6 +64,8 @@ export interface StateContext {
   gallery: boolean;
   /** The last scene that could not be applied (the store keeps it when it sees the failure). */
   failedScene: { id: string; name: string } | null;
+  /** The user asked to forget the old pair (T-345): the card now says what that does and asks to confirm. */
+  confirmOffer?: boolean;
   /** `?demo&states`: the sample texts of `V3-States` (names, figures), to compare them with the mockup. */
   example?: boolean;
 }
@@ -105,7 +107,24 @@ export function stateCards(d: DeskView, ctx: StateContext = { gallery: false, fa
   const monitor = unreachable ?? d.monitors.find((m) => m.compat.ok);
   const missingPermission = d.permissions.rows.some((r) => r.state === "missing") || d.trouble === "permissions";
 
+  // Another machine looks for a pair while the paired one is silent (T-345): never in the gallery.
+  const offered = d.pair.pairing.kind === "offered" && d.pair.peer.kind === "paired";
+  const old = d.pair.peer.kind === "paired" ? d.pair.peer.name : peer;
+
   const cards: (StateCardSpec | null)[] = [
+    offered
+      ? {
+          id: "offer",
+          tag: "Pairing",
+          tone: "amber",
+          icon: "unplugged",
+          title: `${old} is not answering`,
+          body: ctx.confirmOffer
+            ? `This machine forgets ${old} and pairs with the new one. ${old} keeps trusting this one until it leaves the desk too.`
+            : "Another Tandem machine is looking for a pair on this network. If you reinstalled or reset the other machine, forget the old pair and pair with the new one.",
+          action: { label: ctx.confirmOffer ? "Confirm" : "Forget the old pair and pair", icon: "refresh", variant: "pri", does: "forget-and-pair" },
+        }
+      : null,
     alone || g
       ? {
           id: "first",

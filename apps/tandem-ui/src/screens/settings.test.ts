@@ -118,6 +118,32 @@ describe("Desk and machines", () => {
   });
 });
 
+describe("Forget this pair and pair again (T-345)", () => {
+  it("it is there even when the other machine is off, and asks before forgetting", async () => {
+    const store = await mount("demo&still&trouble=peer-off");
+    expect(screen.getByText("Forget this pair and pair again")).toBeInTheDocument();
+    const pair = vi.spyOn(store, "pairAction");
+    await userEvent.click(screen.getByRole("button", { name: "Forget and pair" }));
+    expect(pair).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: "Confirm" }));
+    expect(pair.mock.calls.map((c) => c[0])).toEqual(["unpair", "start_pairing"]);
+    await tick();
+    expect(store.desk.pair.peer.kind).toBe("unpaired");
+    expect(store.desk.pair.pairing.kind).toBe("searching");
+  });
+
+  it("it says the other machine keeps trusting this one if it is not reached", async () => {
+    await mount();
+    expect(screen.getByText(/reinstalled or reset/)).toBeInTheDocument();
+    expect(screen.getByText(/keeps trusting this one until it leaves the desk too/)).toBeInTheDocument();
+  });
+
+  it("without a pair there is nothing to forget", async () => {
+    await mount("demo&still&peer=none");
+    expect(screen.queryByText("Forget this pair and pair again")).toBeNull();
+  });
+});
+
 describe("Keyboard and mouse", () => {
   it("\"Cmd for Ctrl\" and \"Drag\" send the whole pair of preferences", async () => {
     const store = await mount();

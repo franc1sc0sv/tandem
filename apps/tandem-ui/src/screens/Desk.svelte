@@ -16,6 +16,8 @@
   import { machineIcon } from "../ui/icons";
   import Kbd from "../ui/Kbd.svelte";
   import Sparkline from "../ui/Sparkline.svelte";
+  import StateCard from "../ui/StateCard.svelte";
+  import { stateCards } from "../lib/states";
 
   const store = useStore();
   const desk = $derived(store.desk);
@@ -86,6 +88,18 @@
   // `V3-Desk` writes "34" shows PC-Desktop"; `V3-Monitors` (and `scenes.ts`) use "→".
   const sceneLine = (desc: string) => desc.replaceAll(" → ", " shows ");
 
+  // Another machine looks for a pair while the paired one is silent (T-345): forgetting the old one asks first.
+  let confirmOffer = $state(false);
+  const offer = $derived(desk.pair.pairing.kind === "offered" ? (stateCards(desk, { gallery: false, failedScene: null, confirmOffer }).find((c) => c.id === "offer") ?? null) : null);
+  function forgetAndPair() {
+    if (!confirmOffer) {
+      confirmOffer = true;
+      return;
+    }
+    confirmOffer = false;
+    void store.forgetAndPair();
+  }
+
   // Power of the other machine (transaction: the agent reports each step).
   const peer = $derived(list.find((m) => !m.here) ?? null);
   const showPower = $derived(peer !== null && store.can("power") && peer.power !== "lost");
@@ -107,6 +121,10 @@
       {#if desk.locked}<Chip tone="warn" icon="lock">Cursor locked here</Chip>{/if}
     {/snippet}
   </PageHeader>
+
+  {#if offer}
+    <section aria-label="Pairing offer" class="offer"><StateCard spec={offer} onaction={forgetAndPair} /></section>
+  {/if}
 
   <section aria-label="Machines" class="machines">
     {#each list as m, i (m.id)}

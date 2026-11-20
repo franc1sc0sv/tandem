@@ -13,6 +13,7 @@
 
   function run(does: StateDo, sceneId?: string) {
     if (does === "pair-peer") store.openWizard(WIZARD_PAIR);
+    else if (does === "forget-and-pair") void store.forgetAndPair();
     else if (does === "power-on") void store.setPower(peer, true);
     else if (does === "tunnels") store.go({ screen: "tunnels" });
     else if (does === "permission") void store.openPermission("input_monitoring");
