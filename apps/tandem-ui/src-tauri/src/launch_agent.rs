@@ -10,6 +10,7 @@
 
 use std::io;
 use std::path::{Component, Path, PathBuf};
+use std::time::{Duration, Instant};
 
 /// Service label in launchd and plist name.
 pub const LABEL: &str = "com.franc1sc0sv.tandem.tandemd";
@@ -165,12 +166,34 @@ pub fn plist(spec: &AgentSpec) -> String {
 /// `launchctl` in the user's session domain (`gui/<uid>`).
 pub trait Launchd {
     fn is_loaded(&self, label: &str) -> bool;
+    /// Loaded and with a live process. A loaded job can have none: launchd does not
+    /// relaunch a process that exited in a way `KeepAlive` accepts.
+    fn is_running(&self, label: &str) -> bool;
     /// Removes it from launchd (and stops it). Not being loaded is not an error.
     fn bootout(&self, label: &str) -> Result<(), String>;
     /// Loads it from the plist; with `RunAtLoad` it starts right away.
     fn bootstrap(&self, plist: &Path) -> Result<(), String>;
     /// Kills the service and launches it again (`launchctl kickstart -k`).
     fn kickstart(&self, label: &str) -> Result<(), String>;
+}
+
+/// Whether `launchctl print gui/<uid>/<label>` describes a job with a live process.
+///
+/// Only the job's own lines count (one tab deep): nested blocks (endpoints, event
+/// triggers) have their own `state` and `pid`-like keys.
+pub fn print_says_running(print: &str) -> bool {
+    print.lines().any(|line| {
+        let Some(own) = line.strip_prefix('\t') else {
+            return false;
+        };
+        if own.starts_with('\t') {
+            return false;
+        }
+        own == "state = running"
+            || own
+                .strip_prefix("pid = ")
+                .is_some_and(|pid| !pid.is_empty() && pid.bytes().all(|b| b.is_ascii_digit()))
+    })
 }
 
 /// Restarts `tandemd` so newly granted permissions take effect: macOS evaluates several of
@@ -185,6 +208,69 @@ pub fn restart(launchd: &dyn Launchd) -> Result<(), String> {
     launchd.kickstart(LABEL)
 }
 
+/// What [`revive`] found.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Revived {
+    /// No agent in launchd: there is nothing to start (a development build, or the app has
+    /// not installed it yet; [`ensure`] does that when the app opens).
+    NotLoaded,
+    /// It has a process: launchd is in charge.
+    Running,
+    /// Loaded without a process: it was started.
+    Started,
+}
+
+/// Starts `tandemd` if launchd has it loaded but without a process. For when the window keeps
+/// finding nobody on the IPC while the app is open; [`ReviveGate`] decides when to call it.
+pub fn revive(launchd: &dyn Launchd) -> Result<Revived, String> {
+    if !launchd.is_loaded(LABEL) {
+        return Ok(Revived::NotLoaded);
+    }
+    if launchd.is_running(LABEL) {
+        return Ok(Revived::Running);
+    }
+    launchd.kickstart(LABEL)?;
+    Ok(Revived::Started)
+}
+
+/// Failed connections in a row (one every `session::RETRY_EVERY`) before looking at launchd:
+/// a restart in progress (an update, "Restart agent") leaves nobody listening for a moment.
+pub const REVIVE_AFTER_MISSES: u32 = 3;
+
+/// Decides when the window, finding nobody on the IPC, asks launchd: after
+/// [`REVIVE_AFTER_MISSES`] misses in a row and never more often than [`THROTTLE_SECS`], the
+/// same pace launchd keeps for its own relaunches, so a `tandemd` that dies on start is never
+/// kickstarted in a loop.
+#[derive(Debug, Default)]
+pub struct ReviveGate {
+    misses: u32,
+    last: Option<Instant>,
+}
+
+impl ReviveGate {
+    /// Something answered on the IPC: the count starts again (the throttle does not).
+    pub fn reached(&mut self) {
+        self.misses = 0;
+    }
+
+    /// One more attempt found nobody listening; `true` if launchd should be asked now.
+    pub fn missed(&mut self, now: Instant) -> bool {
+        self.misses = self.misses.saturating_add(1);
+        if self.misses < REVIVE_AFTER_MISSES {
+            return false;
+        }
+        let throttle = Duration::from_secs(THROTTLE_SECS.into());
+        if self
+            .last
+            .is_some_and(|t| now.saturating_duration_since(t) < throttle)
+        {
+            return false;
+        }
+        self.last = Some(now);
+        true
+    }
+}
+
 /// What [`ensure`] did.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Outcome {
@@ -196,6 +282,8 @@ pub enum Outcome {
     Created,
     /// There was a different one (another version or another app location): it was replaced and restarted.
     Updated,
+    /// The plist was already this one and loaded, but `tandemd` was not running: it was started.
+    Restarted,
 }
 
 impl Outcome {
@@ -205,6 +293,7 @@ impl Outcome {
             Outcome::Loaded => "tandemd was loaded into launchd again",
             Outcome::Created => "tandemd is installed: it starts by itself at login",
             Outcome::Updated => "tandemd was brought up to date and restarted",
+            Outcome::Restarted => "tandemd was loaded but not running: it was started again",
         }
     }
 }
@@ -234,7 +323,11 @@ pub fn ensure(
     let have = std::fs::read_to_string(plist_file).ok();
     if have.as_deref() == Some(want.as_str()) {
         if launchd.is_loaded(LABEL) {
-            return Ok(Outcome::Unchanged);
+            if launchd.is_running(LABEL) {
+                return Ok(Outcome::Unchanged);
+            }
+            launchd.kickstart(LABEL).map_err(InstallError::Launchctl)?;
+            return Ok(Outcome::Restarted);
         }
         launchd
             .bootstrap(plist_file)
@@ -374,6 +467,16 @@ pub mod system {
                 .is_ok_and(|o| o.status.success())
         }
 
+        fn is_running(&self, label: &str) -> bool {
+            Command::new(LAUNCHCTL)
+                .args(["print", format!("{}/{label}", self.domain).as_str()])
+                .output()
+                .is_ok_and(|o| {
+                    o.status.success()
+                        && super::print_says_running(&String::from_utf8_lossy(&o.stdout))
+                })
+        }
+
         fn bootout(&self, label: &str) -> Result<(), String> {
             let target = format!("{}/{label}", self.domain);
             if self.run(&["bootout", target.as_str()]).is_err() && self.is_loaded(label) {
@@ -426,6 +529,7 @@ mod tests {
     #[derive(Default)]
     struct FakeLaunchd {
         loaded: RefCell<bool>,
+        running: RefCell<bool>,
         calls: RefCell<Vec<String>>,
         fail_bootstrap: bool,
     }
@@ -434,9 +538,13 @@ mod tests {
         fn is_loaded(&self, _: &str) -> bool {
             *self.loaded.borrow()
         }
+        fn is_running(&self, _: &str) -> bool {
+            *self.running.borrow()
+        }
         fn bootout(&self, label: &str) -> Result<(), String> {
             self.calls.borrow_mut().push(format!("bootout {label}"));
             *self.loaded.borrow_mut() = false;
+            *self.running.borrow_mut() = false;
             Ok(())
         }
         fn bootstrap(&self, plist: &Path) -> Result<(), String> {
@@ -448,10 +556,12 @@ mod tests {
                 return Err("Bootstrap failed: 5".into());
             }
             *self.loaded.borrow_mut() = true;
+            *self.running.borrow_mut() = true;
             Ok(())
         }
         fn kickstart(&self, label: &str) -> Result<(), String> {
             self.calls.borrow_mut().push(format!("kickstart {label}"));
+            *self.running.borrow_mut() = *self.loaded.borrow();
             Ok(())
         }
     }
@@ -659,6 +769,150 @@ mod tests {
         *ld.loaded.borrow_mut() = false;
         assert_eq!(ensure(&file, &s, &ld).unwrap(), Outcome::Loaded);
         assert_eq!(ld.calls(), ["bootstrap a.plist"]);
+    }
+
+    /// Seen on a real Mac (v0.3.0): `tandemd` exited with 0 after a Quit AppleEvent, launchd
+    /// kept the job loaded without a process, and opening the app did nothing.
+    #[test]
+    fn up_to_date_and_loaded_but_not_running_is_kickstarted() {
+        let dir = tempfile::tempdir().unwrap();
+        let s = spec(dir.path());
+        let file = dir.path().join("a.plist");
+        let ld = FakeLaunchd::default();
+        ensure(&file, &s, &ld).unwrap();
+        ld.calls();
+        *ld.running.borrow_mut() = false;
+        assert_eq!(ensure(&file, &s, &ld).unwrap(), Outcome::Restarted);
+        assert_eq!(ld.calls(), ["kickstart com.franc1sc0sv.tandem.tandemd"]);
+        assert!(*ld.running.borrow());
+    }
+
+    /// `launchctl print` of the agent running (trimmed from a real Mac, v0.3.0).
+    const PRINT_RUNNING: &str = "gui/501/com.franc1sc0sv.tandem.tandemd = {
+\tactive count = 3
+\tpath = /Users/user/Library/LaunchAgents/com.franc1sc0sv.tandem.tandemd.plist
+\ttype = LaunchAgent
+\tstate = running
+
+\tprogram = /Applications/Tandem.app/Contents/MacOS/tandemd
+\targuments = {
+\t\t/Applications/Tandem.app/Contents/MacOS/tandemd
+\t}
+
+\tdomain = gui/501 [100020]
+\tminimum runtime = 30
+\texit timeout = 5
+\truns = 4
+\tpid = 92836
+\timmediate reason = non-ipc demand
+\tlast exit code = 0
+
+\tsemaphores = {
+\t\tsuccessful exit => 0
+\t}
+}
+";
+
+    /// The same job after `tandemd` exited with 0: loaded, no process. The nested block
+    /// checks that only the job's own lines count.
+    const PRINT_EXITED: &str = "gui/501/com.franc1sc0sv.tandem.tandemd = {
+\tactive count = 0
+\tpath = /Users/user/Library/LaunchAgents/com.franc1sc0sv.tandem.tandemd.plist
+\ttype = LaunchAgent
+\tstate = not running
+
+\tprogram = /Applications/Tandem.app/Contents/MacOS/tandemd
+\targuments = {
+\t\t/Applications/Tandem.app/Contents/MacOS/tandemd
+\t}
+
+\tdomain = gui/501 [100020]
+\tminimum runtime = 30
+\texit timeout = 5
+\truns = 4
+\tlast exit code = 0
+
+\tsemaphores = {
+\t\tsuccessful exit => 0
+\t}
+
+\tendpoints = {
+\t\t\"com.example\" = {
+\t\t\tstate = running
+\t\t\tpid = 1
+\t\t}
+\t}
+}
+";
+
+    #[test]
+    fn print_of_a_running_job_says_running() {
+        assert!(print_says_running(PRINT_RUNNING));
+        let state_only = PRINT_RUNNING.replace("\tpid = 92836\n", "");
+        assert!(print_says_running(&state_only));
+    }
+
+    #[test]
+    fn print_of_an_exited_job_says_not_running() {
+        assert!(!print_says_running(PRINT_EXITED));
+        assert!(!print_says_running(""));
+        assert!(!print_says_running("\tpid = \n\tstate = spawn scheduled\n"));
+    }
+
+    #[test]
+    fn revive_starts_only_a_loaded_job_without_a_process() {
+        let ld = FakeLaunchd::default();
+        assert_eq!(revive(&ld), Ok(Revived::NotLoaded));
+        assert!(ld.calls().is_empty());
+
+        *ld.loaded.borrow_mut() = true;
+        *ld.running.borrow_mut() = true;
+        assert_eq!(revive(&ld), Ok(Revived::Running));
+        assert!(ld.calls().is_empty());
+
+        *ld.running.borrow_mut() = false;
+        assert_eq!(revive(&ld), Ok(Revived::Started));
+        assert_eq!(ld.calls(), ["kickstart com.franc1sc0sv.tandem.tandemd"]);
+    }
+
+    #[test]
+    fn revive_gate_waits_for_misses_in_a_row() {
+        let t0 = Instant::now();
+        let mut gate = ReviveGate::default();
+        for _ in 1..REVIVE_AFTER_MISSES {
+            assert!(!gate.missed(t0));
+        }
+        gate.reached();
+        for _ in 1..REVIVE_AFTER_MISSES {
+            assert!(!gate.missed(t0));
+        }
+        assert!(gate.missed(t0));
+    }
+
+    #[test]
+    fn revive_gate_never_asks_more_often_than_the_throttle() {
+        let t0 = Instant::now();
+        let throttle = Duration::from_secs(THROTTLE_SECS.into());
+        let mut gate = ReviveGate::default();
+        let mut asked = Vec::new();
+        // A `tandemd` that dies on start: a miss every 2 s for 2 minutes.
+        for i in 0..60u64 {
+            let now = t0 + Duration::from_secs(2 * i);
+            if gate.missed(now) {
+                asked.push(now);
+            }
+        }
+        assert!(asked.len() >= 2, "{asked:?}");
+        assert!(
+            asked.windows(2).all(|w| w[1] - w[0] >= throttle),
+            "{asked:?}"
+        );
+        // Reaching it resets the count, not the throttle.
+        gate.reached();
+        let after = *asked.last().unwrap() + Duration::from_secs(1);
+        for _ in 0..REVIVE_AFTER_MISSES {
+            assert!(!gate.missed(after));
+        }
     }
 
     #[test]
