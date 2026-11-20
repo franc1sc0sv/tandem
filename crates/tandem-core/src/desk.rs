@@ -294,6 +294,12 @@ impl Desk {
     /// scenes when pairing.
     pub fn summary_of_changes(&self, new: &Desk) -> Option<String> {
         let defaults = self.scenes.is_empty() && crate::scene::are_defaults(&new.scenes, new);
+        // The screens the agents learn from the EDID (T-340) are not a person's change.
+        let learned = Desk {
+            cables: crate::monitor::without_learned_screens(&self.cables, &new.cables),
+            ..new.clone()
+        };
+        let new = &learned;
         // A monitor the agent introduced on its own (its cable and the default scenes).
         let introduced = crate::scene::introduced_by_agent(self, new);
         let machines =
@@ -796,6 +802,23 @@ mod tests {
         assert_eq!(
             known().summary_of_changes(&renamed).as_deref(),
             Some("Machines")
+        );
+    }
+
+    /// T-340: a screen the agent learned from the EDID is not a person's change; one changed by
+    /// hand still is.
+    #[test]
+    fn a_learned_screen_is_not_a_change_of_monitors() {
+        let mut old = known();
+        old.cables.push(MonitorCable::new("lc34"));
+        let mut new = old.clone();
+        new.cables[0].b.screen = Some("screen-2".into());
+        assert_eq!(old.summary_of_changes(&new), None);
+        let mut by_hand = new.clone();
+        by_hand.cables[0].b.screen = Some("34".into());
+        assert_eq!(
+            new.summary_of_changes(&by_hand).as_deref(),
+            Some("Monitors")
         );
     }
 

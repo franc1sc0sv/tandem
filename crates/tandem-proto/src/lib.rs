@@ -53,7 +53,7 @@ pub use workspace::{BringBackReport, CommitInfo, WorkspaceDown, WorkspaceSpec, W
 /// Protocol version. Bumped on any incompatible change to the messages.
 ///
 /// Only the same version talks: the two agents and the UI ship together.
-pub const PROTOCOL_VERSION: u16 = 41;
+pub const PROTOCOL_VERSION: u16 = 42;
 
 /// Since this version each agent announces its capabilities on connecting (T-084): an
 /// older one does not send them and cannot be spoken to as a peer.
@@ -140,9 +140,10 @@ mod tests {
     /// announced for Wake-on-LAN and `UiCommand::SetWol`) bump to v39: they were going to be v38, but T-150 landed earlier.
     /// T-239 (`UiCommand::SyntheticMotion`, motion fed to a test agent's input engine) bumps to v40.
     /// T-240 (`KeyProbeMsg::Armed`, the key probe's state is repeated when a link appears) bumps to v41.
+    /// T-340 (`MonitorCompat::NoChannel`, a monitor seen only by its EDID) bumps to v42.
     #[test]
     fn version_stays_above_the_one_from_t084() {
-        assert_eq!(PROTOCOL_VERSION, 41);
+        assert_eq!(PROTOCOL_VERSION, 42);
         assert_eq!(super::CAPABILITIES_SINCE, 10);
         assert_eq!(super::SIDES_SINCE, 16);
     }

@@ -116,7 +116,7 @@ Own external dependency: `monitor-ddc` (repo `monitor-firmware`, A5), pinned by 
 
 ### 4.5 Protocol versioning
 
-- **Current version: `PROTOCOL_VERSION = 41`** (`crates/tandem-proto/src/lib.rs`, last bumped by T-240, `KeyProbeMsg::Armed`).
+- **Current version: `PROTOCOL_VERSION = 42`** (`crates/tandem-proto/src/lib.rs`, last bumped by T-340, `MonitorCompat::NoChannel`).
 - **Rule: only the same version talks.** The two agents and the UI ship together; an agent that sees another version refuses the link and says to install the same Tandem version on both machines. Bump `PROTOCOL_VERSION` on any incompatible change to the messages (almost every release does).
 - **Hints for older peers** (only to word the refusal; they do not make anything compatible): `CAPABILITIES_SINCE = 10` is the first version where each agent announces its capabilities on connecting (T-084); `SIDES_SINCE = 16` is the first where the two sides are `A`/`B` ordered by public key (T-097), instead of "Mac" and "PC".
 - **History:** the entries of [DECISIONS.md](DECISIONS.md) that say "Protocol vN" record what each bump changed (for example v18, v30, v33, v35, v39).
@@ -155,7 +155,7 @@ Own external dependency: `monitor-ddc` (repo `monitor-firmware`, A5), pinned by 
 - **Keys:** canonical physical code (USB HID); respects each system's ES/LatAm layout. Cmd↔Ctrl configurable.
 - **Transport:** movement in unreliable datagrams (coalesced); keys and clicks in a reliable top-priority stream.
 - **Geometry: declared arrangement** (D18). Each machine declares its screens (rectangles in native cursor coordinates and scale); the arrangement says on which side (top, bottom, left, right) the other's desktop is and with what alignment (start, center, end). The crossing edge is the shared stretch. By default, the limits the system already gives when injecting.
-- **Scenes and geometry:** screens that show the other machine in the active scene are left out of the geometry.
+- **Scenes and geometry:** screens that show the other machine in the active scene are left out of the geometry. Which screen a monitor is on each machine is the `screen` of each end of its `[[cables]]`; each agent fills its own end by linking the monitor's EDID (manufacturer, product, serial) to the screen the system reports with the same identity (CoreGraphics on macOS, the EDID of the display path on Windows), even when that machine has no DDC channel to it (T-340). An end already filled, or a machine with `[[screens]]` declared, is never touched. The UI's live desktops draw a shared monitor once, on the machine it shows.
 - **Clipboard:** text, HTML and image. **Files:** dragging a file across the edge transfers it (`tandem-files`) and drops it at the destination (§9).
 - **Windows, secure desktop** (T-027, done: implemented and tested in CI; verification on the real PC with UAC pending): SYSTEM service + helper for UAC and the lock screen. Design and manual test: [dev/secure-desktop.md](dev/secure-desktop.md).
 - Engine design: [research/input-engine.md](research/input-engine.md).
@@ -194,8 +194,9 @@ Measurement always available (monotonic timestamps, offset estimated with the he
 
 - **Standard:** the protocol of the 34"'s own firmware (MCCS + VCP `0xEA`–`0xEF` events and verdicts, `0xEE` live state, `0x60` with the real input). A monitor is **supported** if the probe (`Get 0xEA`, reads only) confirms it. Any other: **not supported** (shown, not controlled). Vendor codes are never sent without a prior probe.
 - **`monitor-ddc` crate** (repo `monitor-firmware`, A5): `DdcBus` trait (Get/Set VCP, capabilities, EDID), Windows (`dxva2`) and macOS (`IOAVService` on Apple Silicon) backends, a test double with personalities (standard, factory, disconnected), probe, event reading with a cursor, input change with verdict.
+- **Present without a channel (T-340):** a monitor whose EDID the system lists but which does not answer the probe (the 34" only answers DDC on the input it shows) is still announced, as `NoChannel`: it gives that machine's input and screen, never takes part in the owner election and is never opened or written to. So the desk shows one monitor with both connections even while only one machine can talk to it.
 - **Owner per monitor (D13):** each agent reports which monitors it sees with a live DDC channel. The owner is the one with a channel; if both, the one with the lower response latency; if the owner leaves or loses the channel, the other is chosen. Only the owner reads events (the event cursor is global to the monitor).
-- **Identity:** `<model>-<short hash of the EDID serial>`; it links the DP id and the HDMI id (the EDID changes per input).
+- **Identity:** `<model>-<short hash of the EDID serial>`; it links the DP id and the HDMI id (the EDID changes per input). A monitor is linked by its EDID, with or without a DDC channel: the same EDID also links it to the machine's screen (§7).
 - **Input changes:** a transaction with the firmware's verdict (`confirmed` / `failed`), timeout and rollback. In hardware tests, **automatic revert is mandatory**.
 - **UI:** monitors with their real input, owner and events; input selector with a sliding indicator; unsupported ones in their own card. Mockup `V3-Monitors`.
 

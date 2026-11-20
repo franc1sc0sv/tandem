@@ -359,8 +359,9 @@ pub struct ModuleInfo {
     pub switchable: bool,
 }
 
-/// A monitor with a live DDC channel from the machine that announces it (T-110): it answered the
-/// read-only probe, whether compatible or not.
+/// A monitor the machine that announces it sees (T-110): with a live DDC channel (it answered the
+/// read-only probe, whether compatible or not) or, [`MonitorCompat::NoChannel`], only by its EDID
+/// (T-340).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MonitorChannel {
     /// `<model>-<short hash of the EDID serial>`: the same over DP and over HDMI.
@@ -386,6 +387,10 @@ pub enum MonitorCompat {
     NotCompatible {
         reason: String,
     },
+    /// The system has its EDID, but it does not answer over DDC (the 34" only answers on the
+    /// input it shows, T-340). It says which input and screen this machine's cable is; it never
+    /// owns the monitor and is never written to.
+    NoChannel,
 }
 
 impl MonitorCompat {
@@ -446,7 +451,7 @@ pub struct MonitorView {
     pub id: String,
     pub name: String,
     pub compat: MonitorCompat,
-    /// The machines with a live DDC channel to it.
+    /// The machines that see it: with a live DDC channel or only by its EDID (T-340).
     pub seen_by: Vec<Machine>,
     /// The input each machine that sees it has its cable on, according to its EDID (T-111).
     pub via: Vec<(Machine, MonitorInput)>,

@@ -56,6 +56,8 @@ export interface Desk {
   arrangement: { a_side: Side; align: Align } | null;
   /** Desk name (`desk_name`, T-159); without it the UI uses "My desk". */
   desk_name?: string | null;
+  /** Each compatible monitor's cabling (`[[cables]]`, T-111). */
+  cables?: CableJson[];
   scenes: SceneJson[];
   /** Shared keyboard and mouse (`[prefs]` of the desk). */
   prefs?: { cmd_ctrl: boolean; drag_files: boolean };
@@ -65,8 +67,23 @@ export interface Desk {
   shortcuts?: { lock: string[] };
 }
 
-/** `tandem_proto::MonitorCompat`: serde default (external tag). */
-export type MonitorCompatJson = { Compatible: { protocol: number } } | { NotCompatible: { reason: string } };
+/** `tandem_proto::MonitorCompat`: serde default (external tag). `NoChannel`: the machine has its
+ * EDID but no DDC channel (T-340). */
+export type MonitorCompatJson = { Compatible: { protocol: number } } | { NotCompatible: { reason: string } } | "NoChannel";
+
+/** One machine's end of a monitor cable (`tandem_core::CableEnd`). */
+export interface CableEndJson {
+  input?: MonitorInput | null;
+  /** Which of that machine's screens the monitor is (declared, or learned from the EDID, T-340). */
+  screen?: string | null;
+}
+
+/** How a compatible monitor is connected to both machines (`[[cables]]`, `tandem_core::MonitorCable`). */
+export interface CableJson {
+  monitor: string;
+  a?: CableEndJson;
+  b?: CableEndJson;
+}
 
 export type MonitorEventKindJson = "Boot" | "Input" | "SwitchRequested" | "SwitchDone" | "SwitchFailed" | "Power" | "Signal" | "Setting" | "Lost" | "Other";
 

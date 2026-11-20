@@ -2,6 +2,7 @@
 //! inputs exist and which one each machine's cable goes to. The real control lives in
 //! `tandem-monitor`.
 
+use std::collections::BTreeMap;
 use std::fmt;
 
 use serde::{Deserialize, Serialize};
@@ -170,6 +171,96 @@ impl Inputs {
     }
 }
 
+/// The identity a display announces in its EDID: manufacturer, product code and serial number
+/// (bytes 8–15 of the base block). The system reports the same three numbers for each of its
+/// screens (`CGDisplayVendorNumber`/`ModelNumber`/`SerialNumber` on macOS, the EDID of the
+/// display path on Windows), so a monitor seen over DDC is linked to its screen even when it
+/// has no channel (T-340).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct DisplayKey {
+    /// The three-letter PNP code packed as in the EDID (big endian, `SAM` = `0x4C2D`).
+    pub vendor: u16,
+    pub product: u16,
+    pub serial: u32,
+}
+
+impl DisplayKey {
+    /// From an EDID base block; `None` without the fixed header or without a manufacturer.
+    pub fn from_edid(raw: &[u8]) -> Option<Self> {
+        const HEADER: [u8; 8] = [0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00];
+        if raw.get(..8)? != HEADER {
+            return None;
+        }
+        let vendor = u16::from_be_bytes([*raw.get(8)?, *raw.get(9)?]);
+        let product = u16::from_le_bytes([*raw.get(10)?, *raw.get(11)?]);
+        let serial =
+            u32::from_le_bytes([*raw.get(12)?, *raw.get(13)?, *raw.get(14)?, *raw.get(15)?]);
+        (vendor != 0).then_some(DisplayKey {
+            vendor,
+            product,
+            serial,
+        })
+    }
+}
+
+/// Which of this machine's screens each monitor is: `monitors` are the monitors it sees (id
+/// and EDID identity), `screens` its screens with the identity the system gives. Only a single
+/// match counts: with two identical monitors the screen is not guessed.
+pub fn link_screens(
+    monitors: &BTreeMap<String, DisplayKey>,
+    screens: &[(String, DisplayKey)],
+) -> BTreeMap<String, String> {
+    monitors
+        .iter()
+        .filter_map(|(id, key)| {
+            let mut found = screens.iter().filter(|(_, k)| k == key);
+            match (found.next(), found.next()) {
+                (Some((screen, _)), None) => Some((id.clone(), screen.clone())),
+                _ => None,
+            }
+        })
+        .collect()
+}
+
+/// Writes into `machine`'s end of each cable the screen it learned (`links`: monitor →
+/// screen). An end that already names a screen is never touched: the user may have declared it
+/// by hand. `true` if something changed.
+pub fn learn_screens(
+    cables: &mut [MonitorCable],
+    machine: Machine,
+    links: &BTreeMap<String, String>,
+) -> bool {
+    let mut changed = false;
+    for cable in cables {
+        let Some(screen) = links.get(&cable.monitor) else {
+            continue;
+        };
+        let end = cable.end_mut(machine);
+        if end.screen.is_none() {
+            end.screen = Some(screen.clone());
+            changed = true;
+        }
+    }
+    changed
+}
+
+/// `new` without the screens the agents learned since `old` (ends that had none and now have one):
+/// to tell a person's change from the agent's own.
+pub fn without_learned_screens(old: &[MonitorCable], new: &[MonitorCable]) -> Vec<MonitorCable> {
+    new.iter()
+        .map(|c| {
+            let before = old.iter().find(|o| o.monitor == c.monitor);
+            let mut c = c.clone();
+            for m in Machine::ALL {
+                if before.is_none_or(|b| b.end(m).screen.is_none()) {
+                    c.end_mut(m).screen = None;
+                }
+            }
+            c
+        })
+        .collect()
+}
+
 impl fmt::Display for MonitorInput {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.as_str())
@@ -256,6 +347,83 @@ mod tests {
                 }
             }
         }
+    }
+
+    fn edid(vendor: &[u8; 3], product: u16, serial: u32) -> Vec<u8> {
+        let mut raw = vec![0u8; 128];
+        raw[..8].copy_from_slice(&[0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00]);
+        let packed = vendor
+            .iter()
+            .fold(0u16, |acc, c| (acc << 5) | u16::from(c - b'A' + 1));
+        raw[8..10].copy_from_slice(&packed.to_be_bytes());
+        raw[10..12].copy_from_slice(&product.to_le_bytes());
+        raw[12..16].copy_from_slice(&serial.to_le_bytes());
+        raw
+    }
+
+    #[test]
+    fn the_display_key_comes_from_the_edid_header() {
+        let key = DisplayKey::from_edid(&edid(b"SAM", 0x7105, 0x3032_4E48)).unwrap();
+        assert_eq!(key.vendor, 0x4C2D, "SAM as CoreGraphics reports it");
+        assert_eq!((key.product, key.serial), (0x7105, 0x3032_4E48));
+        let mut bad = edid(b"SAM", 1, 1);
+        bad[0] = 1;
+        assert_eq!(DisplayKey::from_edid(&bad), None);
+        assert_eq!(DisplayKey::from_edid(&[0, 0xFF]), None);
+        assert_eq!(DisplayKey::from_edid(&edid(b"SAM", 1, 1)[..12]), None);
+    }
+
+    fn key(product: u16) -> DisplayKey {
+        DisplayKey {
+            vendor: 0x4C2D,
+            product,
+            serial: 0,
+        }
+    }
+
+    #[test]
+    fn a_monitor_links_to_the_only_screen_with_its_identity() {
+        let monitors = BTreeMap::from([
+            ("lc34".to_owned(), key(0x7105)),
+            ("m27".to_owned(), key(0x7154)),
+            ("gone".to_owned(), key(1)),
+        ]);
+        let screens = [
+            ("screen-1".to_owned(), key(0xA0A0)),
+            ("screen-2".to_owned(), key(0x7105)),
+            ("screen-3".to_owned(), key(0x7154)),
+            ("screen-4".to_owned(), key(0x7154)),
+        ];
+        let got = link_screens(&monitors, &screens);
+        assert_eq!(
+            got,
+            BTreeMap::from([("lc34".to_owned(), "screen-2".to_owned())]),
+            "two identical 27\" are not guessed"
+        );
+    }
+
+    #[test]
+    fn a_learned_screen_never_replaces_a_declared_one() {
+        let mut cables = vec![MonitorCable::new("lc34"), MonitorCable::new("m27")];
+        cables[1].b.screen = Some("by-hand".into());
+        let links = BTreeMap::from([
+            ("lc34".to_owned(), "screen-2".to_owned()),
+            ("m27".to_owned(), "screen-3".to_owned()),
+        ]);
+        assert!(learn_screens(&mut cables, Machine::B, &links));
+        assert_eq!(cables[0].b.screen.as_deref(), Some("screen-2"));
+        assert_eq!(cables[0].a.screen, None, "only this machine's end");
+        assert_eq!(cables[1].b.screen.as_deref(), Some("by-hand"));
+        assert!(
+            !learn_screens(&mut cables, Machine::B, &links),
+            "already learned"
+        );
+        let old = vec![MonitorCable::new("lc34"), cables[1].clone()];
+        assert_eq!(without_learned_screens(&old, &cables), old);
+        // A screen changed by hand is not an agent's.
+        let mut edited = cables.clone();
+        edited[1].b.screen = Some("other".into());
+        assert_ne!(without_learned_screens(&cables, &edited), cables);
     }
 
     #[test]

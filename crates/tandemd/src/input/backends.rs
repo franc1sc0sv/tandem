@@ -8,7 +8,7 @@
 use std::sync::Arc;
 
 use tandem_clipboard::{ClipContent, Clipboard};
-use tandem_core::Os;
+use tandem_core::{DisplayKey, Os};
 use tandem_input::event::{Direction, ModifierRemap, RemapPolicy};
 use tandem_input::session::{Capture, Captured, Injector};
 use tandem_input::{HidUsage, InputEvent, Point, Screen};
@@ -16,7 +16,7 @@ use tandem_peripherals::{DeviceScanner, UsbId};
 use tandem_proto::InputPermission;
 use tokio::sync::mpsc;
 
-use super::screens::detected;
+use super::screens::{detected, detected_keys};
 
 /// Adapts a backend's error to text.
 pub struct Stringly<T>(pub T);
@@ -281,6 +281,12 @@ pub trait InputBackends: Send + Sync + 'static {
     /// when the desk does not declare its own (DESIGN §7).
     fn screens(&self) -> Result<Vec<Screen>, String>;
 
+    /// The EDID identity of each screen of [`Self::screens`], under its id (T-340): with it
+    /// each monitor is linked to its screen. Empty where the system does not say.
+    fn screen_keys(&self) -> Result<Vec<(String, DisplayKey)>, String> {
+        Ok(Vec::new())
+    }
+
     /// System permissions missing to capture or inject.
     fn missing_permissions(&self) -> Vec<InputPermission>;
 
@@ -329,6 +335,10 @@ impl InputBackends for PlatformInput {
         Ok(detected(&platform::screens()?))
     }
 
+    fn screen_keys(&self) -> Result<Vec<(String, DisplayKey)>, String> {
+        Ok(detected_keys(&platform::displays()?))
+    }
+
     fn missing_permissions(&self) -> Vec<InputPermission> {
         platform::missing_permissions()
     }
@@ -341,6 +351,7 @@ impl InputBackends for PlatformInput {
 #[cfg(target_os = "macos")]
 mod platform {
     use tandem_input::Rect;
+    use tandem_input::displays::Display;
     use tandem_input::macos::capture::{
         MacCapture, Permission, Permissions, permissions, request_permissions as ask,
     };
@@ -353,6 +364,11 @@ mod platform {
     pub fn screens() -> Result<Vec<Rect>, String> {
         let mut sink = CgSink::new().map_err(|e| e.to_string())?;
         sink.screens().map_err(|e| e.to_string())
+    }
+
+    /// The same screens with the EDID identity CoreGraphics gives for each one.
+    pub fn displays() -> Result<Vec<Display>, String> {
+        tandem_input::macos::emulate::displays().map_err(|e| e.to_string())
     }
 
     pub fn capture(sink: CaptureSink) -> Result<DynCapture, String> {
@@ -395,6 +411,7 @@ mod platform {
 #[cfg(windows)]
 mod platform {
     use tandem_input::Rect;
+    use tandem_input::displays::Display;
     use tandem_input::windows::capture::{CaptureConfig, WindowsCapture};
     use tandem_input::windows::emulate::{Emulator, InputSink, SendInputSink};
     use tandem_proto::InputPermission;
@@ -412,6 +429,12 @@ mod platform {
         } else {
             desktop.monitors
         })
+    }
+
+    /// The same monitors with the EDID Windows saved for each one; with only the whole virtual
+    /// desktop, none.
+    pub fn displays() -> Result<Vec<Display>, String> {
+        tandem_input::windows::emulate::displays().map_err(|e| e.to_string())
     }
 
     pub fn capture(sink: CaptureSink) -> Result<DynCapture, String> {
@@ -460,6 +483,11 @@ mod platform {
 
     pub fn screens() -> Result<Vec<Rect>, String> {
         Err("this system does not report its screens".to_owned())
+    }
+
+    pub fn displays() -> Result<Vec<tandem_input::displays::Display>, String> {
+        screens()?;
+        Ok(Vec::new())
     }
 
     pub fn capture(_sink: CaptureSink) -> Result<DynCapture, String> {

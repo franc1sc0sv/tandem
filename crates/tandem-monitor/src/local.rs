@@ -1,8 +1,9 @@
 //! The monitors this machine sees over its DDC bus.
 //!
 //! - [`LocalMonitors::scan`] probes each monitor (reads only: `Get 0xEA`) and builds the
-//!   channel announcement. One that does not answer is not announced; one that answers without
-//!   the standard is announced as "not compatible" and is never opened for writing.
+//!   channel announcement. One that does not answer is announced as present without a channel
+//!   (only its EDID); one that answers without the standard is announced as "not compatible".
+//!   Neither is ever opened for writing.
 //! - [`LocalMonitors::set_owned`] opens the ones that belong to this machine and drops the rest.
 //!   Every time a machine becomes the owner it asks for a new cursor: the previous one may have
 //!   gone stale while the other was reading (the firmware's cursor is one per monitor).
@@ -17,7 +18,7 @@ use monitor_ddc::{
     Clock, DdcBus, DdcError, Event, EventCursor, EventKind, Incompatibility, Input, Link,
     LinkConfig, MonitorHandle, Probe, StandardMonitor, Verdict,
 };
-use tandem_core::MonitorInput;
+use tandem_core::{DisplayKey, MonitorInput};
 use tandem_proto::{MonitorChannel, MonitorCompat, MonitorEvent, MonitorEventKind, MonitorReport};
 
 use crate::{ring, to_core, to_ddc};
@@ -105,6 +106,7 @@ struct Reader {
 
 struct Entry {
     handle: MonitorHandle,
+    key: Option<DisplayKey>,
     channel: MonitorChannel,
     reader: Option<Reader>,
 }
@@ -150,6 +152,14 @@ impl LocalMonitors {
         self.entries.values().map(|e| e.channel.clone()).collect()
     }
 
+    /// The EDID identity of each monitor it sees, with or without a channel (T-340).
+    pub fn keys(&self) -> BTreeMap<String, DisplayKey> {
+        self.entries
+            .iter()
+            .filter_map(|(id, e)| Some((id.clone(), e.key?)))
+            .collect()
+    }
+
     /// The monitors this machine is reading.
     pub fn reading(&self) -> BTreeSet<String> {
         self.entries
@@ -181,9 +191,12 @@ impl LocalMonitors {
                 Probe::NotCompatible(why) => MonitorCompat::NotCompatible {
                     reason: incompatibility(why),
                 },
+                // The EDID is there even if DDC does not answer (the 34" only answers on the input
+                // it shows): it is announced as present, so the desk learns this machine's input
+                // and screen. It never owns it and is never opened (T-340).
                 Probe::NoChannel(e) => {
                     tracing::debug!(monitor = %id, "no DDC channel: {e}");
-                    continue;
+                    MonitorCompat::NoChannel
                 }
             };
             // Latency is measured when the channel opens and kept while it stays alive: the
@@ -198,6 +211,7 @@ impl LocalMonitors {
                     };
                     (prev.channel.latency_ms, reader)
                 }
+                _ if compat == MonitorCompat::NoChannel => (0, None),
                 _ => (u32::try_from(took.as_millis()).unwrap_or(u32::MAX), None),
             };
             let name = edid
@@ -208,6 +222,7 @@ impl LocalMonitors {
                 id.clone(),
                 Entry {
                     handle: info.handle,
+                    key: DisplayKey::from_edid(edid.raw()),
                     channel: MonitorChannel {
                         id,
                         name,
@@ -467,6 +482,7 @@ mod tests {
         r.local
             .channels()
             .into_iter()
+            .filter(|c| c.compat != MonitorCompat::NoChannel)
             .find(|c| c.compat.is_compatible() == compatible)
             .map(|c| c.id)
             .unwrap()
@@ -485,13 +501,16 @@ mod tests {
         let chans = r.local.scan().unwrap();
         assert_eq!(
             chans.len(),
-            2,
-            "the disconnected one is not announced: {chans:?}"
+            3,
+            "the silent one is announced by its EDID: {chans:?}"
         );
         let std = chans.iter().find(|c| c.compat.is_compatible()).unwrap();
         assert_eq!(std.name, "LC34G55T");
         assert!(std.id.starts_with("lc34g55t-"), "{}", std.id);
-        let fab = chans.iter().find(|c| !c.compat.is_compatible()).unwrap();
+        let fab = chans
+            .iter()
+            .find(|c| matches!(c.compat, MonitorCompat::NotCompatible { .. }))
+            .unwrap();
         assert_eq!(fab.name, "Odyssey G5");
         assert_eq!(
             fab.compat,
@@ -501,6 +520,44 @@ mod tests {
         );
         // The probe only reads.
         assert!(sets(&r.bus, r.std).is_empty() && sets(&r.bus, r.factory).is_empty());
+    }
+
+    /// T-340: the 34" only answers DDC on the input it shows. The machine on the other input
+    /// still has its EDID: it announces it as present without a channel, never opens it, never
+    /// reads it and never writes to it; and it can tell which of its screens it is.
+    #[test]
+    fn a_monitor_without_a_channel_is_present_but_never_opened() {
+        let mut r = rig();
+        let chans = r.local.scan().unwrap();
+        let silent = chans
+            .iter()
+            .find(|c| c.name == "Off")
+            .expect("the silent monitor is announced");
+        assert_eq!(silent.compat, MonitorCompat::NoChannel);
+        assert!(!silent.compat.is_compatible());
+        assert_eq!(crate::elect(Some(silent), None), None, "it never owns it");
+        let all: BTreeSet<String> = chans.iter().map(|c| c.id.clone()).collect();
+        r.local.set_owned(&all);
+        assert!(!r.local.reading().contains(&silent.id));
+        assert!(r.local.poll().iter().all(|rep| rep.id != silent.id));
+        let e = r.local.switch(&silent.id, MonitorInput::Hdmi).unwrap_err();
+        assert!(e.contains(NOT_OWNER), "{e}");
+        let handle = r
+            .bus
+            .monitors()
+            .unwrap()
+            .into_iter()
+            .find(|m| m.edid.as_ref().and_then(|e| e.name()) == Some("Off"))
+            .unwrap()
+            .handle;
+        let ops = r.bus.ops_for(handle);
+        assert!(
+            ops.iter().all(|op| !matches!(op, BusOp::Set { .. })),
+            "{ops:?}"
+        );
+        let keys = r.local.keys();
+        assert_eq!(keys.len(), 3, "each one with its EDID identity: {keys:?}");
+        assert_eq!(keys[&silent.id].product, 1);
     }
 
     #[test]

@@ -3,7 +3,7 @@
 
 use std::sync::{Arc, Weak};
 
-use tandem_core::{MonitorInput, Plan};
+use tandem_core::{DisplayKey, MonitorInput, Plan};
 use tandem_monitor::LocalMonitors;
 use tandem_proto::{ControlMsg, ModuleId, MonitorReport, MonitorView, Reply};
 use tokio::sync::watch;
@@ -40,6 +40,14 @@ impl Agent {
         self.monitors.attach(core, inline);
         self.set_module_problem(ModuleId::Monitors, None);
         tokio::spawn(monitor_loop(Arc::downgrade(self), times))
+    }
+
+    /// This machine's screens with the EDID identity the system gives for each one (the input
+    /// engine reads them, T-340): with them each monitor it sees is linked to its screen.
+    pub fn set_screen_keys(&self, screens: Vec<(String, DisplayKey)>) {
+        if self.monitors.set_screens(screens) {
+            self.reconcile_monitors();
+        }
     }
 
     /// What the other read from its monitors.

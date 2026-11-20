@@ -8,7 +8,8 @@
 
 use std::collections::BTreeMap;
 
-use tandem_core::{Config, Machine, ScreenSpec, State};
+use tandem_core::{Config, DisplayKey, Machine, ScreenSpec, State};
+use tandem_input::displays::Display;
 use tandem_input::geometry::{Arrangement, GeometryError, Layout, LayoutOptions, Rect, Screen};
 use tandem_proto::ScreenRect;
 
@@ -50,6 +51,17 @@ pub fn detected(bounds: &[Rect]) -> Vec<Screen> {
         .filter(|r| r.width > 0 && r.height > 0)
         .enumerate()
         .map(|(i, r)| Screen::new(format!("screen-{}", i + 1).as_str().into(), *r, 1.0))
+        .collect()
+}
+
+/// The EDID identity of each screen [`detected`] names, under the same id (T-340): `displays`
+/// come in the order of the bounds, each with the identity the system gives, if it gives one.
+pub fn detected_keys(displays: &[Display]) -> Vec<(String, DisplayKey)> {
+    displays
+        .iter()
+        .filter(|(r, _)| r.width > 0 && r.height > 0)
+        .enumerate()
+        .filter_map(|(i, (_, key))| Some((format!("screen-{}", i + 1), (*key)?)))
         .collect()
 }
 
@@ -144,6 +156,28 @@ mod tests {
         assert_eq!(ids, ["screen-1", "screen-2"]);
         assert_eq!(got[0].rect, Rect::new(-3440, 0, 3440, 1440));
         assert_eq!(got[1].scale, 1.0);
+    }
+
+    /// T-340: the identity of each screen goes under the same id [`detected`] gives it.
+    #[test]
+    fn each_screen_key_has_the_id_of_its_screen() {
+        let key = |product| DisplayKey {
+            vendor: 0x4C2D,
+            product,
+            serial: 0,
+        };
+        let displays = [
+            (Rect::new(0, 0, 1512, 982), None),
+            (Rect::new(0, 0, 0, 10), Some(key(9))),
+            (Rect::new(1512, 0, 3440, 1440), Some(key(0x7105))),
+        ];
+        let rects: Vec<Rect> = displays.iter().map(|(r, _)| *r).collect();
+        let ids: Vec<_> = detected(&rects).into_iter().map(|s| s.id.0).collect();
+        assert_eq!(ids, ["screen-1", "screen-2"]);
+        assert_eq!(
+            detected_keys(&displays),
+            [("screen-2".to_owned(), key(0x7105))]
+        );
     }
 
     #[test]

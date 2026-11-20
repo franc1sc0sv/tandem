@@ -8,13 +8,15 @@ use std::time::Duration;
 use objc2_app_kit::{NSEvent, NSEventModifierFlags, NSEventType};
 use objc2_core_foundation::{CFRetained, CGPoint};
 use objc2_core_graphics::{
-    CGDirectDisplayID, CGDisplayBounds, CGError, CGEvent, CGEventField, CGEventFlags,
-    CGEventSource, CGEventSourceStateID, CGEventTapLocation, CGEventType, CGGetActiveDisplayList,
-    CGMouseButton, CGScrollEventUnit,
+    CGDirectDisplayID, CGDisplayBounds, CGDisplayModelNumber, CGDisplaySerialNumber,
+    CGDisplayVendorNumber, CGError, CGEvent, CGEventField, CGEventFlags, CGEventSource,
+    CGEventSourceStateID, CGEventTapLocation, CGEventType, CGGetActiveDisplayList, CGMouseButton,
+    CGScrollEventUnit,
 };
 use objc2_foundation::{NSUserDefaults, ns_string};
 
 use super::{EmulateError, MacEvent, MacSink, MouseKind, ScrollUnit};
+use crate::displays::{Display, mac_display_key};
 use crate::geometry::{Point, Rect};
 
 /// Maximum number of screens requested from CoreGraphics; plenty for a desktop.
@@ -207,20 +209,7 @@ impl MacSink for CgSink {
     }
 
     fn screens(&mut self) -> Result<Vec<Rect>, EmulateError> {
-        Ok(active_displays()?
-            .into_iter()
-            .map(|id| {
-                let b = CGDisplayBounds(id);
-                // The bounds in points are integers in practice; `as` saturates.
-                Rect::new(
-                    b.origin.x.round() as i32,
-                    b.origin.y.round() as i32,
-                    b.size.width.round() as u32,
-                    b.size.height.round() as u32,
-                )
-            })
-            .filter(|r| r.width > 0 && r.height > 0)
-            .collect())
+        Ok(displays()?.into_iter().map(|(r, _)| r).collect())
     }
 
     fn double_click_interval(&mut self) -> Duration {
@@ -234,6 +223,31 @@ impl MacSink for CgSink {
         // Without the key, macOS uses its factory value: natural scrolling on.
         defaults.objectForKey(key).is_none() || defaults.boolForKey(key)
     }
+}
+
+/// Each active screen (`CGDisplayBounds`, in points) with its EDID identity, in the order
+/// [`CgSink`]'s screens have (T-340).
+pub fn displays() -> Result<Vec<Display>, EmulateError> {
+    Ok(active_displays()?
+        .into_iter()
+        .map(|id| {
+            let b = CGDisplayBounds(id);
+            // The bounds in points are integers in practice; `as` saturates.
+            let rect = Rect::new(
+                b.origin.x.round() as i32,
+                b.origin.y.round() as i32,
+                b.size.width.round() as u32,
+                b.size.height.round() as u32,
+            );
+            let key = mac_display_key(
+                CGDisplayVendorNumber(id),
+                CGDisplayModelNumber(id),
+                CGDisplaySerialNumber(id),
+            );
+            (rect, key)
+        })
+        .filter(|(r, _)| r.width > 0 && r.height > 0)
+        .collect())
 }
 
 fn active_displays() -> Result<Vec<CGDirectDisplayID>, EmulateError> {

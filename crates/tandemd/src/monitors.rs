@@ -15,7 +15,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
-use tandem_core::{Desk, Inputs, Machine, MonitorInput};
+use tandem_core::{Desk, DisplayKey, Inputs, Machine, MonitorInput, link_screens};
 use tandem_monitor::{Directory, LocalMonitors};
 use tandem_proto::{MonitorChannel, MonitorReport, MonitorView};
 use tokio::sync::{Notify, watch};
@@ -84,6 +84,10 @@ pub struct Tick {
 
 pub struct MonitorHub {
     dir: Mutex<Directory>,
+    /// The EDID identity of each monitor this machine sees, channel or not (T-340).
+    keys: Mutex<BTreeMap<String, DisplayKey>>,
+    /// This machine's screens (`screen-N`) with their EDID identity.
+    screens: Mutex<Vec<(String, DisplayKey)>>,
     local: Mutex<Option<Local>>,
     views: watch::Sender<Vec<MonitorView>>,
     /// The last thing sent to the other machine.
@@ -110,6 +114,8 @@ impl MonitorHub {
     pub fn new(me: Machine) -> Self {
         MonitorHub {
             dir: Mutex::new(Directory::new(me)),
+            keys: Mutex::new(BTreeMap::new()),
+            screens: Mutex::new(Vec::new()),
             local: Mutex::new(None),
             views: watch::Sender::new(Vec::new()),
             sent: Mutex::new(Vec::new()),
@@ -134,6 +140,20 @@ impl MonitorHub {
     pub fn set_me(&self, me: Machine) {
         lock(&self.dir).set_me(me);
         self.publish();
+    }
+
+    /// This machine's screens with the EDID identity the system gives for each one (the input
+    /// engine reads them). `true` if they changed.
+    pub fn set_screens(&self, screens: Vec<(String, DisplayKey)>) -> bool {
+        let mut current = lock(&self.screens);
+        let changed = *current != screens;
+        *current = screens;
+        changed
+    }
+
+    /// Which of this machine's screens each monitor it sees is (T-340).
+    pub fn screen_links(&self) -> BTreeMap<String, String> {
+        link_screens(&lock(&self.keys), &lock(&self.screens))
     }
 
     /// This machine's channels, for its announcement.
@@ -205,9 +225,13 @@ impl MonitorHub {
     pub async fn tick(&self, scan: bool) -> Tick {
         let mut tick = Tick::default();
         if scan {
-            match self.with_core(|c| c.scan()).await {
-                Some(Ok(channels)) => tick.channels_changed = lock(&self.dir).set_local(channels),
+            match self.with_core(|c| c.scan().map(|ch| (ch, c.keys()))).await {
+                Some(Ok((channels, keys))) => {
+                    *lock(&self.keys) = keys;
+                    tick.channels_changed = lock(&self.dir).set_local(channels);
+                }
                 Some(Err(e)) => {
+                    lock(&self.keys).clear();
                     tick.channels_changed = lock(&self.dir).set_local(Vec::new());
                     tick.scan_error = Some(e.to_string());
                 }
