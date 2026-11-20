@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Tests for version.sh, notes.sh and latest-json.sh on throwaway git repos. They run in the `prepare` job
+# Tests for version.sh, notes.sh, latest-json.sh, make-macos-identity.sh and
+# ../macos/dr-check.sh (with a fake codesign) on throwaway dirs and git repos. They run in the `prepare` job
 # of the release workflow and in the Ubuntu CI. Usage: scripts/release/test.sh
 # shellcheck disable=SC2015,SC2016  # `ok`/`bad` never fail; the backticks are literal Markdown.
 set -euo pipefail
@@ -130,6 +131,97 @@ rejects "repeated platform" "${base[@]}" darwin-aarch64=packages/Tandem_0.3.1_aa
 rejects "nonexistent package" "${base[@]}" darwin-aarch64=packages/does-not-exist
 rejects "no packages" "${base[@]}"
 rejects "no version" --repo owner/tandem --tag v0.3.1 darwin-aarch64=packages/Tandem_0.3.1_aarch64.app.tar.gz
+
+# --- make-macos-identity.sh (T-348) -------------------------------------------------------
+idout="$tmp/identity"
+idmsg=$("$here/make-macos-identity.sh" --out "$idout" --days 30)
+for f in identity.p12 identity.p12.b64 password certificate.pem; do
+  [ -s "$idout/$f" ] && ok "identity: writes $f" || bad "identity: writes $f"
+done
+contains "identity: prints the certificate secret command" "$idmsg" "gh secret set MACOS_SIGNING_CERTIFICATE < \"$idout/identity.p12.b64\""
+contains "identity: prints the password secret command" "$idmsg" "gh secret set MACOS_SIGNING_CERTIFICATE_PASSWORD < \"$idout/password\""
+not_contains "identity: never prints the password" "$idmsg" "$(cat "$idout/password")"
+[ "$(stat -c %a "$idout/identity.p12")" = 600 ] && ok "identity: private files" || bad "identity: private files"
+certpem=$(openssl pkcs12 -in "$idout/identity.p12" -passin "file:$idout/password" -nokeys 2>/dev/null)
+certtext=$(openssl x509 -noout -text <<<"$certpem")
+# RFC 2253 prints the subject the same way in every OpenSSL version.
+subject=$(openssl x509 -noout -subject -nameopt RFC2253 <<<"$certpem")
+[ "$subject" = "subject=CN=Tandem Self-Signed Code Signing" ] \
+  && ok "identity: the .p12 opens with its password and carries the certificate" \
+  || bad "identity: the .p12 opens with its password and carries the certificate ($subject)"
+contains "identity: code-signing usage" "$certtext" "Code Signing"
+contains "identity: not a CA" "$certtext" "CA:FALSE"
+not_contains "identity: no Organization (the DR pins the leaf)" "$subject" "O="
+openssl pkcs12 -in "$idout/identity.p12" -passin "file:$idout/password" -nocerts -nodes 2>/dev/null | grep -q "PRIVATE KEY" \
+  && ok "identity: the .p12 carries the private key" || bad "identity: the .p12 carries the private key"
+[ "$(base64 -d <"$idout/identity.p12.b64" | cmp - "$idout/identity.p12" && echo same)" = same ] \
+  && ok "identity: the secret is the .p12 in base64" || bad "identity: the secret is the .p12 in base64"
+before=$(sha256sum "$idout/identity.p12")
+if "$here/make-macos-identity.sh" --out "$idout" >/dev/null 2>&1; then bad "identity: refuses to overwrite"; else ok "identity: refuses to overwrite"; fi
+[ "$(sha256sum "$idout/identity.p12")" = "$before" ] && ok "identity: the old one is kept" || bad "identity: the old one is kept"
+"$here/make-macos-identity.sh" --out "$idout" --force --quiet >/dev/null
+[ "$(sha256sum "$idout/identity.p12")" != "$before" ] && ok "identity: --force rotates it" || bad "identity: --force rotates it"
+if "$here/make-macos-identity.sh" --out "$tmp/id2" --days soon >/dev/null 2>&1; then bad "identity: rejects bad --days"; else ok "identity: rejects bad --days"; fi
+
+# --- ../macos/dr-check.sh (T-348), with a fake codesign --------------------------------------
+# The fake reads `<path>/.dr` and `<path>/.cdhash` (or `<file>.dr` for a bare binary) and, for
+# `--verify -R=<req>`, succeeds only if the requirement is that DR.
+drcheck="$here/../macos/dr-check.sh"
+fake="$tmp/fakebin"
+mkdir -p "$fake"
+cat >"$fake/codesign" <<'FAKE'
+#!/usr/bin/env bash
+path=${@: -1}
+meta() { if [ -d "$path" ]; then cat "$path/.$1" 2>/dev/null; else cat "$path.$1" 2>/dev/null; fi; }
+case "$*" in
+  "-d -r- "*) d=$(meta dr); [ -n "$d" ] && echo "designated => $d"; echo "Executable=$path" >&2 ;;
+  "-d -vvv "*) echo "CDHash=$(meta cdhash)" >&2 ;;
+  "--verify --strict -R ="*) req=${4#=}; [ "$req" = "$(meta dr)" ] ;;
+  "--verify --deep --strict "*) [ -n "$(meta dr)" ] ;;
+  *) echo "fake codesign: unexpected $*" >&2; exit 2 ;;
+esac
+FAKE
+chmod +x "$fake/codesign"
+build() { # dir, dr, cdhash
+  mkdir -p "$1"
+  printf '%s' "$2" >"$1/.dr"
+  printf '%s' "$3" >"$1/.cdhash"
+}
+stable='identifier "com.franc1sc0sv.tandem" and certificate leaf = H"c93142ce4dd047bff26f7522754dfcecf7170200"'
+build "$tmp/dr/a/Tandem.app" "$stable" aaaa
+build "$tmp/dr/b/Tandem.app" "$stable" bbbb
+drrun() { PATH="$fake:$PATH" "$drcheck" "$@" 2>&1; }
+out=$(drrun compare "$tmp/dr/a/Tandem.app" "$tmp/dr/b/Tandem.app") \
+  && contains "dr: same DR, different builds passes" "$out" "ok: same designated requirement" \
+  || { bad "dr: same DR, different builds passes"; echo "$out" >&2; }
+build "$tmp/dr/c/Tandem.app" "${stable/c931/d931}" cccc
+out=$(drrun compare "$tmp/dr/a/Tandem.app" "$tmp/dr/c/Tandem.app") && bad "dr: another certificate fails" \
+  || contains "dr: another certificate fails" "$out" "the designated requirements differ"
+build "$tmp/dr/d/Tandem.app" 'cdhash H"1111"' dddd
+build "$tmp/dr/e/Tandem.app" 'cdhash H"2222"' eeee
+out=$(drrun compare "$tmp/dr/d/Tandem.app" "$tmp/dr/e/Tandem.app") && bad "dr: ad hoc fails" \
+  || contains "dr: ad hoc fails" "$out" "signed ad hoc"
+out=$(drrun compare "$tmp/dr/a/Tandem.app" "$tmp/dr/a/Tandem.app") && bad "dr: the same build proves nothing" \
+  || contains "dr: the same build proves nothing" "$out" "same cdhash"
+build "$tmp/dr/f/Tandem.app" "" ffff
+out=$(drrun compare "$tmp/dr/a/Tandem.app" "$tmp/dr/f/Tandem.app") && bad "dr: unsigned fails" \
+  || contains "dr: unsigned fails" "$out" "no designated requirement"
+# Bare binaries (tandemd).
+printf x >"$tmp/dr/tandemd-a"; printf 'identifier "tandemd" and certificate leaf = H"c931"' >"$tmp/dr/tandemd-a.dr"; printf 1 >"$tmp/dr/tandemd-a.cdhash"
+printf y >"$tmp/dr/tandemd-b"; cp "$tmp/dr/tandemd-a.dr" "$tmp/dr/tandemd-b.dr"; printf 2 >"$tmp/dr/tandemd-b.cdhash"
+drrun compare "$tmp/dr/tandemd-a" "$tmp/dr/tandemd-b" >/dev/null && ok "dr: bare binaries" || bad "dr: bare binaries"
+# The updater package keeps the DR of the app and of its tandemd.
+pkgapp="$tmp/dr/a/Tandem.app"
+mkdir -p "$pkgapp/Contents/MacOS"
+printf x >"$pkgapp/Contents/MacOS/tandemd"; cp "$tmp/dr/tandemd-a.dr" "$pkgapp/Contents/MacOS/tandemd.dr"
+tar -czf "$tmp/dr/ok.app.tar.gz" -C "$tmp/dr/a" Tandem.app
+out=$(drrun package "$pkgapp" "$tmp/dr/ok.app.tar.gz") && contains "dr: the updater package keeps the DR" "$out" "ok: the updater package" \
+  || { bad "dr: the updater package keeps the DR"; echo "$out" >&2; }
+mkdir -p "$tmp/dr/other" && cp -R "$tmp/dr/c/Tandem.app" "$tmp/dr/other/" && mkdir -p "$tmp/dr/other/Tandem.app/Contents/MacOS"
+printf x >"$tmp/dr/other/Tandem.app/Contents/MacOS/tandemd"; cp "$tmp/dr/tandemd-a.dr" "$tmp/dr/other/Tandem.app/Contents/MacOS/tandemd.dr"
+tar -czf "$tmp/dr/other.app.tar.gz" -C "$tmp/dr/other" Tandem.app
+out=$(drrun package "$pkgapp" "$tmp/dr/other.app.tar.gz") && bad "dr: an updater package with another identity fails" \
+  || contains "dr: an updater package with another identity fails" "$out" "another designated requirement"
 
 if [ "$failures" -gt 0 ]; then echo "$failures tests failed" >&2; exit 1; fi
 echo "all tests passed"

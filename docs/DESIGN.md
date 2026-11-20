@@ -231,8 +231,8 @@ Measurement always available (monotonic timestamps, offset estimated with the he
 
 ## 13. Release
 
-- Unsigned installers: `.dmg` (macOS) and NSIS (Windows), on GitHub Releases when a `v*` tag is pushed.
-- **Automatic update:** `tauri-plugin-updater` with the updater's own signature (minisign; not code signing) against GitHub Releases; it updates the UI and the agent; the two machines update one at a time without cutting the keyboard.
+- Installers on GitHub Releases when a `v*` tag is pushed: `.dmg` (macOS) and NSIS (Windows). No Developer ID, notarization or Authenticode. **macOS builds are signed with a stable self-signed code-signing identity** (generated once, kept as a repo secret; DECISIONS T-348), not ad hoc: the designated requirement (identifier + certificate leaf) stays the same across versions, so macOS keeps Accessibility, Input Monitoring and Local Network after an update; CI checks it (`scripts/macos/dr-check.sh`). Gatekeeper still treats the first install as from an unidentified developer. Windows stays unsigned.
+- **Automatic update:** `tauri-plugin-updater` with the updater's own signature (minisign; not code signing) against GitHub Releases; it updates the UI and the agent; the two machines update one at a time without cutting the keyboard. One click: the app shows "Update available: vX.Y.Z" with one button that runs "Update all" and then the result (T-348).
 
 ## 14. Risks and spikes
 
