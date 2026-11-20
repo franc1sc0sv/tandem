@@ -15,8 +15,15 @@
 //! An input change with the firmware's verdict is a reading of the owner: the input it confirmed is
 //! shown at once ([`MonitorControl::confirmed`]) instead of waiting for the next full read of
 //! the bus, which re-reads the event ring over DDC and takes seconds on the real 34" (T-342).
+//!
+//! The 34"'s DP and HDMI share one DDC/CI request buffer: two hosts talking at once can get each
+//! other's replies. So a machine with a channel to a monitor the other owns sends nothing to it
+//! while the owner is reachable. While the owner is unreachable ([`MonitorHub::set_peer_reachable`])
+//! but not yet given up for lost, it reads the live state itself (`0xEE` and `0x60`, never the
+//! events) and can switch the input itself; when the owner is lost, the monitor passes to it in
+//! the same turn and its reading carries on from the owner's last reported cursor (T-346).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
@@ -101,6 +108,9 @@ pub struct MonitorHub {
     sent: Mutex<Vec<MonitorReport>>,
     /// The other's channels changed: the next turn sends what it reads even if it did not change.
     resend: AtomicBool,
+    /// Whether the other machine's agent is reachable over the control plane. Until told
+    /// otherwise it may be talking to the monitors it owns, so nothing is read directly (T-346).
+    reachable: AtomicBool,
     /// Wakes the loop early (the owner changed, a change finished).
     wake: Notify,
     /// Only in the simulation: the double's clock, whose time each in-place call pays on tokio's.
@@ -131,6 +141,7 @@ impl MonitorHub {
             views: watch::Sender::new(Vec::new()),
             sent: Mutex::new(Vec::new()),
             resend: AtomicBool::new(false),
+            reachable: AtomicBool::new(true),
             wake: Notify::new(),
             bus_clock: Mutex::new(None),
             bus_turn: tokio::sync::Mutex::new(()),
@@ -191,6 +202,23 @@ impl MonitorHub {
         }
     }
 
+    /// Whether the other machine's agent is reachable (T-346). While it is not, this machine
+    /// reads by itself the monitors the other owns and that it sees with a channel; when it is
+    /// again, it stops and the owner's next report replaces that reading.
+    pub fn set_peer_reachable(&self, reachable: bool) {
+        if self.reachable.swap(reachable, Ordering::Relaxed) != reachable {
+            self.wake.notify_one();
+        }
+    }
+
+    /// The monitors this machine reads directly now: the other owns them and is unreachable.
+    fn direct_here(&self) -> BTreeSet<String> {
+        if self.reachable.load(Ordering::Relaxed) {
+            return BTreeSet::new();
+        }
+        lock(&self.dir).readable_here()
+    }
+
     /// What the other read from the monitors that are its own: its whole list, so what is
     /// missing from it is no longer read there.
     pub fn receive(&self, from: Machine, reports: Vec<MonitorReport>) {
@@ -248,7 +276,8 @@ impl MonitorHub {
     }
 
     /// One turn: probe (if due), take or release the monitors according to the owner and read the
-    /// own monitors.
+    /// own monitors (a monitor just taken carries on from the cursor the previous owner reported).
+    /// With the other unreachable, it also reads the live state of the ones it owns (T-346).
     pub async fn tick(&self, scan: bool) -> Tick {
         let mut tick = Tick::default();
         if scan {
@@ -265,20 +294,29 @@ impl MonitorHub {
                 None => return tick,
             }
         }
-        let (me, owned) = {
-            let dir = lock(&self.dir);
-            (dir.me(), dir.owned_here())
+        let direct = self.direct_here();
+        let (me, owned, handover) = {
+            let mut dir = lock(&self.dir);
+            (dir.me(), dir.owned_here(), dir.take_handover())
         };
-        let Some(reports) = self
+        let Some((reports, readings)) = self
             .with_core(move |c| {
+                c.hand_over(handover);
                 c.set_owned(&owned);
-                c.poll()
+                (c.poll(), c.read_direct(&direct))
             })
             .await
         else {
             return tick;
         };
-        lock(&self.dir).set_reports(me, reports.clone());
+        {
+            let mut dir = lock(&self.dir);
+            dir.set_reports(me, reports.clone());
+            // The owner may have become reachable while reading: its next report is newer.
+            if !self.reachable.load(Ordering::Relaxed) {
+                dir.set_direct(readings);
+            }
+        }
         self.publish();
         let resend = self.resend.swap(false, Ordering::Relaxed);
         let mut sent = lock(&self.sent);
@@ -299,11 +337,22 @@ impl MonitorControl for MonitorHub {
         lock(&self.dir).input(monitor)
     }
 
+    fn direct(&self, monitor: &str) -> bool {
+        self.direct_here().contains(monitor)
+    }
+
     fn switch<'a>(&'a self, monitor: &'a str, input: MonitorInput) -> StepFuture<'a> {
         Box::pin(async move {
             let id = monitor.to_owned();
+            let direct = self.direct(monitor);
             let r = self
-                .with_core(move |c| c.switch(&id, input))
+                .with_core(move |c| {
+                    if direct {
+                        c.switch_unowned(&id, input)
+                    } else {
+                        c.switch(&id, input)
+                    }
+                })
                 .await
                 .unwrap_or_else(|| Err(NO_DDC.to_owned()));
             // What happened is seen with the next read: make it now.
@@ -316,12 +365,15 @@ impl MonitorControl for MonitorHub {
         let mine = {
             let mut dir = lock(&self.dir);
             let owner = dir.owner(monitor)?;
-            let mut report = dir.report(monitor)?.clone();
-            if report.input == Some(input) {
+            if dir.input(monitor) == Some(input) {
                 return None;
             }
-            report.input = Some(input);
-            dir.set_report(owner, report);
+            // Confirmed here without being the owner (T-346): what this machine read moves too.
+            dir.set_direct_input(monitor, input);
+            if let Some(mut report) = dir.owner_report(monitor).cloned() {
+                report.input = Some(input);
+                dir.set_report(owner, report);
+            }
             owner == dir.me()
         };
         self.publish();
@@ -547,6 +599,101 @@ mod tests {
         let again = a.tick(false).await.reports.unwrap();
         assert_eq!(again[0].input, Some(MonitorInput::DisplayPort));
         assert_eq!(a.tick(false).await.reports, None, "only once");
+    }
+
+    /// A hub on a bus another hub may share: the same physical monitor seen by both machines.
+    fn hub_on(me: Machine, bus: &FakeBus) -> MonitorHub {
+        let hub = MonitorHub::new(me);
+        hub.attach(
+            LocalMonitors::new(
+                Arc::new(bus.clone()),
+                Arc::new(bus.clock()),
+                system_wall(),
+                LocalConfig::default(),
+            ),
+            true,
+        );
+        hub
+    }
+
+    /// T-346, with both hubs on one monitor: `B` has a channel but `A` owns it (a tie goes to `A`).
+    /// While `A` is reachable `B` sends nothing; while it is not, `B` reads the live state itself
+    /// (never the events) and switches by itself; when `A` is lost, `B` carries on `A`'s cursor.
+    #[tokio::test]
+    async fn the_non_owner_reads_and_switches_only_while_the_owner_is_unreachable() {
+        let clock = FakeClock::new();
+        let bus = FakeBus::new(clock);
+        let h = bus.add(FakeMonitorConfig::new(Personality::Standard));
+        let (a, b) = (hub_on(Machine::A, &bus), hub_on(Machine::B, &bus));
+        a.tick(true).await;
+        b.tick(true).await;
+        a.set_peer(Some(b.local_channels()));
+        b.set_peer(Some(a.local_channels()));
+        let id = a.views()[0].id.clone();
+        let from_a = a.tick(false).await.reports.unwrap();
+        assert!(from_a[0].cursor.is_some(), "{from_a:?}");
+        b.receive(Machine::A, from_a);
+        assert_eq!(b.owner(&id), Some(Machine::A));
+
+        let quiet = |what: &str| {
+            assert!(bus.ops().is_empty(), "{what}: {:?}", bus.ops());
+        };
+        bus.clear_ops();
+        b.tick(false).await;
+        quiet("the owner is reachable");
+        assert!(!b.direct(&id));
+
+        // The owner becomes unreachable: B reads the live state itself, nothing else.
+        bus.osd_switch(h, monitor_ddc::Input::Hdmi);
+        bus.clear_ops();
+        b.set_peer_reachable(false);
+        b.tick(false).await;
+        let ops = bus.ops();
+        assert!(
+            ops.iter().all(|op| matches!(
+                op,
+                BusOp::Get {
+                    code: monitor_ddc::VCP_LIVE | monitor_ddc::VCP_INPUT,
+                    ..
+                }
+            )),
+            "{ops:?}"
+        );
+        assert_eq!(b.input(&id), Some(MonitorInput::Hdmi));
+        assert_eq!(b.owner(&id), Some(Machine::A), "the owner does not move");
+        // And switches by itself, with the verdict; the confirmed input is shown at once.
+        assert!(b.direct(&id));
+        b.switch(&id, MonitorInput::DisplayPort).await.unwrap();
+        assert_eq!(bus.screen_input(h), Some(monitor_ddc::Input::DisplayPort));
+        assert_eq!(b.confirmed(&id, MonitorInput::DisplayPort), None);
+        assert_eq!(b.input(&id), Some(MonitorInput::DisplayPort));
+
+        // Reachable again: B stops, and the owner's next report replaces its reading.
+        b.set_peer_reachable(true);
+        bus.clear_ops();
+        b.tick(false).await;
+        quiet("reachable again");
+        let e = b.switch(&id, MonitorInput::Hdmi).await.unwrap_err();
+        assert!(e.contains(tandem_monitor::NOT_OWNER), "{e}");
+        let from_a = a.tick(false).await.reports.unwrap();
+        b.receive(Machine::A, from_a.clone());
+        assert_eq!(b.views()[0].report.as_ref(), Some(&from_a[0]));
+
+        // A is lost before it reads a menu switch: B takes the monitor in the next turn and
+        // reads that switch, from A's last cursor.
+        bus.osd_switch(h, monitor_ddc::Input::Hdmi);
+        b.set_peer(None);
+        assert_eq!(b.owner(&id), Some(Machine::B));
+        let report = b.tick(false).await.reports.unwrap().remove(0);
+        assert!(
+            report
+                .events
+                .iter()
+                .any(|e| e.kind == tandem_proto::MonitorEventKind::Input
+                    && e.input == Some(MonitorInput::Hdmi)),
+            "{:?}",
+            report.events
+        );
     }
 
     #[tokio::test]

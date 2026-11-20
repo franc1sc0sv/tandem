@@ -7,7 +7,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use tandem_core::{Machine, MonitorInput};
-use tandem_proto::{MonitorChannel, MonitorCompat, MonitorReport, MonitorView};
+use tandem_proto::{MonitorChannel, MonitorCompat, MonitorCursor, MonitorReport, MonitorView};
 
 use crate::election::elect;
 
@@ -24,6 +24,12 @@ pub struct Directory {
     /// The owners as of the last change of channels, to forget what a machine read once it
     /// stops owning a monitor.
     elected: BTreeMap<String, Machine>,
+    /// What this machine read itself from monitors the other owns, while the owner was
+    /// unreachable (T-346). It is shown over the owner's report until the owner reports again.
+    direct: BTreeMap<String, MonitorReport>,
+    /// The cursor the other reported for each monitor that has just become this machine's: the
+    /// new reading carries on from there (T-346).
+    handover: BTreeMap<String, MonitorCursor>,
 }
 
 impl Directory {
@@ -34,6 +40,8 @@ impl Directory {
             peer: None,
             reports: BTreeMap::new(),
             elected: BTreeMap::new(),
+            direct: BTreeMap::new(),
+            handover: BTreeMap::new(),
         }
     }
 
@@ -51,6 +59,8 @@ impl Directory {
             for owner in self.elected.values_mut() {
                 *owner = owner.other();
             }
+            self.direct.clear();
+            self.handover.clear();
             self.me = me;
         }
     }
@@ -79,14 +89,68 @@ impl Directory {
     /// telling the truth and is forgotten, so it is not shown if it becomes the owner again
     /// before it reads anew. The new owner's report stays, even if it arrived before this
     /// machine knew the channels that made it the owner (T-280).
+    ///
+    /// A monitor that goes from the other to this machine keeps the other's cursor, for the hand-over
+    /// (T-346). A direct reading stops counting as soon as the owner changes.
     fn reelect(&mut self) {
         let owners = self.owners();
         for (id, before) in &self.elected {
-            if owners.get(id) != Some(before) {
-                self.reports.remove(&(id.clone(), *before));
+            let now = owners.get(id);
+            if now != Some(before) {
+                let report = self.reports.remove(&(id.clone(), *before));
+                self.direct.remove(id);
+                if *before != self.me
+                    && now == Some(&self.me)
+                    && let Some(cursor) = report.and_then(|r| r.cursor)
+                {
+                    self.handover.insert(id.clone(), cursor);
+                }
             }
         }
         self.elected = owners;
+    }
+
+    /// The cursors handed over by the other since the last call (T-346).
+    pub fn take_handover(&mut self) -> BTreeMap<String, MonitorCursor> {
+        let owned = self.owned_here();
+        std::mem::take(&mut self.handover)
+            .into_iter()
+            .filter(|(id, _)| owned.contains(id))
+            .collect()
+    }
+
+    /// The monitors the other owns and this machine sees with a compatible channel: the ones it
+    /// may read itself while the owner is unreachable (T-346).
+    pub fn readable_here(&self) -> BTreeSet<String> {
+        let other = self.me.other();
+        self.owners()
+            .into_iter()
+            .filter(|(id, owner)| {
+                *owner == other
+                    && self
+                        .channel_of(self.me, id)
+                        .is_some_and(|c| c.compat.is_compatible())
+            })
+            .map(|(id, _)| id)
+            .collect()
+    }
+
+    /// What this machine read itself from monitors the other owns (T-346). A monitor missing from
+    /// `readings` keeps its previous reading: a dropped reading changes nothing.
+    pub fn set_direct(&mut self, readings: Vec<MonitorReport>) {
+        let readable = self.readable_here();
+        for r in readings {
+            if readable.contains(&r.id) {
+                self.direct.insert(r.id.clone(), r);
+            }
+        }
+    }
+
+    /// The input this machine itself confirmed on a monitor the other owns (T-346).
+    pub fn set_direct_input(&mut self, id: &str, input: MonitorInput) {
+        if let Some(r) = self.direct.get_mut(id) {
+            r.input = Some(input);
+        }
     }
 
     /// A report from `from` (this machine or the other). It is only shown while `from` is the
@@ -99,9 +163,15 @@ impl Directory {
     /// list): what it no longer reads is forgotten. A reading from a machine that is not the
     /// owner here is kept only while that machine still reads it, so it is never shown later as
     /// current if that machine becomes the owner.
+    ///
+    /// A report from the owner is newer than what this machine read itself while the owner was
+    /// unreachable: that reading stops being shown (T-346).
     pub fn set_reports(&mut self, from: Machine, reports: Vec<MonitorReport>) {
         self.reports.retain(|(_, m), _| *m != from);
         for r in reports {
+            if from != self.me && self.owner(&r.id) == Some(from) {
+                self.direct.remove(&r.id);
+            }
             self.set_report(from, r);
         }
     }
@@ -147,8 +217,24 @@ impl Directory {
             .collect()
     }
 
-    /// The last thing the current owner of `id` read.
-    pub fn report(&self, id: &str) -> Option<&MonitorReport> {
+    /// The last thing the current owner of `id` read: with the live state this machine read
+    /// itself on top, while that reading is newer (T-346). The events and the cursor are always
+    /// the owner's.
+    pub fn report(&self, id: &str) -> Option<MonitorReport> {
+        let owner = self.owner(id)?;
+        let theirs = self.reports.get(&(id.to_owned(), owner));
+        let Some(direct) = self.direct.get(id) else {
+            return theirs.cloned();
+        };
+        let mut shown = theirs.cloned().unwrap_or_else(|| direct.clone());
+        shown.input = direct.input;
+        shown.power_on = direct.power_on;
+        shown.signal = direct.signal;
+        Some(shown)
+    }
+
+    /// The owner's own report of `id`, without what this machine read itself.
+    pub fn owner_report(&self, id: &str) -> Option<&MonitorReport> {
         let owner = self.owner(id)?;
         self.reports.get(&(id.to_owned(), owner))
     }
@@ -194,7 +280,7 @@ impl Directory {
                         .filter_map(|(m, c)| c.via.map(|i| (*m, i)))
                         .collect(),
                     owner: self.owner(id),
-                    report: self.report(id).cloned(),
+                    report: self.report(id),
                 })
             })
             .collect()
@@ -230,6 +316,7 @@ mod tests {
             power_on: Some(true),
             signal: Some(true),
             events: vec![],
+            cursor: None,
         }
     }
 
@@ -264,6 +351,79 @@ mod tests {
         assert!(a.set_peer(None));
         assert_eq!(a.owner("std"), Some(Machine::A));
         assert!(!a.set_peer(None), "no change");
+    }
+
+    /// T-346: the monitor that goes from the other to this machine keeps the other's last cursor,
+    /// once; one that goes the other way or has no cursor hands nothing over.
+    #[test]
+    fn losing_the_owner_hands_its_cursor_over() {
+        let (mut a, mut b) = pair(vec![ch("std", true, 40)], vec![ch("std", true, 5)]);
+        let cursor = MonitorCursor {
+            last: 7,
+            clock_10ms: Some(900),
+        };
+        let mut theirs = report("std", MonitorInput::DisplayPort);
+        theirs.cursor = Some(cursor);
+        a.set_reports(Machine::B, vec![theirs.clone()]);
+        b.set_reports(Machine::B, vec![theirs]);
+        a.set_peer(None);
+        assert_eq!(a.take_handover(), BTreeMap::from([("std".into(), cursor)]));
+        assert!(a.take_handover().is_empty(), "only once");
+        // B loses A instead: it keeps the monitor and nothing changes hands.
+        b.set_peer(None);
+        assert!(b.take_handover().is_empty());
+        // Back with A, A's channel goes away: B was the owner all along.
+        let (mut a, _) = pair(vec![ch("std", true, 40)], vec![ch("std", true, 5)]);
+        a.set_reports(Machine::B, vec![report("std", MonitorInput::DisplayPort)]);
+        a.set_peer(None);
+        assert!(a.take_handover().is_empty(), "no cursor reported");
+    }
+
+    /// T-346: what this machine read itself is shown over the owner's report (events and cursor
+    /// stay the owner's) until the owner reports again or stops being the owner.
+    #[test]
+    fn a_direct_reading_shows_until_the_owner_reports_again() {
+        let (mut a, _) = pair(
+            vec![ch("std", true, 40), ch("fab", false, 1)],
+            vec![ch("std", true, 5), ch("fab", false, 1), ch("pc", true, 1)],
+        );
+        assert_eq!(a.readable_here(), BTreeSet::from(["std".to_owned()]));
+        let mut theirs = report("std", MonitorInput::DisplayPort);
+        theirs.events = vec![tandem_proto::MonitorEvent {
+            at_ms: 1,
+            kind: tandem_proto::MonitorEventKind::Boot,
+            input: None,
+        }];
+        a.set_reports(Machine::B, vec![theirs.clone()]);
+        let mut mine = report("std", MonitorInput::Hdmi);
+        mine.signal = Some(false);
+        // Only monitors the other owns and this one can read count.
+        a.set_direct(vec![mine, report("pc", MonitorInput::Hdmi)]);
+        let shown = a.report("std").unwrap();
+        assert_eq!(shown.input, Some(MonitorInput::Hdmi));
+        assert_eq!(shown.signal, Some(false));
+        assert_eq!(shown.events, theirs.events);
+        assert_eq!(a.owner_report("std"), Some(&theirs));
+        assert_eq!(a.input("pc"), None, "A has no channel to pc");
+        // A dropped reading changes nothing; a switch confirmed here is shown.
+        a.set_direct(Vec::new());
+        a.set_direct_input("std", MonitorInput::DisplayPort);
+        assert_eq!(a.input("std"), Some(MonitorInput::DisplayPort));
+        a.set_direct(vec![report("std", MonitorInput::Hdmi)]);
+        // The owner reports again: its report is newer.
+        a.set_reports(Machine::B, vec![theirs.clone()]);
+        assert_eq!(a.report("std"), Some(theirs));
+        // Without an owner's report the reading is shown by itself, until the owner changes.
+        let (mut a, _) = pair(vec![ch("std", true, 40)], vec![ch("std", true, 5)]);
+        a.set_direct(vec![report("std", MonitorInput::Hdmi)]);
+        assert_eq!(a.input("std"), Some(MonitorInput::Hdmi));
+        a.set_peer(None);
+        assert_eq!(
+            a.input("std"),
+            None,
+            "now A is the owner and reads it itself"
+        );
+        assert!(a.readable_here().is_empty());
     }
 
     #[test]

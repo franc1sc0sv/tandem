@@ -447,6 +447,7 @@ async fn an_early_claim_of_the_non_owner_does_not_hide_the_owners_report() {
             power_on: Some(true),
             signal: Some(true),
             events: vec![],
+            cursor: None,
         }],
     );
     // Several scans and polls go by; the owner reads nothing new.

@@ -93,8 +93,15 @@ impl Agent {
 
 async fn monitor_loop(agent: Weak<Agent>, times: MonitorTimes) {
     let mut last_scan: Option<tokio::time::Instant> = None;
+    // Whether the other's agent is reachable decides whether this machine may read itself the
+    // monitors the other owns (T-346): it is looked at every turn and a change starts one.
+    let Some(mut connected) = agent.upgrade().map(|a| a.orch.peer_connected()) else {
+        return;
+    };
     loop {
         let Some(a) = agent.upgrade() else { return };
+        a.monitors
+            .set_peer_reachable(*connected.borrow_and_update());
         let scan = last_scan.is_none_or(|t| t.elapsed() >= times.scan_every);
         if scan {
             last_scan = Some(tokio::time::Instant::now());
@@ -118,6 +125,8 @@ async fn monitor_loop(agent: Weak<Agent>, times: MonitorTimes) {
         tokio::select! {
             () = tokio::time::sleep(times.poll_every) => {}
             () = hub.woken() => {}
+            // The sender lives in the agent: once it is gone, the next turn ends the loop.
+            _ = connected.changed() => {}
         }
     }
 }

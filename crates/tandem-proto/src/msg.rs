@@ -425,6 +425,17 @@ pub struct MonitorReport {
     pub signal: Option<bool>,
     /// The latest events, oldest to newest.
     pub events: Vec<MonitorEvent>,
+    /// The owner's place in the event ring: the machine that takes the monitor over carries on
+    /// from here instead of skipping what happened in between (T-346). `None` until it has one.
+    pub cursor: Option<MonitorCursor>,
+}
+
+/// The last event an owner read (`0xEB`–`0xED` sequence number) and the monitor's clock (`0xEF`,
+/// 10 ms units) when it reached it, which tells a monitor reboot from a sequence wrap.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MonitorCursor {
+    pub last: u16,
+    pub clock_10ms: Option<u32>,
 }
 
 /// A firmware event, with the time already converted to the owner's clock.
@@ -1284,6 +1295,10 @@ pub(crate) mod samples {
                     input: None,
                 },
             ],
+            cursor: Some(MonitorCursor {
+                last: 42,
+                clock_10ms: Some(123_456),
+            }),
         }
     }
 

@@ -5,10 +5,16 @@
 //!   (only its EDID); one that answers without the standard is announced as "not compatible".
 //!   Neither is ever opened for writing.
 //! - [`LocalMonitors::set_owned`] opens the ones that belong to this machine and drops the rest.
-//!   Every time a machine becomes the owner it asks for a new cursor: the previous one may have
+//!   A new owner carries on from the cursor the previous owner last reported
+//!   ([`LocalMonitors::hand_over`], T-346); without one it asks for a new cursor: its own may have
 //!   gone stale while the other was reading (the firmware's cursor is one per monitor).
 //! - [`LocalMonitors::poll`] reads events and state of its own.
 //! - [`LocalMonitors::switch`] changes the input and waits for the firmware's verdict.
+//! - [`LocalMonitors::read_direct`] and [`LocalMonitors::switch_unowned`]: what a machine with a
+//!   channel does on a monitor the other owns while the owner is unreachable (T-346). The
+//!   34"'s DP and HDMI share one DDC/CI request buffer, so two hosts talking at once can get
+//!   each other's replies: the caller only uses these while the owner cannot be talking to it
+//!   through Tandem, and a direct reading counts only if its replies agree.
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::Arc;
@@ -16,10 +22,12 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use monitor_ddc::{
     Clock, DdcBus, DdcError, Event, EventCursor, EventKind, Incompatibility, Input, Link,
-    LinkConfig, MonitorHandle, Probe, StandardMonitor, Verdict,
+    LinkConfig, MonitorHandle, Probe, StandardMonitor, VCP_INPUT, VCP_LIVE, Verdict,
 };
 use tandem_core::{DisplayKey, MonitorInput};
-use tandem_proto::{MonitorChannel, MonitorCompat, MonitorEvent, MonitorEventKind, MonitorReport};
+use tandem_proto::{
+    MonitorChannel, MonitorCompat, MonitorCursor, MonitorEvent, MonitorEventKind, MonitorReport,
+};
 
 use crate::{ring, to_core, to_ddc};
 
@@ -97,8 +105,12 @@ impl Default for LocalConfig {
 /// A monitor that this machine reads because it is the owner.
 struct Reader {
     monitor: StandardMonitor,
-    /// `None` until the first read: the cursor is requested when reading starts.
+    /// `None` until the first read: the cursor is requested when reading starts, unless the
+    /// previous owner handed one over.
     cursor: Option<EventCursor>,
+    /// The cursor as of the read that last moved it: what goes in the report. The monitor clock
+    /// of later reads without events is left out, so the report only changes with the events.
+    reported: Option<MonitorCursor>,
     /// When it was last read (`monitor-ddc` clock).
     read_at: Duration,
     events: VecDeque<MonitorEvent>,
@@ -117,6 +129,8 @@ pub struct LocalMonitors {
     wall: WallClock,
     cfg: LocalConfig,
     entries: BTreeMap<String, Entry>,
+    /// Cursors the previous owners reported, for the next [`LocalMonitors::set_owned`].
+    handover: BTreeMap<String, MonitorCursor>,
 }
 
 impl std::fmt::Debug for LocalMonitors {
@@ -140,6 +154,7 @@ impl LocalMonitors {
             wall,
             cfg,
             entries: BTreeMap::new(),
+            handover: BTreeMap::new(),
         }
     }
 
@@ -251,8 +266,16 @@ impl LocalMonitors {
         }
     }
 
+    /// The cursors the previous owners last reported (T-346): the next [`Self::set_owned`] that
+    /// opens one of these monitors carries on from there, so what happened between the old
+    /// owner's last read and now is read too instead of skipped. One not taken by that call is dropped.
+    pub fn hand_over(&mut self, cursors: BTreeMap<String, MonitorCursor>) {
+        self.handover.extend(cursors);
+    }
+
     /// Reads the monitors in `owned` (the compatible ones it sees) and drops the rest.
     pub fn set_owned(&mut self, owned: &BTreeSet<String>) {
+        let mut handover = std::mem::take(&mut self.handover);
         let ids: Vec<String> = self.entries.keys().cloned().collect();
         for id in ids {
             let want = owned.contains(&id);
@@ -275,12 +298,21 @@ impl LocalMonitors {
             // the standard never receives a Set.
             match self.link(entry.handle).open_standard() {
                 Ok(monitor) => {
-                    tracing::info!(monitor = %id, "this machine is the owner: starts reading");
+                    let reported = handover.remove(&id);
+                    tracing::info!(
+                        monitor = %id,
+                        carried_on = reported.is_some(),
+                        "this machine is the owner: starts reading"
+                    );
                     let read_at = self.clock.now();
                     if let Some(e) = self.entries.get_mut(&id) {
                         e.reader = Some(Reader {
                             monitor,
-                            cursor: None,
+                            cursor: reported.map(|c| EventCursor {
+                                last: c.last,
+                                clock_10ms: c.clock_10ms,
+                            }),
+                            reported,
                             read_at,
                             events: VecDeque::new(),
                         });
@@ -306,9 +338,81 @@ impl LocalMonitors {
                     power_on: live.map(|l| l.power_on()),
                     signal: live.map(|l| l.signal),
                     events: reader.events.iter().cloned().collect(),
+                    cursor: reader.reported,
                 })
             })
             .collect()
+    }
+
+    /// Reads the live state of the monitors in `ids` that this machine sees with a compatible
+    /// channel but does not read as the owner (T-346). Reads only `Get 0xEE`, `Get 0x60` and
+    /// `Get 0xEE` again: never the event registers, whose cursor is global to the monitor and
+    /// stays with the owner.
+    ///
+    /// The 34"'s DP and HDMI share one request buffer, so a reply may be the answer to the other
+    /// host's request. Besides the backend's own check (the code echoed in the reply), a reading
+    /// counts only if [`live_agrees`]; otherwise it is dropped and the monitor is left out of the
+    /// result.
+    pub fn read_direct(&self, ids: &BTreeSet<String>) -> Vec<MonitorReport> {
+        ids.iter()
+            .filter_map(|id| {
+                let entry = self.entries.get(id)?;
+                if entry.reader.is_some() || !entry.channel.compat.is_compatible() {
+                    return None;
+                }
+                let link = self.link(entry.handle);
+                let read = || -> Result<_, DdcError> {
+                    Ok((
+                        link.get(VCP_LIVE)?,
+                        link.get(VCP_INPUT)?,
+                        link.get(VCP_LIVE)?,
+                    ))
+                };
+                let (live, input, again) = match read() {
+                    Ok(r) => r,
+                    Err(e) => {
+                        tracing::debug!(monitor = %id, "direct reading failed: {e}");
+                        return None;
+                    }
+                };
+                let Some(on_screen) = live_agrees(live, input, again) else {
+                    tracing::debug!(
+                        monitor = %id,
+                        live = ?live,
+                        input = ?input,
+                        again = ?again,
+                        "direct reading dropped: the replies do not agree (another host's reply?)"
+                    );
+                    return None;
+                };
+                Some(MonitorReport {
+                    id: id.clone(),
+                    input: Some(to_core(on_screen)),
+                    power_on: Some(live.ch() & 0x01 != 0),
+                    signal: Some(live.cl() != 0),
+                    events: Vec::new(),
+                    cursor: None,
+                })
+            })
+            .collect()
+    }
+
+    /// Changes the input of a monitor the other machine owns, while the owner is unreachable
+    /// (T-346): it is opened after another probe (reads only), so a monitor that stopped speaking
+    /// the standard never receives a Set, and it waits for the firmware's verdict like the owner.
+    pub fn switch_unowned(&self, id: &str, input: MonitorInput) -> Result<(), String> {
+        let Some(entry) = self.entries.get(id) else {
+            return Err(format!("this machine does not see monitor {id}"));
+        };
+        if !entry.channel.compat.is_compatible() {
+            return Err(format!("{id}: this machine has no channel to the monitor"));
+        }
+        let monitor = self
+            .link(entry.handle)
+            .open_standard()
+            .map_err(|e| format!("{id}: could not open the monitor: {e}"))?;
+        tracing::info!(monitor = %id, input = %input, "input switch without being the owner");
+        self.verdict(&monitor, input)
     }
 
     /// Changes the input of a monitor of its own and waits for the firmware's verdict. An error that
@@ -320,9 +424,14 @@ impl LocalMonitors {
         let Some(reader) = &entry.reader else {
             return Err(format!("{id}: {NOT_OWNER}"));
         };
-        let timeout = self.cfg.switch_timeout;
         tracing::info!(monitor = %id, input = %input, "input switch");
-        match reader.monitor.switch_input(to_ddc(input), timeout) {
+        self.verdict(&reader.monitor, input)
+    }
+
+    /// Set `0x60` and the firmware's verdict, as the text the orchestrator shows.
+    fn verdict(&self, monitor: &StandardMonitor, input: MonitorInput) -> Result<(), String> {
+        let timeout = self.cfg.switch_timeout;
+        match monitor.switch_input(to_ddc(input), timeout) {
             Ok(Verdict::Confirmed { .. }) => Ok(()),
             Ok(Verdict::Failed { current, .. }) => Err(match current {
                 Some(c) => format!(
@@ -337,6 +446,28 @@ impl LocalMonitors {
     }
 }
 
+/// Whether three replies read as `0xEE`, `0x60`, `0xEE` all answer what was asked (T-346), and
+/// then the input on screen. A reply to another host's request is very unlikely to pass:
+/// - both `0xEE` replies are the same (the clock, the cursor and the records the other host reads
+///   move between two requests);
+/// - `0xEE` says DDC/CI is enabled (power flags bit 6: the monitor is answering it) and names a
+///   known port;
+/// - `0x60` names the same input (`0x06`/`0x09`, with nothing in the high byte).
+///
+/// If both `0xEE` replies are real, the input is right whatever `0x60` got; the check only drops.
+pub fn live_agrees(
+    live: monitor_ddc::VcpReply,
+    input: monitor_ddc::VcpReply,
+    again: monitor_ddc::VcpReply,
+) -> Option<Input> {
+    const DDC_ENABLED: u8 = 0x40;
+    if live != again || live.ch() & DDC_ENABLED == 0 || input.current > 0xFF {
+        return None;
+    }
+    let on_screen = Input::from_port(live.mh())?;
+    (Input::from_vcp(input.current) == Some(on_screen)).then_some(on_screen)
+}
+
 /// Reads what is new in the ring. The first time it only takes the cursor: anything from before this
 /// machine became the owner is no longer its own.
 fn read_events(reader: &mut Reader, clock: &dyn Clock, wall_ms: u64, kept: usize) {
@@ -345,6 +476,10 @@ fn read_events(reader: &mut Reader, clock: &dyn Clock, wall_ms: u64, kept: usize
         match reader.monitor.cursor() {
             Ok(c) => {
                 reader.cursor = Some(c);
+                reader.reported = Some(MonitorCursor {
+                    last: c.last,
+                    clock_10ms: c.clock_10ms,
+                });
                 reader.read_at = now;
             }
             Err(e) => tracing::debug!("could not take the event cursor: {e}"),
@@ -370,6 +505,12 @@ fn read_events(reader: &mut Reader, clock: &dyn Clock, wall_ms: u64, kept: usize
         }
     };
     reader.read_at = now;
+    if reader.reported.is_none_or(|r| r.last != cursor.last) {
+        reader.reported = Some(MonitorCursor {
+            last: cursor.last,
+            clock_10ms: cursor.clock_10ms,
+        });
+    }
     let clock_10ms = cursor.clock_10ms.unwrap_or(0);
     if batch.lost > 0 {
         reader.events.push_back(MonitorEvent {
@@ -432,6 +573,7 @@ mod tests {
     use monitor_ddc::fake::{
         BusOp, FakeBus, FakeClock, FakeMonitorConfig, Personality, SwitchBehavior, test_edid,
     };
+    use std::sync::Mutex;
 
     use super::*;
 
@@ -681,6 +823,206 @@ mod tests {
         let report = r.local.poll().remove(0);
         assert_eq!(report.events.len(), 1);
         assert_eq!(report.events[0].kind, MonitorEventKind::Input);
+    }
+
+    /// T-346: a new owner carries on from the cursor the previous owner last reported, so what
+    /// happened while nobody read (here, a menu switch) is not lost.
+    #[test]
+    fn a_handed_over_cursor_carries_on() {
+        let mut r = rig();
+        r.local.scan().unwrap();
+        let std = id_of(&r, true);
+        let mine = BTreeSet::from([std.clone()]);
+        r.local.set_owned(&mine);
+        let cursor = r.local.poll().remove(0).cursor.unwrap();
+        r.local.set_owned(&BTreeSet::new());
+        r.bus.osd_switch(r.std, Input::Hdmi);
+        r.local.hand_over(BTreeMap::from([
+            (std.clone(), cursor),
+            ("gone".into(), cursor),
+        ]));
+        r.local.set_owned(&mine);
+        let report = r.local.poll().remove(0);
+        let inputs: Vec<_> = report
+            .events
+            .iter()
+            .filter(|e| e.kind == MonitorEventKind::Input)
+            .map(|e| e.input)
+            .collect();
+        assert_eq!(inputs, [Some(MonitorInput::Hdmi)], "{:?}", report.events);
+        assert!(report.cursor.unwrap().last > cursor.last);
+        // A hand-over not taken is dropped: the next owner without one starts afresh.
+        assert!(r.local.handover.is_empty());
+    }
+
+    /// The reported cursor only moves with the events: the owner does not send its report again on
+    /// every read only because the monitor clock moved.
+    #[test]
+    fn the_reported_cursor_moves_only_with_the_events() {
+        let mut r = rig();
+        r.local.scan().unwrap();
+        r.local.set_owned(&BTreeSet::from([id_of(&r, true)]));
+        let first = r.local.poll();
+        r.clock.advance(Duration::from_secs(3));
+        assert_eq!(r.local.poll(), first);
+        r.bus.osd_switch(r.std, Input::Hdmi);
+        let moved = r.local.poll();
+        assert_ne!(moved[0].cursor, first[0].cursor);
+        assert!(moved[0].cursor.unwrap().clock_10ms > first[0].cursor.unwrap().clock_10ms);
+    }
+
+    /// T-346: a direct reading asks only `0xEE` and `0x60`, never an event register nor a Set, and
+    /// never touches what this machine does not see as compatible or already reads as the owner.
+    #[test]
+    fn a_direct_reading_asks_only_the_live_state() {
+        let mut r = rig();
+        r.local.scan().unwrap();
+        let (std, fab) = (id_of(&r, true), id_of(&r, false));
+        r.bus.osd_switch(r.std, Input::Hdmi);
+        r.bus.clear_ops();
+        let read = r
+            .local
+            .read_direct(&BTreeSet::from([std.clone(), fab, "unknown".into()]));
+        assert_eq!(read.len(), 1, "{read:?}");
+        assert_eq!(read[0].id, std);
+        assert_eq!(read[0].input, Some(MonitorInput::Hdmi));
+        assert_eq!((read[0].power_on, read[0].signal), (Some(true), Some(true)));
+        assert!(read[0].events.is_empty() && read[0].cursor.is_none());
+        let codes: Vec<_> = r
+            .bus
+            .ops()
+            .into_iter()
+            .map(|op| match op {
+                BusOp::Get { code, .. } => code,
+                other => panic!("only Gets: {other:?}"),
+            })
+            .collect();
+        assert_eq!(codes, [VCP_LIVE, VCP_INPUT, VCP_LIVE]);
+        assert!(r.bus.ops_for(r.factory).is_empty());
+        // Owned here, it is read by `poll`, not directly.
+        r.local.set_owned(&BTreeSet::from([std.clone()]));
+        assert!(r.local.read_direct(&BTreeSet::from([std])).is_empty());
+    }
+
+    /// The 34"'s DP and HDMI share one request buffer (monitor-firmware, inactive-hdmi-ddc.md): a
+    /// reply may answer the other host's request. Such a reading is dropped, never shown.
+    #[test]
+    fn a_direct_reading_with_a_crossed_reply_is_dropped() {
+        let clock = FakeClock::new();
+        let fake = FakeBus::new(clock.clone());
+        let h = fake.add(FakeMonitorConfig::new(Personality::Standard));
+        let crossed = Crossed {
+            inner: fake.clone(),
+            plan: Mutex::new(VecDeque::new()),
+        };
+        let crossed = Arc::new(crossed);
+        let mut local = LocalMonitors::new(
+            crossed.clone(),
+            Arc::new(clock),
+            system_wall(),
+            LocalConfig::default(),
+        );
+        let id = local.scan().unwrap()[0].id.clone();
+        let ids = BTreeSet::from([id]);
+        // The replies to 0xEE, 0x60, 0xEE: `None` is the honest one, `Some(c)` the other host's `c`.
+        for plan in [
+            [None, Some(VCP_LIVE), None],
+            [Some(0xEB), None, Some(0xEB)],
+            [None, None, Some(0xEF)],
+            [Some(0xEF), None, None],
+        ] {
+            crossed.plan(&plan);
+            assert!(local.read_direct(&ids).is_empty(), "{plan:?}");
+        }
+        // With honest replies it reads again; the monitor never got a Set.
+        assert_eq!(
+            local.read_direct(&ids)[0].input,
+            Some(MonitorInput::DisplayPort)
+        );
+        assert!(
+            !fake
+                .ops_for(h)
+                .iter()
+                .any(|op| matches!(op, BusOp::Set { .. }))
+        );
+    }
+
+    /// T-346: with the owner unreachable, a machine with a channel switches by itself, with the
+    /// firmware's verdict; one it does not see as compatible is never written to.
+    #[test]
+    fn a_switch_without_being_the_owner_waits_for_the_verdict() {
+        let mut r = rig();
+        r.local.scan().unwrap();
+        let (std, fab) = (id_of(&r, true), id_of(&r, false));
+        r.local.switch_unowned(&std, MonitorInput::Hdmi).unwrap();
+        assert_eq!(r.bus.screen_input(r.std), Some(Input::Hdmi));
+        assert!(r.local.reading().is_empty(), "it does not become the owner");
+        let e = r
+            .local
+            .switch_unowned(&fab, MonitorInput::Hdmi)
+            .unwrap_err();
+        assert!(e.contains("no channel"), "{e}");
+        assert!(sets(&r.bus, r.factory).is_empty());
+        assert!(
+            r.local
+                .switch_unowned("unknown", MonitorInput::Hdmi)
+                .is_err()
+        );
+    }
+
+    proptest::proptest! {
+        /// Whatever three replies arrive, an accepted reading names the input both `0xEE` replies
+        /// and `0x60` agree on.
+        #[test]
+        fn an_accepted_direct_reading_is_consistent(
+            live in proptest::prelude::any::<[u8; 4]>(),
+            input in proptest::prelude::any::<u16>(),
+            again in proptest::prelude::any::<[u8; 4]>(),
+        ) {
+            let r = |b: [u8; 4]| monitor_ddc::VcpReply::from_bytes(b[0], b[1], b[2], b[3]);
+            let (l, i, a) = (r(live), monitor_ddc::VcpReply { max: 0, current: input }, r(again));
+            if let Some(on_screen) = live_agrees(l, i, a) {
+                proptest::prop_assert_eq!(l, a);
+                proptest::prop_assert_eq!(Input::from_port(l.mh()), Some(on_screen));
+                proptest::prop_assert_eq!(Input::from_vcp(input), Some(on_screen));
+                proptest::prop_assert!(l.ch() & 0x40 != 0);
+            }
+        }
+    }
+
+    /// A bus whose next reply to a code is the one to another code: what the firmware's shared
+    /// request buffer does when two hosts ask at once.
+    struct Crossed {
+        inner: FakeBus,
+        plan: Mutex<VecDeque<Option<u8>>>,
+    }
+
+    impl Crossed {
+        fn plan(&self, replies: &[Option<u8>]) {
+            *self.plan.lock().unwrap() = replies.iter().copied().collect();
+        }
+    }
+
+    impl DdcBus for Crossed {
+        fn monitors(&self) -> Result<Vec<monitor_ddc::MonitorInfo>, DdcError> {
+            self.inner.monitors()
+        }
+        fn get_vcp(&self, h: MonitorHandle, code: u8) -> Result<monitor_ddc::VcpReply, DdcError> {
+            let answered = self
+                .plan
+                .lock()
+                .unwrap()
+                .pop_front()
+                .flatten()
+                .unwrap_or(code);
+            self.inner.get_vcp(h, answered)
+        }
+        fn set_vcp(&self, h: MonitorHandle, code: u8, value: u16) -> Result<(), DdcError> {
+            self.inner.set_vcp(h, code, value)
+        }
+        fn capabilities(&self, h: MonitorHandle) -> Result<String, DdcError> {
+            self.inner.capabilities(h)
+        }
     }
 
     #[test]
