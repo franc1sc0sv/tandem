@@ -19,8 +19,8 @@ pub const LABEL: &str = "com.franc1sc0sv.tandem.tandemd";
 pub const APP_BUNDLE_ID: &str = "com.franc1sc0sv.tandem";
 /// Name of the sidecar inside `Contents/MacOS` (Tauri strips the target suffix).
 pub const SIDECAR: &str = "tandemd";
-/// If `tandemd` exits with an error (for example, an invalid `tandem.toml`), launchd waits
-/// this long before relaunching it: without a wait, a persistent error would flood the log.
+/// However `tandemd` ends (for example, an invalid `tandem.toml`), launchd waits this long
+/// before relaunching it: without a wait, a persistent error would flood the log.
 pub const THROTTLE_SECS: u32 = 30;
 
 /// What goes in the plist.
@@ -110,8 +110,11 @@ fn escape(s: &str) -> String {
 ///   LaunchAgent that is not installed with `SMAppService` is on its own, and macOS did not show
 ///   the Local Network alert for it (T-344).
 /// - `RunAtLoad`: starts at login (and when installed).
-/// - `KeepAlive.SuccessfulExit = false`: if it dies with an error, launchd brings it back (after
-///   [`THROTTLE_SECS`]); if it exits cleanly (for example, on shutdown) it does not.
+/// - `KeepAlive = true`: however it ends (an error, a signal, or a clean exit with 0), launchd
+///   brings it back after [`THROTTLE_SECS`]. macOS closes `tandemd` with exit code 0 on a Quit
+///   AppleEvent (System Settings' "Quit & Reopen"), which `SuccessfulExit = false` left down for
+///   good. Stopping it on purpose (an update, uninstalling) goes through `launchctl bootout`,
+///   which unloads the job; logging out tears down the whole session.
 /// - `LimitLoadToSessionType = Aqua` and `ProcessType = Interactive`: only in a graphical
 ///   session (keyboard and mouse capture needs it) and without macOS throttling it like a
 ///   background process.
@@ -142,10 +145,7 @@ pub fn plist(spec: &AgentSpec) -> String {
 	<key>RunAtLoad</key>
 	<true/>
 	<key>KeepAlive</key>
-	<dict>
-		<key>SuccessfulExit</key>
-		<false/>
-	</dict>
+	<true/>
 	<key>ThrottleInterval</key>
 	<integer>{THROTTLE_SECS}</integer>
 	<key>LimitLoadToSessionType</key>
@@ -491,10 +491,7 @@ mod tests {
 	<key>RunAtLoad</key>
 	<true/>
 	<key>KeepAlive</key>
-	<dict>
-		<key>SuccessfulExit</key>
-		<false/>
-	</dict>
+	<true/>
 	<key>ThrottleInterval</key>
 	<integer>30</integer>
 	<key>LimitLoadToSessionType</key>
@@ -532,6 +529,44 @@ mod tests {
                 "\t<key>AssociatedBundleIdentifiers</key>\n\t<array>\n\t\t<string>{APP_BUNDLE_ID}</string>\n\t</array>\n"
             ),
             "",
+        );
+        assert_ne!(old, plist(&s));
+        std::fs::write(&file, old).unwrap();
+        let ld = FakeLaunchd::default();
+        *ld.loaded.borrow_mut() = true;
+        assert_eq!(ensure(&file, &s, &ld).unwrap(), Outcome::Updated);
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), plist(&s));
+        assert_eq!(
+            ld.calls(),
+            [
+                "bootout com.franc1sc0sv.tandem.tandemd",
+                "bootstrap a.plist"
+            ]
+        );
+    }
+
+    /// T-332: a clean exit (code 0, as after macOS' Quit AppleEvent) must be relaunched too.
+    #[test]
+    fn plist_relaunches_after_any_exit() {
+        let p = plist(&AgentSpec {
+            program: "/p".into(),
+            log: "/l".into(),
+            version: "0.3.1".into(),
+        });
+        assert!(p.contains("\t<key>KeepAlive</key>\n\t<true/>\n"), "{p}");
+        assert!(!p.contains("SuccessfulExit"), "{p}");
+    }
+
+    /// The agents installed by v0.3.0 carry `KeepAlive.SuccessfulExit = false`: the new plist
+    /// differs, so opening the new app unloads the old job and loads the new one.
+    #[test]
+    fn plist_from_v0_3_0_is_replaced_and_reloaded() {
+        let dir = tempfile::tempdir().unwrap();
+        let s = spec(dir.path());
+        let file = dir.path().join("a.plist");
+        let old = plist(&s).replace(
+            "\t<key>KeepAlive</key>\n\t<true/>\n",
+            "\t<key>KeepAlive</key>\n\t<dict>\n\t\t<key>SuccessfulExit</key>\n\t\t<false/>\n\t</dict>\n",
         );
         assert_ne!(old, plist(&s));
         std::fs::write(&file, old).unwrap();

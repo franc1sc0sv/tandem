@@ -63,8 +63,10 @@ up to date (`tandem_ui::launch_agent`):
 - `AssociatedBundleIdentifiers = [com.franc1sc0sv.tandem]`: macOS takes the app as the code
   responsible for `tandemd`, which is what makes it show the Local Network alert for a
   LaunchAgent that is not installed with `SMAppService` (T-344, see [Local Network](#local-network-t-344));
-- `RunAtLoad`, `KeepAlive` only if it exits with an error, `ThrottleInterval` of 30 s, only in the
-  graphical session (`LimitLoadToSessionType = Aqua`);
+- `RunAtLoad`, `KeepAlive = true` (relaunched however it ends, also with exit code 0; T-332),
+  `ThrottleInterval` of 30 s, only in the graphical session (`LimitLoadToSessionType = Aqua`). To
+  stop it for good, take it out of launchd (`launchctl bootout`, as in "Uninstall"): killing the
+  process only restarts it;
 - `tandemd`'s output before opening its log goes to `~/Library/Logs/Tandem/tandemd.log`; its own
   log, to `~/Library/Application Support/Tandem/logs/`.
 
