@@ -38,3 +38,6 @@ docs/tasks/T-209.md trabajo|Trabajo|puesto|pantalla|solo-|solo\b
 
 # The acceptance sweep detects untranslated Spanish UI text, so its word list is Spanish on purpose.
 docs/reports/acceptance/2026-11-18-b/harness/demo-sweep.mjs const spanish
+
+# The Spanish installer strings: copy of the Tauri bundler language file with one string changed (T-345).
+apps/tandem-ui/src-tauri/windows/Spanish.nsh
