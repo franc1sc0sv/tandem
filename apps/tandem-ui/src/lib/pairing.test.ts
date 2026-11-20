@@ -1,13 +1,37 @@
 import { describe, expect, it } from "vitest";
 
 import type { PairingView, PeerView } from "./model";
-import { codeMatches, isActive, isComplete, needsDismiss, pairButton, pairLine, pairScreen, setDigit, shouldOpen, splitCode } from "./pairing";
+import { codeMatches, isActive, isComplete, localNetworkBlock, needsDismiss, pairButton, pairLine, pairScreen, setDigit, shouldOpen, splitCode } from "./pairing";
+import type { PermissionsView, PermissionRow } from "./store/types";
 
 const UNPAIRED: PeerView = { kind: "unpaired" };
 const PAIRED: PeerView = { kind: "paired", name: "Workshop", link: "usb4" };
 const IDLE: PairingView = { kind: "idle" };
 const SEARCHING: PairingView = { kind: "searching" };
 const COMPARING: PairingView = { kind: "comparing", code: "042917", peer: "Workshop", confirmed: false };
+
+describe("Local Network blocks the search (T-344)", () => {
+  const perms = (state: PermissionRow["state"]): PermissionsView => ({
+    needed: true,
+    rows: [
+      { id: "accessibility", state: "granted" },
+      { id: "local_network", state },
+    ],
+    binary: null,
+  });
+
+  it("names the cause and where to fix it only when the agent knows it is blocked", () => {
+    const b = localNetworkBlock(perms("missing"));
+    expect(b?.title).toBe("Local Network permission missing on this Mac");
+    expect(b?.how).toContain("System Settings → Privacy & Security → Local Network");
+    expect(localNetworkBlock(perms("unknown"))).toBeNull();
+    expect(localNetworkBlock(perms("granted"))).toBeNull();
+  });
+
+  it("a machine without the permission (Windows) is never blocked by it", () => {
+    expect(localNetworkBlock({ needed: false, rows: [], binary: null })).toBeNull();
+  });
+});
 
 describe("screen", () => {
   it("without a peer offers to pair with the other machine", () => {

@@ -11,6 +11,7 @@
 // - `peer=none`: unpaired; pairing simulates the other machine (code and confirmation).
 //   `pair=code` starts by showing the code; `pair=reject`: the other machine rejects.
 // - `offer` (with `trouble=peer-off`): another machine is looking for a pair while the paired one is silent.
+// - `net=denied|unknown`: what this Mac's agent reports about Local Network (T-344).
 // - `cross=ok|wrong|timeout`: the crossing test crosses through the arrangement edge, through another one,
 //   or times out right away (for screenshots). Without this (and without `still`), it crosses
 //   fine after a few seconds.
@@ -83,6 +84,8 @@ export interface DemoOptions {
   wizard?: number;
   /** macOS with Accessibility and Monitoring not granted and Local network granted (`F-Setup3`). */
   perms?: "missing";
+  /** What the agent's probe reports about Local Network (T-344); overrides `perms`. */
+  net?: "denied" | "unknown";
   /** The macOS administrator service not installed: the setup shows it pending (`F-Setup1`). */
   admin?: "pending" | "off";
   /** How the crossing test ends. */
@@ -119,6 +122,7 @@ export function demoOptions(query: string): DemoOptions {
     firstRun: p.has("setup"),
     wizard: p.has("wizard") && Number.isInteger(Number(p.get("wizard"))) ? Number(p.get("wizard")) : undefined,
     perms: p.get("perms") === "missing" ? "missing" : undefined,
+    net: p.get("net") === "denied" || p.get("net") === "unknown" ? (p.get("net") as "denied" | "unknown") : undefined,
     txn: p.get("txn") === "run" || p.get("txn") === "ok" || p.get("txn") === "fail" ? (p.get("txn") as "run" | "ok" | "fail") : undefined,
     failScene: p.get("fail") ?? undefined,
     tunnels: p.has("palette") ? "palette" : p.has("tray") ? "tray" : p.get("tunnels") === "none" ? "none" : p.get("tunnels") === "many" ? "many" : p.get("tunnels") === "notes" ? "notes" : "normal",
@@ -522,14 +526,14 @@ const TROUBLE_TEXT: Record<Trouble, (peer: string) => string> = {
 
 export const DEMO_CODE = "418027";
 
-function permissionsFor(os: Os, missing: boolean, netGranted = false): PermissionsView {
+function permissionsFor(os: Os, missing: boolean, netGranted = false, net?: "denied" | "unknown"): PermissionsView {
   if (os !== "macos") return { needed: false, rows: [], binary: null };
   return {
     needed: true,
     rows: [
       { id: "accessibility", state: missing ? "missing" : "granted" },
       { id: "input_monitoring", state: missing ? "missing" : "granted" },
-      { id: "local_network", state: netGranted ? "granted" : "unknown" },
+      { id: "local_network", state: net === "denied" ? "missing" : net === "unknown" ? "unknown" : netGranted ? "granted" : "unknown" },
     ],
     binary: "Grant the permission to this binary: /Applications/Tandem.app/Contents/MacOS/tandemd (pid 4242)",
   };
@@ -616,7 +620,7 @@ export function demoDesk(o: DemoOptions): DeskView {
       peer: o.unpaired ? { kind: "unpaired" } : { kind: "paired", name: peerSpec.name, link: linkUp ? "usb4" : null },
       pairing: o.pairing === "code" ? { kind: "comparing", code: DEMO_CODE, peer: peerSpec.name, confirmed: false } : o.offer && !o.unpaired ? { kind: "offered" } : { kind: "idle" },
     },
-    permissions: permissionsFor((o.here === "a" ? sa : sb).os, o.trouble === "permissions" || o.perms === "missing", o.perms === "missing"),
+    permissions: permissionsFor((o.here === "a" ? sa : sb).os, o.trouble === "permissions" || o.perms === "missing", o.perms === "missing", o.net),
     layout: demoLayout(sa, sb, scenes, "work"),
   };
 }
@@ -1118,6 +1122,8 @@ export class DemoSource implements Source {
     switch (kind) {
       case "start_pairing":
         this.setPairing({ kind: "searching" });
+        // Without Local Network macOS drops the announcements: the other machine is never found (T-344).
+        if (this.desk.permissions.rows.some((r) => r.id === "local_network" && r.state === "missing")) return { ok: true };
         this.pairTimer = setTimeout(() => this.setPairing({ kind: "comparing", code: DEMO_CODE, peer: peerName, confirmed: false }), PAIR_FOUND_MS);
         return { ok: true };
       case "confirm_pairing":
@@ -1145,6 +1151,14 @@ export class DemoSource implements Source {
 
   async requestPermissions(): Promise<ActResult> {
     return { ok: true };
+  }
+
+  /** In the demo, asking again is equivalent to the user pressing Allow in macOS' alert. */
+  async checkLocalNetwork(): Promise<ActResult> {
+    const perms = this.desk.permissions;
+    const rows = perms.rows.map((r) => (r.id === "local_network" ? { ...r, state: "granted" as const } : r));
+    this.set({ ...this.desk, permissions: { ...perms, rows } });
+    return { ok: true, text: "Tandem tried the local network again: if macOS asks, choose Allow" };
   }
 
   /** In the demo, opening the panel is equivalent to the user granting it. */

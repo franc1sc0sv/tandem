@@ -138,6 +138,11 @@ pub struct Agent {
     /// How many times the user asked for the macOS permissions (T-090): the input engine
     /// listens to the counter and asks the system for them.
     permission_requests: watch::Sender<u64>,
+    /// The macOS Local Network permission as the last probe left it (T-344); `None` where
+    /// nobody probes it (a system without that permission, or a test without a probe).
+    local_network: watch::Sender<Option<tandem_proto::LocalNetwork>>,
+    /// How many times the UI asked to try the local network again (T-344).
+    local_network_checks: watch::Sender<u64>,
     /// "Lock here" requests (T-129): the counter goes up with each one and the input
     /// engine applies the last requested value.
     lock_requests: watch::Sender<(u64, bool)>,
@@ -417,6 +422,8 @@ impl Agent {
             keyboard: watch::Sender::new(cfg.input.keyboard),
             input_engine: std::sync::atomic::AtomicBool::new(false),
             permission_requests: watch::Sender::new(0),
+            local_network: watch::Sender::new(None),
+            local_network_checks: watch::Sender::new(0),
             lock_requests: watch::Sender::new((0, false)),
             synthetic: Mutex::new(None),
             process,
@@ -887,6 +894,23 @@ impl Agent {
         }
     }
 
+    /// The macOS Local Network permission as the last probe left it (T-344).
+    pub fn local_network(&self) -> Option<tandem_proto::LocalNetwork> {
+        *self.local_network.borrow()
+    }
+
+    /// Records what the Local Network probe found; it is part of what this machine announces.
+    pub fn set_local_network(&self, state: tandem_proto::LocalNetwork) {
+        if self.local_network.send_replace(Some(state)) != Some(state) {
+            self.refresh_capabilities();
+        }
+    }
+
+    /// Notifies every time the UI asks to try the local network again (T-344).
+    pub fn subscribe_local_network_checks(&self) -> watch::Receiver<u64> {
+        self.local_network_checks.subscribe()
+    }
+
     /// Notifies every time the user asks for the macOS permissions.
     pub fn subscribe_permission_requests(&self) -> watch::Receiver<u64> {
         self.permission_requests.subscribe()
@@ -1273,6 +1297,16 @@ impl Agent {
             UiCommand::RequestPermissions => {
                 self.permission_requests.send_modify(|n| *n += 1);
                 Reply::Done
+            }
+            UiCommand::CheckLocalNetwork => {
+                if self.local_network().is_none() {
+                    Reply::Rejected(
+                        "this machine has no Local Network permission to check".to_owned(),
+                    )
+                } else {
+                    self.local_network_checks.send_modify(|n| *n += 1);
+                    Reply::Done
+                }
             }
             UiCommand::LockHere { on } => self.lock_here(on),
             UiCommand::SetWol { mac } => self.set_wol_mac(mac.as_deref()),

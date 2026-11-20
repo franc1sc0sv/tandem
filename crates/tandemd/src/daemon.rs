@@ -105,6 +105,16 @@ pub fn start(
     if platform {
         start_monitors(&agent);
     }
+    // Only macOS asks for Local Network (T-344): the probe also brings up its alert, and the
+    // agent lives on after it, which the alert needs.
+    #[cfg(target_os = "macos")]
+    if platform {
+        drop(crate::local_network::start(
+            &agent,
+            Arc::new(crate::local_network::UdpProbe),
+            crate::local_network::Times::default(),
+        ));
+    }
     // Environments are scanned in the background: they can take a while (WSL starts its distro).
     agent.rescan();
     let network = Network::start(agent.clone(), &identity, trust, net)?;

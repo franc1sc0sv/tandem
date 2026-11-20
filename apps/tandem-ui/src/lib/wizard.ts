@@ -6,6 +6,7 @@
 import { formatMs, type CrossPhase } from "./crossing";
 import { LINK_NAME } from "./machines";
 import type { AdminView, Machine, Permission, Side } from "./model";
+import { LOCAL_NETWORK_PATH } from "./permissions";
 import type { DeskView, MachineView, PermissionRow } from "./store/types";
 
 export const WIZARD_STEPS = ["This machine", "Your desk", "Permissions", "Keyboard and mouse", "Arrangement and crossing test", "Done"];
@@ -108,8 +109,12 @@ export interface PermCard {
   why: string;
   /** Granted and checked by the agent. */
   granted: boolean;
-  /** Really missing. What the agent cannot check (Local network) counts neither as missing nor as granted. */
+  /** Really missing. What the agent cannot tell yet counts neither as missing nor as granted. */
   missing: boolean;
+  /** The line under the title: what holds and what to do. */
+  status: string;
+  /** Offer "Ask again": Local Network while it is not granted (T-344). macOS has no button for it. */
+  askAgain: boolean;
 }
 
 // The texts of `F-Setup3`: they address the other machines of the desk without naming any system.
@@ -119,8 +124,26 @@ const PERM_TEXT: Record<Permission, { title: string; why: string }> = {
   local_network: { title: "Local Network", why: "To find the other machines of the desk and talk to them encrypted." },
 };
 
+/** The status line of a card. Local Network has its own: the agent probes it, and macOS asks only once (T-344). */
+export function permStatus(row: PermissionRow): string {
+  if (row.state === "granted") return "Granted · checked just now";
+  if (row.id === "local_network") {
+    return row.state === "missing"
+      ? `Blocked by macOS · turn on Tandem (or tandemd) in ${LOCAL_NETWORK_PATH}`
+      : "Not checked yet · press “Ask again” and choose Allow when macOS asks";
+  }
+  return row.state === "missing" ? "Waiting… it is checked automatically" : "Not checked · macOS asks the first time it is used";
+}
+
 export function permCards(rows: PermissionRow[]): PermCard[] {
-  return rows.map((r) => ({ id: r.id, ...PERM_TEXT[r.id], granted: r.state === "granted", missing: r.state === "missing" }));
+  return rows.map((r) => ({
+    id: r.id,
+    ...PERM_TEXT[r.id],
+    granted: r.state === "granted",
+    missing: r.state === "missing",
+    status: permStatus(r),
+    askAgain: r.id === "local_network" && r.state !== "granted",
+  }));
 }
 
 export const missingOf = (cards: PermCard[]): number => cards.filter((c) => c.missing).length;

@@ -20,9 +20,10 @@ use tandem_core::{
 };
 use tandem_proto::{
     AgentToUi, Capabilities, CursorSample, DeskCapabilities, DragStatus, EnvKind, Environment,
-    Hardware, InputPermission, InputStatus, KeyProbeStatus, Link, ModuleId, ModuleInfo,
-    ModuleState, MonitorView, NetworkStatus, PairingStatus, PathState, PeerStatus, PowerEvent,
-    Reply, Resources, ScreenRect, SetupInfo, TunnelId, TxnEvent, UiCommand, UpdateStatus,
+    Hardware, InputPermission, InputStatus, KeyProbeStatus, Link, LocalNetwork, ModuleId,
+    ModuleInfo, ModuleState, MonitorView, NetworkStatus, PairingStatus, PathState, PeerStatus,
+    PowerEvent, Reply, Resources, ScreenRect, SetupInfo, TunnelId, TxnEvent, UiCommand,
+    UpdateStatus,
 };
 use tandemd::ipc::{IpcClient, IpcError};
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -320,6 +321,27 @@ pub struct MachineView {
     pub environments: Vec<EnvView>,
     /// The machine per the scan (T-105).
     pub hardware: HardwareView,
+    /// The macOS Local Network permission of its agent (T-344); `null` on a system without it.
+    pub local_network: Option<LocalNetworkView>,
+}
+
+/// [`LocalNetwork`] for the frontend.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LocalNetworkView {
+    Granted,
+    Denied,
+    Unknown,
+}
+
+impl From<LocalNetwork> for LocalNetworkView {
+    fn from(l: LocalNetwork) -> Self {
+        match l {
+            LocalNetwork::Granted => LocalNetworkView::Granted,
+            LocalNetwork::Denied => LocalNetworkView::Denied,
+            LocalNetwork::Unknown => LocalNetworkView::Unknown,
+        }
+    }
 }
 
 /// [`ModuleInfo`] as JSON for the frontend: the id is the desk's (`clipboard`).
@@ -493,6 +515,7 @@ impl From<Capabilities> for MachineView {
             modules: c.modules.into_iter().map(Into::into).collect(),
             environments: c.environments.into_iter().map(Into::into).collect(),
             hardware: c.hardware.into(),
+            local_network: c.local_network.map(Into::into),
         }
     }
 }
@@ -749,6 +772,9 @@ pub enum Action {
     PingPeer,
     /// "Ask for permissions" (T-090): macOS shows its dialog on behalf of `tandemd`.
     RequestPermissions,
+    /// "Ask again" for Local Network (T-344): the agent tries the local network at once, which
+    /// brings up macOS' alert if it never asked.
+    CheckLocalNetwork,
     /// "Lock here" (T-129): locks or releases the cursor on this machine.
     LockHere {
         on: bool,
@@ -898,6 +924,7 @@ impl From<Action> for UiCommand {
             Action::SetKeyboard { machine } => UiCommand::SetKeyboard(machine),
             Action::PingPeer => UiCommand::PingPeer,
             Action::RequestPermissions => UiCommand::RequestPermissions,
+            Action::CheckLocalNetwork => UiCommand::CheckLocalNetwork,
             Action::LockHere { on } => UiCommand::LockHere { on },
             Action::SetDeskName { name } => UiCommand::EditDesk {
                 patch: DeskPatch::Name(name),
@@ -2310,6 +2337,28 @@ mac = "aa:bb:cc:dd:ee:ff"
         handle.retry_now();
     }
 
+    /// T-344: the agent's Local Network permission reaches the frontend as a plain string, and
+    /// as `null` where the system has no such permission.
+    #[test]
+    fn the_local_network_permission_reaches_the_frontend() {
+        let caps = |l: Option<LocalNetwork>| {
+            let mut c = tandemd::capabilities::local(
+                &AgentConfig::from_toml("machine = \"a\"").unwrap(),
+                Machine::A,
+                tandem_core::MachineInfo::new(Machine::A, tandem_core::Os::MacOs, None),
+                &InputStatus::new(Machine::A),
+                &Default::default(),
+                Vec::new(),
+            );
+            c.local_network = l;
+            serde_json::to_value(MachineView::from(c)).unwrap()["local_network"].clone()
+        };
+        assert_eq!(caps(None), serde_json::Value::Null);
+        assert_eq!(caps(Some(LocalNetwork::Granted)), "granted");
+        assert_eq!(caps(Some(LocalNetwork::Denied)), "denied");
+        assert_eq!(caps(Some(LocalNetwork::Unknown)), "unknown");
+    }
+
     #[test]
     fn json_is_what_the_frontend_reads() {
         let cfg = AgentConfig::from_toml(
@@ -2637,6 +2686,7 @@ mac = "aa:bb:cc:dd:ee:ff"
             ("heard_key", UiCommand::HeardKey),
             ("ping_peer", UiCommand::PingPeer),
             ("request_permissions", UiCommand::RequestPermissions),
+            ("check_local_network", UiCommand::CheckLocalNetwork),
             ("get_setup", UiCommand::GetSetup),
         ] {
             assert_eq!(read(serde_json::json!({ "kind": kind })), cmd);

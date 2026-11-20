@@ -7,7 +7,7 @@
   import { useStore } from "../../lib/context";
   import { LINK_NAME } from "../../lib/machines";
   import { codeMatches, isComplete, setDigit } from "../../lib/pairing";
-  import { pairScreen } from "../../lib/pairing";
+  import { localNetworkBlock, pairScreen } from "../../lib/pairing";
   import Button from "../../ui/Button.svelte";
   import Icon from "../../ui/Icon.svelte";
   import { machineIcon } from "../../ui/icons";
@@ -25,6 +25,8 @@
   const other = $derived(desk.machines[desk.here === "a" ? "b" : "a"]);
   const otherName = $derived(other?.name ?? "the other machine");
   const pair = $derived(pairScreen(otherName, desk.pair.peer, desk.pair.pairing, askUnpair));
+  // While looking for the other machine: say it when this Mac's permission is what stops it (T-344).
+  const blocked = $derived(pair.kind === "intro" || pair.kind === "searching" ? localNetworkBlock(desk.permissions) : null);
 
   let mode = $state<"join" | "new">("join");
   let digits = $state<string[]>(["", "", "", "", "", ""]);
@@ -97,6 +99,16 @@
   </button>
 </div>
 
+{#if blocked}
+  <section class="wz-panel" role="alert" aria-label="Local Network">
+    <span class="wz-pt" style="color:#e6c48f">{blocked.title}</span>
+    <p class="wz-mut wz-note">{blocked.how}</p>
+    <div class="wz-row">
+      <Button icon="external" size="sm" motion="lift" onclick={() => store.openPermission("local_network")}>Open settings</Button>
+      <Button icon="refresh" size="sm" variant="ghost" motion="spin" onclick={() => store.checkLocalNetwork()}>Ask again</Button>
+    </div>
+  </section>
+{/if}
 {#if pair.kind === "done" || pair.kind === "paired"}
   <section class="wz-panel" aria-label="Paired">
     <div class="wz-found ok">

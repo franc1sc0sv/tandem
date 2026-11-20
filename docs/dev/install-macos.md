@@ -60,6 +60,9 @@ up to date (`tandem_ui::launch_agent`):
   of launchd (`launchctl bootout`) and loads the new one (`launchctl bootstrap gui/<uid>`);
 - if the plist is already correct and loaded, it touches nothing (opening the app does not restart
   `tandemd`); if it is there but not loaded, it loads it again;
+- `AssociatedBundleIdentifiers = [com.franc1sc0sv.tandem]`: macOS takes the app as the code
+  responsible for `tandemd`, which is what makes it show the Local Network alert for a
+  LaunchAgent that is not installed with `SMAppService` (T-344, see [Local Network](#local-network-t-344));
 - `RunAtLoad`, `KeepAlive` only if it exits with an error, `ThrottleInterval` of 30 s, only in the
   graphical session (`LimitLoadToSessionType = Aqua`);
 - `tandemd`'s output before opening its log goes to `~/Library/Logs/Tandem/tandemd.log`; its own
@@ -85,7 +88,7 @@ of **System Settings → Privacy & Security**; it is reopened with the
 |---|---|---|
 | Accessibility | Injecting keyboard and mouse coming from the PC; "Bring windows" | `Privacy_Accessibility` |
 | Input Monitoring | Capturing the Mac's keyboard and mouse to send them to the PC | `Privacy_ListenEvent` |
-| Local Network | Discovering the PC over mDNS (`_tandem._udp`) and talking to it over QUIC | `Privacy_LocalNetwork` |
+| Local Network | Discovering the PC over mDNS (`_tandem._udp`) and talking to it over QUIC; probed by the agent ([below](#local-network-t-344)) | `Privacy_LocalNetwork` |
 
 ### Flow to grant Accessibility and Input Monitoring (T-090)
 
@@ -114,9 +117,42 @@ Mac and PC at the same time: a v13 agent rejects the link with `IncompatibleVers
 Pending hardware verification of this flow: `docs/tasks/T-090.md`.
 
 In Accessibility and Input Monitoring, if `tandemd` does not appear in the list, press **+**
-and choose `/Applications/Tandem.app/Contents/MacOS/tandemd` (⌘⇧G to type the path). Local
-network is asked by macOS the first time `tandemd` looks for the PC; the dialog's text
-comes from `NSLocalNetworkUsageDescription` (`apps/tandem-ui/src-tauri/Info.plist`).
+and choose `/Applications/Tandem.app/Contents/MacOS/tandemd` (⌘⇧G to type the path).
+
+### Local Network (T-344)
+
+A LaunchAgent is not exempt from local network privacy (daemons, root and anything started from
+Terminal are), and macOS has no API that reads the permission. Research and sources:
+`docs/research/macos-local-network.md`. How Tandem handles it:
+
+1. The LaunchAgent names the app in `AssociatedBundleIdentifiers`, so the alert and the System
+   Settings entry should be Tandem's. The alert's text comes from
+   `NSLocalNetworkUsageDescription` (`apps/tandem-ui/src-tauri/Info.plist`). macOS may still show
+   the entry as `tandemd` (an Apple bug, FB16563823): turn on whichever appears.
+2. At start-up `tandemd` sends one empty UDP datagram to `224.0.0.251:9`. That brings up the
+   alert if macOS never asked, and it is repeated every 5 s while the permission is missing (60 s
+   once granted), so a permission granted in System Settings is seen without restarting the agent.
+3. The agent reports **granted** (the send went through), **denied** (macOS kept answering
+   `EHOSTUNREACH` for 20 s, or right after it had worked) or **unknown** (not tried yet, no
+   network, or the alert may still be on screen). macOS gives the same error while its alert is
+   up and after "Don't Allow", so time is what tells them apart.
+4. Step 3 of the setup shows that state, with **Ask again** (the agent tries at once) and **Open
+   settings**. When it is denied, the pairing step and the Network screen say "Local Network
+   permission missing on this Mac" with the path to the setting, instead of waiting for the other
+   machine forever.
+
+macOS asks only once. After "Don't Allow", **Ask again** cannot bring the alert back: turn on
+Tandem (or `tandemd`) in **System Settings → Privacy & Security → Local Network**. On macOS 27.2 or
+later the list has **−**, which resets the entry so the alert can come back. A configuration
+profile (MDM) cannot grant this permission. A machine running `tandemd` from Terminal uses
+Terminal's permission instead, which is why that works when the LaunchAgent does not.
+
+Checking it by hand:
+
+```sh
+launchctl print gui/$(id -u)/com.franc1sc0sv.tandem.tandemd | grep -A2 AssociatedBundleIdentifiers
+grep "local network" ~/Library/Application\ Support/Tandem/logs/*   # what the probe found
+```
 
 With an ad-hoc signature, macOS associates the permission with the binary's exact signature: **every new version
 of the app asks for the permissions again** (remove the old entry from the list and add the new one).

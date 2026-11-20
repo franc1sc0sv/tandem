@@ -422,6 +422,10 @@ export class Store implements CommandContext {
     return this.report(this.source.requestPermissions());
   }
 
+  checkLocalNetwork(): Promise<ActResult> {
+    return this.report(this.source.checkLocalNetwork());
+  }
+
   openPermission(p: Permission): Promise<ActResult> {
     return this.report(this.source.openPermission(p));
   }

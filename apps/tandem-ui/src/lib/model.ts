@@ -142,7 +142,12 @@ export interface MachineCaps {
   environments?: EnvCaps[];
   /** The hardware according to the scan (T-105). */
   hardware?: HardwareCaps;
+  /** The macOS Local Network permission of its agent (T-344); `null` or absent where there is none. */
+  local_network?: LocalNetworkState | null;
 }
+
+/** What the agent's probe says about Local Network: there is no API, only what a send to the LAN does (T-344). */
+export type LocalNetworkState = "granted" | "denied" | "unknown";
 
 /** The administrator service (T-131): what the app reports, not an invented spinner. */
 export interface AdminView {
@@ -318,6 +323,7 @@ export type Action =
   | { kind: "watch_cursor"; on: boolean }
   /** "Request permissions" (T-090): macOS shows its dialog in the name of `tandemd`. */
   | { kind: "request_permissions" }
+  | { kind: "check_local_network" }
   /** "Lock here" (T-129): locks (`on`) or releases the cursor on this machine. */
   | { kind: "lock_here"; on: boolean }
   /** Save the arrangement in the shared desk (`EditDesk { Arrangement }`, T-099). */

@@ -4,6 +4,7 @@
   // 3 s test.
   import { useStore } from "../lib/context";
   import { LINK_NAME, MACHINES, machineName } from "../lib/machines";
+  import { localNetworkBlock } from "../lib/pairing";
   import PageHeader from "../shell/PageHeader.svelte";
   import Button from "../ui/Button.svelte";
   import Icon from "../ui/Icon.svelte";
@@ -13,6 +14,8 @@
 
   const store = useStore();
   const network = $derived(store.desk.network);
+  // The other machine is unreachable because macOS blocks this Mac's agent (T-344).
+  const blocked = $derived(localNetworkBlock(store.desk.permissions));
   const nodes = $derived(
     MACHINES.map((id): MapNode => {
       const m = store.desk.machines[id];
@@ -43,6 +46,16 @@
       </Button>
     {/snippet}
   </PageHeader>
+  {#if blocked}
+    <section class="notice" role="alert" aria-label="Local Network">
+      <Icon name="warn" size={16} stroke={2} />
+      <div class="text">
+        <b>{blocked.title}</b>
+        <span>{blocked.how}</span>
+      </div>
+      <Button icon="external" size="sm" onclick={() => store.openPermission("local_network")}>Open settings</Button>
+    </section>
+  {/if}
   {#each network.notices as notice (notice.interface + notice.message)}
     <section class="notice" role="alert">
       <Icon name="warn" size={16} stroke={2} />

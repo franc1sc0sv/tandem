@@ -2,6 +2,8 @@
 // to test without a DOM.
 
 import type { PairingView, PeerView } from "./model";
+import { LOCAL_NETWORK_PATH } from "./permissions";
+import type { PermissionsView } from "./store/types";
 
 export type PairScreen =
   /** No peer and not paired: what is going to happen and the button to start. */
@@ -42,6 +44,24 @@ export function pairScreen(theOther: string, peer: PeerView, pairing: PairingVie
       if (peer.kind === "paired") return askUnpair ? { kind: "unpair", name: peer.name } : { kind: "paired", name: peer.name };
       return { kind: "intro", other: theOther };
   }
+}
+
+/** Why the machines cannot find each other, when it is this Mac's Local Network permission (T-344). */
+export interface LocalNetworkBlock {
+  title: string;
+  how: string;
+}
+
+/**
+ * Only when the agent knows it is blocked: macOS drops the mDNS announcements and the link
+ * without telling the other machine, so without this the screen would wait forever.
+ */
+export function localNetworkBlock(perms: PermissionsView): LocalNetworkBlock | null {
+  if (perms.rows.find((r) => r.id === "local_network")?.state !== "missing") return null;
+  return {
+    title: "Local Network permission missing on this Mac",
+    how: `Turn on Tandem (or tandemd) in ${LOCAL_NETWORK_PATH}. Until then macOS does not let Tandem find the other machine.`,
+  };
 }
 
 /** 6 digits in two groups of 3, which compare better at a glance. */
