@@ -144,6 +144,10 @@ impl Sink for Windows {
         let _ = self.0.emit(NOTICE_EVENT, notice);
     }
 
+    fn show_window(&self) {
+        show_main(&self.0);
+    }
+
     fn update(&self, status: &tandem_proto::UpdateStatus) {
         if let Some(u) = self.0.try_state::<Arc<Updater>>() {
             u.on_agent(&self.0, status);

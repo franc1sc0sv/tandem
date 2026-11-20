@@ -54,7 +54,7 @@ pub use workspace::{BringBackReport, CommitInfo, WorkspaceDown, WorkspaceSpec, W
 /// Protocol version. Bumped on any incompatible change to the messages.
 ///
 /// Only the same version talks: the two agents and the UI ship together.
-pub const PROTOCOL_VERSION: u16 = 46;
+pub const PROTOCOL_VERSION: u16 = 47;
 
 /// Since this version each agent announces its capabilities on connecting (T-084): an
 /// older one does not send them and cannot be spoken to as a peer.
@@ -147,9 +147,11 @@ mod tests {
     /// T-344 (`Capabilities::local_network` and `UiCommand::CheckLocalNetwork`, the macOS Local
     /// Network permission) bumps to v44.
     /// T-346 (`MonitorReport::cursor`, the new owner carries on the event cursor) bumps to v45.
+    /// T-350 (`AgentToUi::ShowWindow`, opening Tandem while the agent holds the app's place on
+    /// macOS) bumps to v47.
     #[test]
     fn version_stays_above_the_one_from_t084() {
-        assert_eq!(PROTOCOL_VERSION, 46);
+        assert_eq!(PROTOCOL_VERSION, 47);
         assert_eq!(super::CAPABILITIES_SINCE, 10);
         assert_eq!(super::SIDES_SINCE, 16);
     }

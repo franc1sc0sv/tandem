@@ -97,6 +97,8 @@ pub struct Agent {
     /// What the other agent sends for the keyboard and mouse.
     inbox: PeerInbox,
     drag: crate::drag::DragHub,
+    /// The UIs connected to the IPC, and the request to show their window (T-350).
+    ui: crate::ui_open::UiPresence,
     /// The shared desk that holds now (the one from `tandem.toml` or the one that came from the other).
     desk: watch::Sender<Config>,
     /// `tandem.toml`, where what changes is saved; without it, only in memory.
@@ -408,6 +410,7 @@ impl Agent {
             input_status: watch::Sender::new(input),
             inbox: PeerInbox::new(),
             drag: crate::drag::DragHub::default(),
+            ui: crate::ui_open::UiPresence::default(),
             desk: watch::Sender::new(cfg.desk.clone()),
             config_file: Mutex::new(None),
             setup: Mutex::new(SetupInfo {
@@ -1078,6 +1081,11 @@ impl Agent {
     /// File drag between the machines (T-121).
     pub fn drag(&self) -> &crate::drag::DragHub {
         &self.drag
+    }
+
+    /// The UIs connected to the IPC (T-350).
+    pub fn ui(&self) -> &crate::ui_open::UiPresence {
+        &self.ui
     }
 
     pub fn inbox(&self) -> &PeerInbox {

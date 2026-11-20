@@ -7,7 +7,8 @@
 //!   the main thread, which belongs to whoever hosts the agent (the Tauri UI): so it is
 //!   given a function that runs a closure there ([`RunOnMain`]).
 //! - [`run_app_loop`] serves that main thread, with a delegate that ignores a plain Quit
-//!   Apple event ([`crate::app_quit`], T-333).
+//!   Apple event ([`crate::app_quit`], T-333) and passes on a request to open the app
+//!   ([`crate::app_open`], T-350).
 
 use std::cell::RefCell;
 use std::path::PathBuf;
@@ -31,6 +32,7 @@ use objc2_foundation::{
 };
 use tokio::sync::oneshot;
 
+use crate::app_open::OpenRequest;
 use crate::app_quit::{self, QuitDecision, QuitRequest, SessionEnd};
 use crate::drag::{DragDetector, DragEnd, DragStarter};
 use crate::drag_os::{end_of, parse_file_url};
@@ -54,6 +56,18 @@ pub fn main_queue() -> RunOnMain {
     })
 }
 
+/// Makes the process an `Accessory` app (no Dock icon, not in ⌘Tab or Force Quit) before
+/// anything else touches AppKit, CoreGraphics or LaunchServices. `tandemd` shares the bundle's
+/// `Info.plist`, which declares a regular app: the first connection to the window server (the
+/// input engine, the displays) would otherwise check the process in as a regular "Tandem" (T-350).
+/// Call it from the main thread before starting the agent's thread; elsewhere it does nothing.
+pub fn become_accessory() {
+    if let Some(mtm) = MainThreadMarker::new() {
+        NSApplication::sharedApplication(mtm)
+            .setActivationPolicy(NSApplicationActivationPolicy::Accessory);
+    }
+}
+
 /// Serves the AppKit run loop on the main thread until the process ends. Without an
 /// icon in the Dock (`Accessory`): the agent is not an app with windows, it only needs the
 /// events for the drag session. Call only from the main thread; on another thread it
@@ -63,14 +77,20 @@ pub fn main_queue() -> RunOnMain {
 /// process with `exit(0)`, past the agent's shutdown and past launchd's `KeepAlive`.
 /// `on_session_end` runs when it lets AppKit end the process anyway (the session is ending),
 /// so the agent can write its last log line before AppKit's `exit` (T-334).
-pub fn run_app_loop(on_session_end: impl Fn(SessionEnd) + 'static) {
+///
+/// It also answers the reopen request LaunchServices sends when Tandem is opened while the
+/// agent holds the app's place (T-350): `on_open` gets it, on the main thread, and must not block.
+pub fn run_app_loop(
+    on_session_end: impl Fn(SessionEnd) + 'static,
+    on_open: impl Fn(OpenRequest) + 'static,
+) {
     let Some(mtm) = MainThreadMarker::new() else {
         return;
     };
     let app = NSApplication::sharedApplication(mtm);
     app.setActivationPolicy(NSApplicationActivationPolicy::Accessory);
     // `delegate` is a weak property: the local keeps it alive, and `run` does not return.
-    let delegate = AppDelegate::new(mtm, Box::new(on_session_end));
+    let delegate = AppDelegate::new(mtm, Box::new(on_session_end), Box::new(on_open));
     app.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
     app.run();
 }
@@ -105,16 +125,32 @@ define_class!(
                 }
             }
         }
+
+        /// AppKit's answer to `aevt/rapp`: the app is opened again while it runs. `false`
+        /// because the agent has no window of its own to bring back; the UI does it.
+        #[unsafe(method(applicationShouldHandleReopen:hasVisibleWindows:))]
+        fn should_handle_reopen(&self, _sender: &NSApplication, _visible: bool) -> bool {
+            (self.ivars().on_open)(current_open_request());
+            false
+        }
     }
 );
 
 struct AppIvars {
     on_session_end: Box<dyn Fn(SessionEnd)>,
+    on_open: Box<dyn Fn(OpenRequest)>,
 }
 
 impl AppDelegate {
-    fn new(mtm: MainThreadMarker, on_session_end: Box<dyn Fn(SessionEnd)>) -> Retained<Self> {
-        let this = Self::alloc(mtm).set_ivars(AppIvars { on_session_end });
+    fn new(
+        mtm: MainThreadMarker,
+        on_session_end: Box<dyn Fn(SessionEnd)>,
+        on_open: Box<dyn Fn(OpenRequest)>,
+    ) -> Retained<Self> {
+        let this = Self::alloc(mtm).set_ivars(AppIvars {
+            on_session_end,
+            on_open,
+        });
         // SAFETY: `init` of NSObject with no arguments.
         unsafe { msg_send![super(this), init] }
     }
@@ -128,12 +164,26 @@ fn current_quit_request() -> QuitRequest {
     }
 }
 
+/// The Apple event AppKit is handling while it asks whether to reopen.
+fn current_open_request() -> OpenRequest {
+    match NSAppleEventManager::sharedAppleEventManager().currentAppleEvent() {
+        Some(event) => {
+            let (class, id) = event_codes(&event);
+            OpenRequest::AppleEvent { class, id }
+        }
+        None => OpenRequest::NoAppleEvent,
+    }
+}
+
 /// Through `msg_send!` because the typed `eventClass`, `eventID` and
 /// `paramDescriptorForKeyword:` need the whole `objc2-core-services` crate for three `u32`s.
-fn apple_event_request(event: &NSAppleEventDescriptor) -> QuitRequest {
+fn event_codes(event: &NSAppleEventDescriptor) -> (u32, u32) {
     // SAFETY: `eventClass` and `eventID` take no arguments and return a `FourCharCode` (`u32`).
-    let (class, id): (u32, u32) =
-        unsafe { (msg_send![event, eventClass], msg_send![event, eventID]) };
+    unsafe { (msg_send![event, eventClass], msg_send![event, eventID]) }
+}
+
+fn apple_event_request(event: &NSAppleEventDescriptor) -> QuitRequest {
+    let (class, id) = event_codes(event);
     // SAFETY: `paramDescriptorForKeyword:` takes an `AEKeyword` (`u32`) and returns a
     // descriptor or nil.
     let reason: Option<Retained<NSAppleEventDescriptor>> =
