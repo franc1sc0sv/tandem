@@ -458,6 +458,8 @@ export interface Source {
   lockHere(on: boolean): Promise<ActResult>;
   /** macOS shows its permissions dialog in the name of tandemd. */
   requestPermissions(): Promise<ActResult>;
+  /** "Ask again" for Local Network (T-344): the agent tries the LAN at once, which brings up macOS' alert if it never asked. */
+  checkLocalNetwork(): Promise<ActResult>;
   /** Opens the System Settings panel that grants the permission. */
   openPermission(p: Permission): Promise<ActResult>;
   /** Restarts tandemd so the permissions you just gave take effect. */

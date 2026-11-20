@@ -596,6 +596,11 @@ export class LiveSource implements Source {
     return result(await this.bridge.act({ kind: "request_permissions" }));
   }
 
+  async checkLocalNetwork(): Promise<ActResult> {
+    const r = result(await this.bridge.act({ kind: "check_local_network" }));
+    return r.ok ? { ok: true, text: "Tandem tried the local network again: if macOS asks, choose Allow" } : r;
+  }
+
   async openPermission(p: Permission): Promise<ActResult> {
     await this.bridge.openSettings(p);
     return { ok: true };

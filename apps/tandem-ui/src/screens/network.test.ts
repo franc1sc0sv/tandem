@@ -283,6 +283,23 @@ describe("Network with the real agent (IPC)", () => {
     expect(screen.getByRole("button", { name: "Measuring Wi-Fi…" })).toBeDisabled();
   });
 
+  it("says when macOS blocks this Mac's Local Network, with where to turn it on (T-344)", async () => {
+    const { b, handlers } = bridge();
+    type Connected = Extract<Snapshot, { kind: "connected" }>;
+    const denied = (): Connected => {
+      const s = snapshot(null) as Connected;
+      return { ...s, caps: { ...s.caps, here: { ...s.caps.here, local_network: "denied" } } };
+    };
+    (b.snapshot as unknown) = async () => denied();
+    await open(new LiveSource(b));
+    const alert = screen.getByRole("alert", { name: "Local Network" });
+    expect(within(alert).getByText("Local Network permission missing on this Mac")).toBeInTheDocument();
+    expect(within(alert).getByText(/System Settings → Privacy & Security → Local Network/)).toBeInTheDocument();
+    const granted = denied();
+    await flush(() => handlers.snapshot?.({ ...granted, caps: { ...granted.caps, here: { ...granted.caps.here, local_network: "granted" } } }));
+    expect(screen.queryByRole("alert", { name: "Local Network" })).toBeNull();
+  });
+
   it("without the other machine paired it cannot measure", async () => {
     const { b } = bridge();
     (b.snapshot as unknown) = async () => ({ ...snapshot(), peer: { kind: "unpaired" } });

@@ -100,6 +100,8 @@ pub fn local(
         environments: Vec::new(),
         hardware: tandem_proto::Hardware::default(),
         monitors: Vec::new(),
+        // Set by the agent with what its probe found (T-344, [`crate::local_network`]).
+        local_network: None,
     }
 }
 

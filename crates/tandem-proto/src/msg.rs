@@ -283,6 +283,22 @@ pub struct Capabilities {
     pub hardware: Hardware,
     /// Monitors with a live DDC channel from this machine. Empty until T-110.
     pub monitors: Vec<MonitorChannel>,
+    /// The macOS Local Network permission of the agent's process (T-344); `None` on a system
+    /// without it.
+    pub local_network: Option<LocalNetwork>,
+}
+
+/// Whether macOS lets the agent reach the local network (T-344). There is no API that reads it
+/// (TN3179): the agent tells from what a UDP send to a local address does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum LocalNetwork {
+    /// A send to the local network went through.
+    Granted,
+    /// macOS keeps refusing sends to the local network: the permission was denied, turned off in
+    /// System Settings, or its alert was left unanswered.
+    Denied,
+    /// Not known yet: not tried, no local network to try on, or the alert may still be on screen.
+    Unknown,
 }
 
 /// Tandem's modules. Each machine announces only the ones that exist on its system.
@@ -642,6 +658,9 @@ pub enum UiCommand {
     /// agent. Only on the user's explicit order; the new state arrives in
     /// capabilities (T-090).
     RequestPermissions,
+    /// Try the local network again now (T-344): if macOS never asked, this makes it show its
+    /// alert; the new state arrives in capabilities.
+    CheckLocalNetwork,
     /// Where this agent's configuration came from and which port it listens on.
     GetSetup,
     /// What each machine can do ([`DeskCapabilities`]).
@@ -1530,6 +1549,7 @@ pub(crate) mod samples {
                         via: None,
                     },
                 ],
+                local_network: None,
             },
             Capabilities {
                 machine: Machine::A,
@@ -1564,6 +1584,7 @@ pub(crate) mod samples {
                 environments: vec![],
                 hardware: Hardware::default(),
                 monitors: vec![],
+                local_network: Some(LocalNetwork::Denied),
             },
         ]
     }
@@ -1729,6 +1750,7 @@ pub(crate) mod samples {
             UiCommand::Unpair,
             UiCommand::GetInput,
             UiCommand::RequestPermissions,
+            UiCommand::CheckLocalNetwork,
             UiCommand::GetSetup,
             UiCommand::GetCapabilities,
             UiCommand::KeyProbe { on: true },
@@ -1917,6 +1939,7 @@ pub(crate) mod samples {
             UiCommand::LockHere { .. } => 43,
             UiCommand::SetWol { .. } => 44,
             UiCommand::SyntheticMotion { .. } => 45,
+            UiCommand::CheckLocalNetwork => 46,
         }
     }
 
@@ -2420,7 +2443,7 @@ mod tests {
         covers(&hellos(), |h| peer_arm(&h.peer), 4);
         covers(&control(), control_arm, 25);
         let cmds: Vec<_> = ui_requests().into_iter().map(|r| r.command).collect();
-        covers(&cmds, ui_command_arm, 46);
+        covers(&cmds, ui_command_arm, 47);
         covers(&modules(), |m| module_state_arm(&m.state), 3);
         covers(&to_ui(), to_ui_arm, 20);
         covers(&monitor_event_kinds(), monitor_event_kind_arm, 10);

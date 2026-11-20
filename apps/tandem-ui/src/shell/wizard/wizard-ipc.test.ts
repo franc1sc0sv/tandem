@@ -161,6 +161,49 @@ describe("the setup against the agent (real IPC)", () => {
     await waitFor(() => expect(within(dlg).getByRole("button", { name: "Continue" })).not.toHaveClass("wait"));
   });
 
+  /** This Mac's agent with the Local Network state its probe reports (T-344). */
+  function withLocalNetwork(state: "granted" | "denied" | "unknown" | null, over: Partial<Connected> = {}): Connected {
+    const base = snapshot(over);
+    return { ...base, caps: { ...base.caps, here: { ...base.caps.here, local_network: state } } };
+  }
+
+  it("step 3: shows the Local Network state the agent reports and “Ask again” sends `check_local_network`", async () => {
+    const { dlg, kinds, push } = await mount(2, withLocalNetwork("unknown"));
+    const card = () => within(dlg).getByText("Local Network").closest(".wz-perm") as HTMLElement;
+    expect(within(card()).getByText("Not checked yet · press “Ask again” and choose Allow when macOS asks")).toBeInTheDocument();
+    await userEvent.click(within(card()).getByRole("button", { name: "Ask again" }));
+    await waitFor(() => expect(kinds()).toContain("check_local_network"));
+    push(withLocalNetwork("denied"));
+    await tick();
+    await waitFor(() => expect(within(card()).getByText("Blocked by macOS · turn on Tandem (or tandemd) in System Settings → Privacy & Security → Local Network")).toBeInTheDocument());
+    expect(within(card()).getByRole("button", { name: "Ask again" })).toBeInTheDocument();
+    expect(within(card()).getByRole("button", { name: "Open settings" })).toBeInTheDocument();
+    push(withLocalNetwork("granted"));
+    await tick();
+    await waitFor(() => expect(within(card()).getByText("Granted · checked just now")).toBeInTheDocument());
+    expect(within(card()).queryByRole("button", { name: "Ask again" })).toBeNull();
+  });
+
+  it("step 2: says “Local Network permission missing on this Mac” when that is why it does not find the other machine", async () => {
+    const { dlg, openSettings, kinds, push } = await mount(1, withLocalNetwork("denied", { peer: { kind: "unpaired" }, pairing: { kind: "searching" } }));
+    const alert = within(dlg).getByRole("alert", { name: "Local Network" });
+    expect(within(alert).getByText("Local Network permission missing on this Mac")).toBeInTheDocument();
+    expect(within(alert).getByText(/System Settings → Privacy & Security → Local Network/)).toBeInTheDocument();
+    await userEvent.click(within(alert).getByRole("button", { name: "Open settings" }));
+    expect(openSettings).toHaveBeenCalledWith("local_network");
+    await userEvent.click(within(alert).getByRole("button", { name: "Ask again" }));
+    await waitFor(() => expect(kinds()).toContain("check_local_network"));
+    // Once granted, the notice goes away and the search goes on.
+    push(withLocalNetwork("granted", { peer: { kind: "unpaired" }, pairing: { kind: "searching" } }));
+    await tick();
+    await waitFor(() => expect(within(dlg).queryByRole("alert", { name: "Local Network" })).toBeNull());
+  });
+
+  it("step 2: an unknown Local Network state is not blamed for the search", async () => {
+    const { dlg } = await mount(1, withLocalNetwork("unknown", { peer: { kind: "unpaired" }, pairing: { kind: "searching" } }));
+    expect(within(dlg).queryByText("Local Network permission missing on this Mac")).toBeNull();
+  });
+
   it("step 4: turns on the key probe, marks the machine that heard and turns it off on leaving", async () => {
     const { dlg, notice, act, unmount } = await mount(3);
     await waitFor(() => expect(act).toHaveBeenCalledWith({ kind: "key_probe", on: true }));

@@ -97,6 +97,17 @@ describe("step 3", () => {
     const unchecked = permCards([{ id: "accessibility", state: "granted" }, { id: "local_network", state: "unknown" }]);
     expect(unchecked.map((c) => [c.granted, c.missing])).toEqual([[true, false], [false, false]]);
     expect(missingOf(unchecked)).toBe(0);
+    // Local Network has its own texts and the "Ask again" action while it is not granted (T-344).
+    const net = (state: "granted" | "missing" | "unknown") => permCards([{ id: "local_network", state }])[0]!;
+    expect(net("unknown")).toMatchObject({ askAgain: true, missing: false, status: "Not checked yet · press “Ask again” and choose Allow when macOS asks" });
+    expect(net("missing")).toMatchObject({ askAgain: true, missing: true, status: "Blocked by macOS · turn on Tandem (or tandemd) in System Settings → Privacy & Security → Local Network" });
+    expect(net("granted")).toMatchObject({ askAgain: false, granted: true, status: "Granted · checked just now" });
+    expect(permCards([{ id: "accessibility", state: "missing" }])[0]).toMatchObject({ askAgain: false, status: "Waiting… it is checked automatically" });
+    // The demo shows each Local Network state (`net=denied|unknown`).
+    const denied = await desk("demo&still&net=denied");
+    expect(denied.permissions.rows.find((r) => r.id === "local_network")?.state).toBe("missing");
+    const unknown = await desk("demo&still&perms=missing&net=unknown");
+    expect(unknown.permissions.rows.find((r) => r.id === "local_network")?.state).toBe("unknown");
     expect(permFooter(2)).toBe("Missing 2");
     expect(permFooter(1)).toBe("Missing 1");
     expect(permFooter(0)).toBe("All granted");

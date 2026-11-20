@@ -49,6 +49,7 @@ pub mod install;
 pub mod instance;
 pub mod ipc;
 pub mod links_cmd;
+pub mod local_network;
 pub mod logging;
 pub mod migrate;
 pub mod modules;

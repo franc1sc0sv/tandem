@@ -1,7 +1,7 @@
 import { expect, it } from "vitest";
 
 import type { MachineCaps } from "./model";
-import { MISSING_HELP, PERMISSION_NAMES, agentBinary, grantTo, permissionLabel, permissionState, pressPermission } from "./permissions";
+import { LOCAL_NETWORK_PATH, MISSING_HELP, PERMISSION_NAMES, agentBinary, grantTo, permissionLabel, permissionState, pressPermission } from "./permissions";
 
 function mac(exe: string): MachineCaps {
   return {
@@ -46,9 +46,18 @@ it("the state of a permission comes from what the agent announces", () => {
   const here = mac("/x/tandemd");
   expect(permissionState(here, "accessibility")).toBe("missing");
   expect(permissionState(here, "input_monitoring")).toBe("granted");
-  // Local network is asked by macOS itself; the agent does not check it.
+  // An agent that does not report Local Network (Windows, or older): nothing is assumed.
   expect(permissionState(here, "local_network")).toBe("unknown");
   expect(permissionState(null, "accessibility")).toBe("unknown");
+});
+
+it("Local Network comes from the agent's probe: denied counts as missing (T-344)", () => {
+  const with_ = (l: MachineCaps["local_network"]) => ({ ...mac("/x/tandemd"), local_network: l });
+  expect(permissionState(with_("granted"), "local_network")).toBe("granted");
+  expect(permissionState(with_("denied"), "local_network")).toBe("missing");
+  expect(permissionState(with_("unknown"), "local_network")).toBe("unknown");
+  expect(permissionState(with_(null), "local_network")).toBe("unknown");
+  expect(LOCAL_NETWORK_PATH).toBe("System Settings → Privacy & Security → Local Network");
 });
 
 const deps = (over: Partial<Parameters<typeof pressPermission>[1]> = {}) => ({

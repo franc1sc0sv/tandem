@@ -28,11 +28,19 @@ export function grantTo(here: MachineCaps | null): string | null {
   return `Grant the permission to this binary: ${exe} (pid ${here.input.process.pid})`;
 }
 
-/** What the agent knows about a permission: `unknown` if there is no agent or it does not check (local network). */
+/** What the agent knows about a permission: `unknown` if there is no agent or it could not tell yet. */
 export type PermissionState = "granted" | "missing" | "unknown";
 
+/** Where Local Network is turned on. */
+export const LOCAL_NETWORK_PATH = `${SETTINGS_PATH} → Local Network`;
+
 export function permissionState(here: MachineCaps | null, p: Permission): PermissionState {
-  if (!here || p === "local_network") return "unknown";
+  if (!here) return "unknown";
+  if (p === "local_network") {
+    // The agent probes it (T-344): "denied" also covers an alert left unanswered.
+    const l = here.local_network;
+    return l === "granted" ? "granted" : l === "denied" ? "missing" : "unknown";
+  }
   return here.input.missing.includes(p) ? "missing" : "granted";
 }
 

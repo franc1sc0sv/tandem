@@ -34,10 +34,10 @@ pub use frame::{FrameDecoder, MAX_FRAME_LEN, decode, decode_hello, encode, encod
 pub use msg::{
     AgentToUi, Capabilities, Channel, ControlMsg, DeskCapabilities, DragMsg, DragOutcome,
     DragStatus, FocusMsg, Hello, HubReport, InputCaps, InputLatency, InputPermission, InputStatus,
-    KeyProbeMsg, KeyProbeStatus, Link, ModuleId, ModuleInfo, ModuleState, MonitorChannel,
-    MonitorCompat, MonitorEvent, MonitorEventKind, MonitorReport, MonitorView, PairingMsg,
-    PairingStatus, Peer, PeerStatus, PowerCaps, PowerEvent, ProcessInfo, Reply, ScreenRect,
-    SetupInfo, StepOutcome, TxnEvent, UiCommand, UiRequest, UpdateMsg, UpdateStatus,
+    KeyProbeMsg, KeyProbeStatus, Link, LocalNetwork, ModuleId, ModuleInfo, ModuleState,
+    MonitorChannel, MonitorCompat, MonitorEvent, MonitorEventKind, MonitorReport, MonitorView,
+    PairingMsg, PairingStatus, Peer, PeerStatus, PowerCaps, PowerEvent, ProcessInfo, Reply,
+    ScreenRect, SetupInfo, StepOutcome, TxnEvent, UiCommand, UiRequest, UpdateMsg, UpdateStatus,
 };
 pub use net::{
     Bandwidth, LatencySample, MeasureReport, NetworkNotice, NetworkStatus, PathMetrics, PathState,
@@ -53,7 +53,7 @@ pub use workspace::{BringBackReport, CommitInfo, WorkspaceDown, WorkspaceSpec, W
 /// Protocol version. Bumped on any incompatible change to the messages.
 ///
 /// Only the same version talks: the two agents and the UI ship together.
-pub const PROTOCOL_VERSION: u16 = 43;
+pub const PROTOCOL_VERSION: u16 = 44;
 
 /// Since this version each agent announces its capabilities on connecting (T-084): an
 /// older one does not send them and cannot be spoken to as a peer.
@@ -143,9 +143,11 @@ mod tests {
     /// T-340 (`MonitorCompat::NoChannel`, a monitor seen only by its EDID) bumps to v42.
     /// T-345 (`PairingStatus::Offered`, another machine offers to pair while the paired peer is
     /// silent) bumps to v43.
+    /// T-344 (`Capabilities::local_network` and `UiCommand::CheckLocalNetwork`, the macOS Local
+    /// Network permission) bumps to v44.
     #[test]
     fn version_stays_above_the_one_from_t084() {
-        assert_eq!(PROTOCOL_VERSION, 43);
+        assert_eq!(PROTOCOL_VERSION, 44);
         assert_eq!(super::CAPABILITIES_SINCE, 10);
         assert_eq!(super::SIDES_SINCE, 16);
     }

@@ -116,7 +116,7 @@ Own external dependency: `monitor-ddc` (repo `monitor-firmware`, A5), pinned by 
 
 ### 4.5 Protocol versioning
 
-- **Current version: `PROTOCOL_VERSION = 43`** (`crates/tandem-proto/src/lib.rs`, last bumped by T-345, `PairingStatus::Offered`).
+- **Current version: `PROTOCOL_VERSION = 44`** (`crates/tandem-proto/src/lib.rs`, last bumped by T-344, `Capabilities::local_network` and `UiCommand::CheckLocalNetwork`; v43 was T-345, `PairingStatus::Offered`).
 - **Rule: only the same version talks.** The two agents and the UI ship together; an agent that sees another version refuses the link and says to install the same Tandem version on both machines. Bump `PROTOCOL_VERSION` on any incompatible change to the messages (almost every release does).
 - **Hints for older peers** (only to word the refusal; they do not make anything compatible): `CAPABILITIES_SINCE = 10` is the first version where each agent announces its capabilities on connecting (T-084); `SIDES_SINCE = 16` is the first where the two sides are `A`/`B` ordered by public key (T-097), instead of "Mac" and "PC".
 - **History:** the entries of [DECISIONS.md](DECISIONS.md) that say "Protocol vN" record what each bump changed (for example v18, v30, v33, v35, v39).

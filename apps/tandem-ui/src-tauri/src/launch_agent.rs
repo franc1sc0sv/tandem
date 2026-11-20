@@ -13,6 +13,10 @@ use std::path::{Component, Path, PathBuf};
 
 /// Service label in launchd and plist name.
 pub const LABEL: &str = "com.franc1sc0sv.tandem.tandemd";
+/// The app's bundle identifier (`identifier` in `tauri.conf.json`). The LaunchAgent names it in
+/// `AssociatedBundleIdentifiers` so macOS takes the app as the code responsible for `tandemd`
+/// (T-344, Apple TN3179): the Local Network alert and its System Settings entry are the app's.
+pub const APP_BUNDLE_ID: &str = "com.franc1sc0sv.tandem";
 /// Name of the sidecar inside `Contents/MacOS` (Tauri strips the target suffix).
 pub const SIDECAR: &str = "tandemd";
 /// If `tandemd` exits with an error (for example, an invalid `tandem.toml`), launchd waits
@@ -102,6 +106,9 @@ fn escape(s: &str) -> String {
 
 /// The LaunchAgent plist.
 ///
+/// - `AssociatedBundleIdentifiers`: the app is the responsible code of `tandemd`. Without it a
+///   LaunchAgent that is not installed with `SMAppService` is on its own, and macOS did not show
+///   the Local Network alert for it (T-344).
 /// - `RunAtLoad`: starts at login (and when installed).
 /// - `KeepAlive.SuccessfulExit = false`: if it dies with an error, launchd brings it back (after
 ///   [`THROTTLE_SECS`]); if it exits cleanly (for example, on shutdown) it does not.
@@ -122,6 +129,10 @@ pub fn plist(spec: &AgentSpec) -> String {
 	<key>ProgramArguments</key>
 	<array>
 		<string>{program}</string>
+	</array>
+	<key>AssociatedBundleIdentifiers</key>
+	<array>
+		<string>{APP_BUNDLE_ID}</string>
 	</array>
 	<key>EnvironmentVariables</key>
 	<dict>
@@ -468,6 +479,10 @@ mod tests {
 	<array>
 		<string>/Applications/Tandem.app/Contents/MacOS/tandemd</string>
 	</array>
+	<key>AssociatedBundleIdentifiers</key>
+	<array>
+		<string>com.franc1sc0sv.tandem</string>
+	</array>
 	<key>EnvironmentVariables</key>
 	<dict>
 		<key>TANDEM_APP_VERSION</key>
@@ -494,6 +509,43 @@ mod tests {
 </plist>
 "#;
         assert_eq!(plist(&s), expected);
+    }
+
+    /// T-344: the bundle identifier the plist names is the app's real one; if they drift apart,
+    /// macOS no longer takes the app as responsible for `tandemd`.
+    #[test]
+    fn the_associated_bundle_is_the_app() {
+        let conf: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        assert_eq!(conf["identifier"], APP_BUNDLE_ID);
+    }
+
+    /// The agents installed before T-344 lack `AssociatedBundleIdentifiers`: the new plist
+    /// differs, so opening the new app reloads the job with it.
+    #[test]
+    fn plist_without_the_associated_bundle_is_replaced_and_reloaded() {
+        let dir = tempfile::tempdir().unwrap();
+        let s = spec(dir.path());
+        let file = dir.path().join("a.plist");
+        let old = plist(&s).replace(
+            &format!(
+                "\t<key>AssociatedBundleIdentifiers</key>\n\t<array>\n\t\t<string>{APP_BUNDLE_ID}</string>\n\t</array>\n"
+            ),
+            "",
+        );
+        assert_ne!(old, plist(&s));
+        std::fs::write(&file, old).unwrap();
+        let ld = FakeLaunchd::default();
+        *ld.loaded.borrow_mut() = true;
+        assert_eq!(ensure(&file, &s, &ld).unwrap(), Outcome::Updated);
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), plist(&s));
+        assert_eq!(
+            ld.calls(),
+            [
+                "bootout com.franc1sc0sv.tandem.tandemd",
+                "bootstrap a.plist"
+            ]
+        );
     }
 
     #[test]
