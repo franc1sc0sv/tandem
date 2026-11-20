@@ -1,0 +1,173 @@
+PASA  [F1-setup] first run on a non-macOS machine: setup opens by itself
+PASA  [F1-setup] both UIs show the same 6-digit code — UI m2 shows 223689; agent m1 {"code":"223689","confirmed":false,"kind":"comparing","peer":"PC"}
+PASA  [F1-setup] a wrong code is rejected with a notice
+PASA  [F1-setup] paired: both agents say so, with different sides — m1=a m2=b
+== T291 19:39:35
+PASA  [T-291-no-spontaneous-unpair] r7mw2 (smoke): both stay paired for 70 s, nothing forgotten — {"samples":140,"bad":[],"linklessSamples":0,"forgotLogs":[0,0],"stillSavingLogs":[0,0]}
+== T280a 19:40:44
+PASA  [T-280-report-after-pairing] r7mw2: both agents have the owner's report of every shared monitor — [{"m":"m1","side":"a","id":"std-34-1dbde55e","owner":"a","report":"display_port","peer":"paired"},{"m":"m1","side"
+== T280 19:40:45
+PASA  [T-280-scenes-from-non-owner] Save and apply shows Changes in progress and switches the monitor in every run (2/2)
+PASA  [T-280-scenes-from-non-owner] Apply on a scene card in a fresh window shows Changes in progress in every run (2/2)
+== F2 19:41:10
+PASA  [F2-arrangement] s0 «Right», alignment start: reaches both machines and tandem.toml
+PASA  [F2-arrangement] s0 «Right», alignment center: reaches both machines and tandem.toml
+PASA  [F2-arrangement] s0 «Right», alignment end: reaches both machines and tandem.toml
+PASA  [F2-arrangement] s0 «Top», alignment start: reaches both machines and tandem.toml
+PASA  [F2-arrangement] s0 «Top», alignment center: reaches both machines and tandem.toml
+PASA  [F2-arrangement] s0 «Top», alignment end: reaches both machines and tandem.toml
+PASA  [F2-arrangement] s0 «Bottom», alignment start: reaches both machines and tandem.toml
+PASA  [F2-arrangement] s0 «Bottom», alignment center: reaches both machines and tandem.toml
+PASA  [F2-arrangement] s0 «Bottom», alignment end: reaches both machines and tandem.toml
+PASA  [F2-arrangement] s0 «Left», alignment start: reaches both machines and tandem.toml
+PASA  [F2-arrangement] s0 «Left», alignment center: reaches both machines and tandem.toml
+PASA  [F2-arrangement] s0 «Left», alignment end: reaches both machines and tandem.toml
+ok
+== F5 19:42:46
+PASA  [F5-tunnels-mcp] P15: Claude's tools exist in `tandem mcp` — machines,resources,tunnels,tunnel_open,tunnel_close,exec,processes,output,kill,files_put,files_get,port_forward,port_stop,bring_back
+PASA  [F5-tunnels-mcp] tunnel_open with a git workspace — {"created":1795138966370,"id":"6ae7e147a22975e8","opened_by":{"kind":"Mcp","session":"mcp"},"origin":"a","project":{"name":"proj-demo","root":"/tmp/claude-1000/
+PASA  [F5-tunnels-mcp] T-130: the other machine receives no credentials (.env, .pem, id_rsa, .npmrc, .aws) — files en destination: .git,src,src/lib.rs,src/new.rs | filtered: [".aws/credentials",".env",".npmrc","deploy.
+PASA  [F5-tunnels-mcp] T-130: the repo arrives without remotes or credential.helper — [core] 	repositoryformatversion = 0 	filemode = true 	bare = false 	logallrefupdates = true [user] 	email = tandem@localhost 	name =
+PASA  [F5-tunnels-mcp] T-130: exec rejects environment variables that look like secrets — "the other machine did not accept it: the variable \"GH_TOKEN\" looks like a secret: the other machine does not receive credenti
+PASA  [F5-tunnels-mcp] T-130: with allow_secret_env only what was requested passes; GH_TOKEN and SSH_AUTH_SOCK from the origin never do — "GH= SSH=/tmp/ssh-hcIO6HQGTHsn/agent.544 AWS=yy\n"
+PASA  [F5-tunnels-mcp] 3 processes running at once in the tunnel — running: 3 de [{"Exited":{"code":0}},"Running","Running","Running"]
+PASA  [F5-tunnels-mcp] a freshly opened UI shows the tunnels that already exist (without waiting for a change) —  | Settings | Tunnels | 1 open · 1 project | How Claude opens them | proj-demo | /tmp/claude-1000/r7/pro
+PASA  [F5-tunnels-mcp] the UI (origin) shows the project, the tunnel and its processes live —  | Settings | Tunnels | 1 open · 1 project | How Claude opens them | proj-demo | /tmp/claude-1000/r7/proj-demo | 1/1 | ws-a
+PASA  [F5-tunnels-mcp] the other machine's UI also shows the tunnel —  | Settings | Tunnels | 1 open · 1 project | How Claude opens them | proj-demo | /tmp/claude-1000/r7/proj-demo | 1/1 | ws-acceptance | inactive 1 s
+PASA  [F5-tunnels-mcp] read each process's output, without mixing — ["p1-1,p1-2,p1-3,p1-4,p1-5,p1-6,","p2-1,p2-2,p2-3,p2-4,p2-5,p2-6,","p3-1,p3-2,p3-3,p3-4,p3-5,p3-6,"]
+PASA  [F5-tunnels-mcp] copy a file into the tunnel (files_put) — {"bytes":15,"dirs":0,"files":1,"sent":15,"skipped":[]}
+PASA  [F5-tunnels-mcp] T-130: files_put of a credential is skipped with a notice — {"bytes":0,"dirs":0,"files":0,"sent":0,"skipped":["id_rsa"],"warning":"1 file(s) omitted for looking like credentials and did not reach
+PASA  [F5-tunnels-mcp] fetch a file from the tunnel (files_get) — {"bytes":20,"dirs":0,"files":1,"sent":0,"skipped":[]}
+PASA  [F5-tunnels-mcp] open a port (port_forward) and talk through it — {"direction":"LocalToRemote","id":1,"local_port":42402,"remote_host":"127.0.0.1","remote_port":41402,"tunnel":"6ae7e147a22975e8"} → eco:hello
+PASA  [F5-tunnels-mcp] cut the link and recover it without losing output (24 consecutive lines) — lines 24; during the cut: responded
+PASA  [F5-tunnels-mcp] bring_back creates the branch tandem/<name> in the project — {"branch":"tandem/ret","commits":[{"author":"t","id":"7fdea395d0599c1ee6337196a0b3e09592d28db2","summary":"from-b"}],"committed_pendin
+PASA  [F5-tunnels-mcp] bring_back: the branch carries the change made on the other machine
+== F13u 19:43:37
+PASA  [F13-updates] shows the versions of both machines — Tandem 0.3.0 | All machines of the desk on the same version. | Check now | Update automatically | Source | GitHub Releases · unsigned
+PASA  [F13-updates] checking against a test latest.json finds the new version — Tandem 0.3.0 | All machines of the desk on the same version. | Check again | A new version is available: 0.4.0 | It installs on every mach
+PASA  [F13-updates] "Update all": first asks the other machine through tandemd (plan for both) — UI: It installs on every machine, one at a time, without cutting the keyboard. | Update all | Update automatically | Sour
+PASA  [F13-updates] if the other does not come back with the new version, this one does not update and the UI explains it (rollback) — Tandem 0.3.0 | All machines of the desk on the same version. | Check again | A new 
+PASA  [F13-updates] a nonexistent latest.json shows the error when checking — Tandem 0.3.0 | All machines of the desk on the same version. | Check again | A new version is available: 0.4.0 | It installs on every machin
+PASA  [F13-updates] "Update automatically" is saved in update.toml — auto = false 
+== F16b 19:44:10
+PASA  [P10-notices] a file copy from a tunnel shows a notice with progress and a final 'Copied' (DOM observer) — ["Sending “big.bin” to PC 0 % · 0 KB of 524 MB","Sending “big.bin” to PC","0 % · 0 KB of 524 MB
+== SMOKE_DONE r7mw2
+PASA  [F1-setup] first run on a non-macOS machine: setup opens by itself
+PASA  [F1-setup] both UIs show the same 6-digit code — UI m2 shows 112206; agent m1 {"code":"112206","confirmed":false,"kind":"comparing","peer":"PC"}
+PASA  [F1-setup] a wrong code is rejected with a notice
+PASA  [F1-setup] paired: both agents say so, with different sides — m1=a m2=b
+== T291 19:46:18
+PASA  [T-291-no-spontaneous-unpair] r7ww (smoke): both stay paired for 70 s, nothing forgotten — {"samples":140,"bad":[],"linklessSamples":0,"forgotLogs":[0,0],"stillSavingLogs":[0,0]}
+== T280a 19:47:26
+PASA  [T-280-report-after-pairing] r7ww: both agents have the owner's report of every shared monitor — [{"m":"m1","side":"a","id":"std-34-1dbde55e","owner":"a","report":"display_port","peer":"paired"},{"m":"m1","side":
+== T280 19:47:26
+PASA  [T-280-scenes-from-non-owner] Save and apply shows Changes in progress and switches the monitor in every run (2/2)
+PASA  [T-280-scenes-from-non-owner] Apply on a scene card in a fresh window shows Changes in progress in every run (2/2)
+== F2 19:47:53
+PASA  [F2-arrangement] s0 «Right», alignment start: reaches both machines and tandem.toml
+PASA  [F2-arrangement] s0 «Right», alignment center: reaches both machines and tandem.toml
+PASA  [F2-arrangement] s0 «Right», alignment end: reaches both machines and tandem.toml
+PASA  [F2-arrangement] s0 «Top», alignment start: reaches both machines and tandem.toml
+PASA  [F2-arrangement] s0 «Top», alignment center: reaches both machines and tandem.toml
+PASA  [F2-arrangement] s0 «Top», alignment end: reaches both machines and tandem.toml
+PASA  [F2-arrangement] s0 «Bottom», alignment start: reaches both machines and tandem.toml
+PASA  [F2-arrangement] s0 «Bottom», alignment center: reaches both machines and tandem.toml
+PASA  [F2-arrangement] s0 «Bottom», alignment end: reaches both machines and tandem.toml
+PASA  [F2-arrangement] s0 «Left», alignment start: reaches both machines and tandem.toml
+PASA  [F2-arrangement] s0 «Left», alignment center: reaches both machines and tandem.toml
+PASA  [F2-arrangement] s0 «Left», alignment end: reaches both machines and tandem.toml
+ok
+== F5 19:49:28
+PASA  [F5-tunnels-mcp] P15: Claude's tools exist in `tandem mcp` — machines,resources,tunnels,tunnel_open,tunnel_close,exec,processes,output,kill,files_put,files_get,port_forward,port_stop,bring_back
+PASA  [F5-tunnels-mcp] tunnel_open with a git workspace — {"created":1795139368420,"id":"5e9f6f888c59359e","opened_by":{"kind":"Mcp","session":"mcp"},"origin":"a","project":{"name":"proj-demo","root":"/tmp/claude-1000/
+PASA  [F5-tunnels-mcp] T-130: the other machine receives no credentials (.env, .pem, id_rsa, .npmrc, .aws) — files en destination: .git,src,src/lib.rs,src/new.rs | filtered: [".aws/credentials",".env",".npmrc","deploy.
+PASA  [F5-tunnels-mcp] T-130: the repo arrives without remotes or credential.helper — [core] 	repositoryformatversion = 0 	filemode = true 	bare = false 	logallrefupdates = true [user] 	email = tandem@localhost 	name =
+PASA  [F5-tunnels-mcp] T-130: exec rejects environment variables that look like secrets — "the other machine did not accept it: the variable \"GH_TOKEN\" looks like a secret: the other machine does not receive credenti
+PASA  [F5-tunnels-mcp] T-130: with allow_secret_env only what was requested passes; GH_TOKEN and SSH_AUTH_SOCK from the origin never do — "GH= SSH=/tmp/ssh-hcIO6HQGTHsn/agent.544 AWS=yy\n"
+PASA  [F5-tunnels-mcp] 3 processes running at once in the tunnel — running: 3 de [{"Exited":{"code":0}},"Running","Running","Running"]
+PASA  [F5-tunnels-mcp] a freshly opened UI shows the tunnels that already exist (without waiting for a change) —  | Settings | Tunnels | 1 open · 1 project | How Claude opens them | proj-demo | /tmp/claude-1000/r7/pro
+PASA  [F5-tunnels-mcp] the UI (origin) shows the project, the tunnel and its processes live —  | Settings | Tunnels | 1 open · 1 project | How Claude opens them | proj-demo | /tmp/claude-1000/r7/proj-demo | 1/1 | ws-a
+PASA  [F5-tunnels-mcp] the other machine's UI also shows the tunnel —  | Settings | Tunnels | 1 open · 1 project | How Claude opens them | proj-demo | /tmp/claude-1000/r7/proj-demo | 1/1 | ws-acceptance | inactive 1 s
+PASA  [F5-tunnels-mcp] read each process's output, without mixing — ["p1-1,p1-2,p1-3,p1-4,p1-5,p1-6,","p2-1,p2-2,p2-3,p2-4,p2-5,p2-6,","p3-1,p3-2,p3-3,p3-4,p3-5,p3-6,"]
+PASA  [F5-tunnels-mcp] copy a file into the tunnel (files_put) — {"bytes":15,"dirs":0,"files":1,"sent":15,"skipped":[]}
+PASA  [F5-tunnels-mcp] T-130: files_put of a credential is skipped with a notice — {"bytes":0,"dirs":0,"files":0,"sent":0,"skipped":["id_rsa"],"warning":"1 file(s) omitted for looking like credentials and did not reach
+PASA  [F5-tunnels-mcp] fetch a file from the tunnel (files_get) — {"bytes":20,"dirs":0,"files":1,"sent":0,"skipped":[]}
+PASA  [F5-tunnels-mcp] open a port (port_forward) and talk through it — {"direction":"LocalToRemote","id":1,"local_port":42762,"remote_host":"127.0.0.1","remote_port":41762,"tunnel":"5e9f6f888c59359e"} → eco:hello
+PASA  [F5-tunnels-mcp] cut the link and recover it without losing output (24 consecutive lines) — lines 24; during the cut: responded
+PASA  [F5-tunnels-mcp] bring_back creates the branch tandem/<name> in the project — {"branch":"tandem/ret","commits":[{"author":"t","id":"7e3966b499a4b282c915fa934309be39d7261bf6","summary":"from-b"}],"committed_pendin
+PASA  [F5-tunnels-mcp] bring_back: the branch carries the change made on the other machine
+== F13u 19:50:19
+PASA  [F13-updates] shows the versions of both machines — Tandem 0.3.0 | All machines of the desk on the same version. | Check now | Update automatically | Source | GitHub Releases · unsigned
+PASA  [F13-updates] checking against a test latest.json finds the new version — Tandem 0.3.0 | All machines of the desk on the same version. | Check again | A new version is available: 0.4.0 | It installs on every mach
+PASA  [F13-updates] "Update all": first asks the other machine through tandemd (plan for both) — UI: It installs on every machine, one at a time, without cutting the keyboard. | Update all | Update automatically | Sour
+PASA  [F13-updates] if the other does not come back with the new version, this one does not update and the UI explains it (rollback) — Tandem 0.3.0 | All machines of the desk on the same version. | Check again | A new 
+PASA  [F13-updates] a nonexistent latest.json shows the error when checking — Tandem 0.3.0 | All machines of the desk on the same version. | Check again | A new version is available: 0.4.0 | It installs on every machin
+PASA  [F13-updates] "Update automatically" is saved in update.toml — auto = false 
+== F16b 19:50:53
+PASA  [P10-notices] a file copy from a tunnel shows a notice with progress and a final 'Copied' (DOM observer) — ["Sending “big.bin” to PC 0 % · 0 KB of 524 MB","Sending “big.bin” to PC","0 % · 0 KB of 524 MB
+== SMOKE_DONE r7ww
+PASA  [F1-setup] first run on a non-macOS machine: setup opens by itself
+PASA  [F1-setup] both UIs show the same 6-digit code — UI m2 shows 174446; agent m1 {"code":"174446","confirmed":false,"kind":"comparing","peer":"PC"}
+PASA  [F1-setup] a wrong code is rejected with a notice
+PASA  [F1-setup] paired: both agents say so, with different sides — m1=a m2=b
+== T291 19:53:11
+PASA  [T-291-no-spontaneous-unpair] r7mm (smoke): both stay paired for 70 s, nothing forgotten — {"samples":140,"bad":[],"linklessSamples":0,"forgotLogs":[0,0],"stillSavingLogs":[0,0]}
+== T280a 19:54:20
+PASA  [T-280-report-after-pairing] r7mm: both agents have the owner's report of every shared monitor — [{"m":"m1","side":"a","id":"std-34-1dbde55e","owner":"a","report":"display_port","peer":"paired"},{"m":"m1","side":
+== T280 19:54:20
+PASA  [T-280-scenes-from-non-owner] Save and apply shows Changes in progress and switches the monitor in every run (2/2)
+PASA  [T-280-scenes-from-non-owner] Apply on a scene card in a fresh window shows Changes in progress in every run (2/2)
+== F2 19:54:46
+PASA  [F2-arrangement] s0 «Right», alignment start: reaches both machines and tandem.toml
+PASA  [F2-arrangement] s0 «Right», alignment center: reaches both machines and tandem.toml
+PASA  [F2-arrangement] s0 «Right», alignment end: reaches both machines and tandem.toml
+PASA  [F2-arrangement] s0 «Top», alignment start: reaches both machines and tandem.toml
+PASA  [F2-arrangement] s0 «Top», alignment center: reaches both machines and tandem.toml
+PASA  [F2-arrangement] s0 «Top», alignment end: reaches both machines and tandem.toml
+PASA  [F2-arrangement] s0 «Bottom», alignment start: reaches both machines and tandem.toml
+PASA  [F2-arrangement] s0 «Bottom», alignment center: reaches both machines and tandem.toml
+PASA  [F2-arrangement] s0 «Bottom», alignment end: reaches both machines and tandem.toml
+PASA  [F2-arrangement] s0 «Left», alignment start: reaches both machines and tandem.toml
+PASA  [F2-arrangement] s0 «Left», alignment center: reaches both machines and tandem.toml
+PASA  [F2-arrangement] s0 «Left», alignment end: reaches both machines and tandem.toml
+== F2g 19:55:59
+PASA  [F2-arrangement] engine: with Mac «Right» of the PC the crossing through the new edge works (PC→Mac and Mac→PC) — PC→Mac true, Mac→PC true
+PASA  [F2-arrangement] engine: with Mac «Top» of the PC the crossing through the new edge works (PC→Mac and Mac→PC) — PC→Mac true, Mac→PC true
+PASA  [F2-arrangement] engine: the old edge («Right») no longer crosses
+PASA  [F2-arrangement] engine: with Mac «Bottom» of the PC the crossing through the new edge works (PC→Mac and Mac→PC) — PC→Mac true, Mac→PC true
+PASA  [F2-arrangement] engine: the old edge («Top») no longer crosses
+PASA  [F2-arrangement] engine: with Mac «Left» of the PC the crossing through the new edge works (PC→Mac and Mac→PC) — PC→Mac true, Mac→PC true
+PASA  [F2-arrangement] engine: the old edge («Bottom») no longer crosses
+PASA  [F2-arrangement] engine: with Mac «Right» of the PC the crossing through the new edge works (PC→Mac and Mac→PC) — PC→Mac true, Mac→PC true
+PASA  [F2-arrangement] engine: the old edge («Left») no longer crosses
+ok
+== F5 19:56:49
+PASA  [F5-tunnels-mcp] P15: Claude's tools exist in `tandem mcp` — machines,resources,tunnels,tunnel_open,tunnel_close,exec,processes,output,kill,files_put,files_get,port_forward,port_stop,bring_back
+PASA  [F5-tunnels-mcp] tunnel_open with a git workspace — {"created":1795139810020,"id":"f61f8056e4ad4443","opened_by":{"kind":"Mcp","session":"mcp"},"origin":"a","project":{"name":"proj-demo","root":"/tmp/claude-1000/
+PASA  [F5-tunnels-mcp] T-130: the other machine receives no credentials (.env, .pem, id_rsa, .npmrc, .aws) — files en destination: .git,src,src/lib.rs,src/new.rs | filtered: [".aws/credentials",".env",".npmrc","deploy.
+PASA  [F5-tunnels-mcp] T-130: the repo arrives without remotes or credential.helper — [core] 	repositoryformatversion = 0 	filemode = true 	bare = false 	logallrefupdates = true [user] 	email = tandem@localhost 	name =
+PASA  [F5-tunnels-mcp] T-130: exec rejects environment variables that look like secrets — "the other machine did not accept it: the variable \"GH_TOKEN\" looks like a secret: the other machine does not receive credenti
+PASA  [F5-tunnels-mcp] T-130: with allow_secret_env only what was requested passes; GH_TOKEN and SSH_AUTH_SOCK from the origin never do — "GH= SSH=/tmp/ssh-hcIO6HQGTHsn/agent.544 AWS=yy\n"
+PASA  [F5-tunnels-mcp] 3 processes running at once in the tunnel — running: 3 de [{"Exited":{"code":0}},"Running","Running","Running"]
+PASA  [F5-tunnels-mcp] a freshly opened UI shows the tunnels that already exist (without waiting for a change) —  | Settings | Tunnels | 1 open · 1 project | How Claude opens them | proj-demo | /tmp/claude-1000/r7/pro
+PASA  [F5-tunnels-mcp] the UI (origin) shows the project, the tunnel and its processes live —  | Settings | Tunnels | 1 open · 1 project | How Claude opens them | proj-demo | /tmp/claude-1000/r7/proj-demo | 1/1 | ws-a
+PASA  [F5-tunnels-mcp] the other machine's UI also shows the tunnel —  | Settings | Tunnels | 1 open · 1 project | How Claude opens them | proj-demo | /tmp/claude-1000/r7/proj-demo | 1/1 | ws-acceptance | inactive 1 s
+PASA  [F5-tunnels-mcp] read each process's output, without mixing — ["p1-1,p1-2,p1-3,p1-4,p1-5,p1-6,","p2-1,p2-2,p2-3,p2-4,p2-5,p2-6,","p3-1,p3-2,p3-3,p3-4,p3-5,p3-6,"]
+PASA  [F5-tunnels-mcp] copy a file into the tunnel (files_put) — {"bytes":15,"dirs":0,"files":1,"sent":15,"skipped":[]}
+PASA  [F5-tunnels-mcp] T-130: files_put of a credential is skipped with a notice — {"bytes":0,"dirs":0,"files":0,"sent":0,"skipped":["id_rsa"],"warning":"1 file(s) omitted for looking like credentials and did not reach
+PASA  [F5-tunnels-mcp] fetch a file from the tunnel (files_get) — {"bytes":20,"dirs":0,"files":1,"sent":0,"skipped":[]}
+PASA  [F5-tunnels-mcp] open a port (port_forward) and talk through it — {"direction":"LocalToRemote","id":1,"local_port":42616,"remote_host":"127.0.0.1","remote_port":41616,"tunnel":"f61f8056e4ad4443"} → eco:hello
+PASA  [F5-tunnels-mcp] cut the link and recover it without losing output (24 consecutive lines) — lines 24; during the cut: responded
+PASA  [F5-tunnels-mcp] bring_back creates the branch tandem/<name> in the project — {"branch":"tandem/ret","commits":[{"author":"t","id":"da6b45f59866ed448bc4ce3f04bea2cf78befd53","summary":"from-b"}],"committed_pendin
+PASA  [F5-tunnels-mcp] bring_back: the branch carries the change made on the other machine
+== F13u 19:57:42
+PASA  [F13-updates] shows the versions of both machines — Tandem 0.3.0 | All machines of the desk on the same version. | Check now | Update automatically | Source | GitHub Releases · unsigned
+PASA  [F13-updates] checking against a test latest.json finds the new version — Tandem 0.3.0 | All machines of the desk on the same version. | Check again | A new version is available: 0.4.0 | It installs on every mach
+PASA  [F13-updates] "Update all": first asks the other machine through tandemd (plan for both) — UI: It installs on every machine, one at a time, without cutting the keyboard. | Update all | Update automatically | Sour
+PASA  [F13-updates] if the other does not come back with the new version, this one does not update and the UI explains it (rollback) — Tandem 0.3.0 | All machines of the desk on the same version. | Check again | A new 
+PASA  [F13-updates] a nonexistent latest.json shows the error when checking — Tandem 0.3.0 | All machines of the desk on the same version. | Check again | A new version is available: 0.4.0 | It installs on every machin
+PASA  [F13-updates] "Update automatically" is saved in update.toml — auto = false 
+== F16b 19:58:15
+PASA  [P10-notices] a file copy from a tunnel shows a notice with progress and a final 'Copied' (DOM observer) — ["Sending “big.bin” to PC 0 % · 0 KB of 524 MB","Sending “big.bin” to PC","0 % · 0 KB of 524 MB
+== SMOKE_DONE r7mm
+ALL_SMOKE_DONE
