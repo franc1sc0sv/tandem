@@ -93,6 +93,8 @@ pub struct DeskBuilder {
     scene_screens: SceneScreens,
     /// What each side's `tandem.toml` says besides the machine and Wake-on-LAN (A's and B's).
     toml: [String; 2],
+    /// Each DDC request takes its cable's latency on the desk clock too (T-342).
+    ddc_takes_time: bool,
 }
 
 impl Default for DeskBuilder {
@@ -105,6 +107,7 @@ impl Default for DeskBuilder {
             monitors: Vec::new(),
             scene_screens: SceneScreens::default(),
             toml: Default::default(),
+            ddc_takes_time: false,
         }
     }
 }
@@ -157,6 +160,14 @@ impl DeskBuilder {
 
     pub fn monitors(mut self, specs: Vec<MonitorSpec>) -> Self {
         self.monitors = specs;
+        self
+    }
+
+    /// The monitors' DDC requests take their time on the desk clock, one at a time per machine,
+    /// as on a real bus: the latency of each cable and the firmware's wait before its verdict. By
+    /// default they take time only on the monitors' clock, and tokio's does not move (T-342).
+    pub fn ddc_takes_time(mut self) -> Self {
+        self.ddc_takes_time = true;
         self
     }
 
@@ -282,6 +293,9 @@ impl DeskBuilder {
                     }),
                     LocalConfig::default(),
                 );
+                if self.ddc_takes_time {
+                    agent.monitor_hub().charge_bus_time(Arc::new(sim.clock()));
+                }
                 // The fake bus does not block: it is called in place, with the paused clock standing still.
                 watches.push(agent.start_monitors(core, SIM_MONITOR_TIMES, true));
             }

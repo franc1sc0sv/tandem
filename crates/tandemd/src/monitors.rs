@@ -8,13 +8,20 @@
 //!
 //! DDC blocks: in the real agent each call goes to a separate thread (`spawn_blocking`); in
 //! the simulation, with the fake bus that does not wait, it is called in place (`inline`), so tokio's
-//! paused clock does not advance on its own meanwhile.
+//! paused clock does not advance on its own meanwhile. A simulation that wants the bus to cost
+//! time hands its clock to [`MonitorHub::charge_bus_time`]: what each call took on the double's
+//! clock then passes on tokio's, with the bus held, as it would on a real one (T-342).
+//!
+//! An input change with the firmware's verdict is a reading of the owner: the input it confirmed is
+//! shown at once ([`MonitorControl::confirmed`]) instead of waiting for the next full read of
+//! the bus, which re-reads the event ring over DDC and takes seconds on the real 34" (T-342).
 
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
+use monitor_ddc::Clock;
 use tandem_core::{Desk, DisplayKey, Inputs, Machine, MonitorInput, link_screens};
 use tandem_monitor::{Directory, LocalMonitors};
 use tandem_proto::{MonitorChannel, MonitorReport, MonitorView};
@@ -96,6 +103,10 @@ pub struct MonitorHub {
     resend: AtomicBool,
     /// Wakes the loop early (the owner changed, a change finished).
     wake: Notify,
+    /// Only in the simulation: the double's clock, whose time each in-place call pays on tokio's.
+    bus_clock: Mutex<Option<Arc<dyn Clock>>>,
+    /// The bus is used by one call at a time, also while an in-place call pays its time.
+    bus_turn: tokio::sync::Mutex<()>,
 }
 
 impl std::fmt::Debug for MonitorHub {
@@ -121,7 +132,15 @@ impl MonitorHub {
             sent: Mutex::new(Vec::new()),
             resend: AtomicBool::new(false),
             wake: Notify::new(),
+            bus_clock: Mutex::new(None),
+            bus_turn: tokio::sync::Mutex::new(()),
         }
+    }
+
+    /// Simulation: each in-place call takes on tokio's clock what it took on `clock`, the
+    /// double's (paused clock only).
+    pub fn charge_bus_time(&self, clock: Arc<dyn Clock>) {
+        *lock(&self.bus_clock) = Some(clock);
     }
 
     /// This machine's bus. `inline`: call in place (only with a bus that does not block).
@@ -213,7 +232,15 @@ impl MonitorHub {
     ) -> Option<T> {
         let local = lock(&self.local).clone()?;
         if local.inline {
-            return Some(f(&mut lock(&local.core)));
+            let clock = lock(&self.bus_clock).clone();
+            let Some(clock) = clock else {
+                return Some(f(&mut lock(&local.core)));
+            };
+            let _turn = self.bus_turn.lock().await;
+            let started = clock.now();
+            let out = f(&mut lock(&local.core));
+            tokio::time::sleep(clock.now().saturating_sub(started)).await;
+            return Some(out);
         }
         tokio::task::spawn_blocking(move || f(&mut lock(&local.core)))
             .await
@@ -283,6 +310,29 @@ impl MonitorControl for MonitorHub {
             self.wake.notify_one();
             r
         })
+    }
+
+    fn confirmed(&self, monitor: &str, input: MonitorInput) -> Option<Vec<MonitorReport>> {
+        let mine = {
+            let mut dir = lock(&self.dir);
+            let owner = dir.owner(monitor)?;
+            let mut report = dir.report(monitor)?.clone();
+            if report.input == Some(input) {
+                return None;
+            }
+            report.input = Some(input);
+            dir.set_report(owner, report);
+            owner == dir.me()
+        };
+        self.publish();
+        if !mine {
+            return None;
+        }
+        // The other gets the whole list, as with every reading; the next one that differs goes too.
+        let mut sent = lock(&self.sent);
+        let entry = sent.iter_mut().find(|r| r.id == monitor)?;
+        entry.input = Some(input);
+        Some(sent.clone())
     }
 }
 
@@ -382,6 +432,35 @@ mod tests {
             inputs(&Desk::default(), &id, Some(&seen[0])).of(Machine::A),
             Some(MonitorInput::Hdmi)
         );
+    }
+
+    /// T-342: the input of a confirmed verdict is shown at once, without another reading of the bus.
+    /// The owner also gets back its whole list, with that input, to send it to the other; on the
+    /// other machine only what it shows changes.
+    #[tokio::test]
+    async fn a_confirmed_input_is_shown_without_reading_the_bus() {
+        let (a, bus) = hub_with_bus(Machine::A);
+        let (b, _) = hub_with_bus(Machine::B);
+        let from_a = a.tick(true).await.reports.unwrap();
+        b.tick(true).await;
+        a.set_peer(Some(b.local_channels()));
+        b.set_peer(Some(a.local_channels()));
+        b.receive(Machine::A, from_a);
+        let id = a.views()[0].id.clone();
+        assert_eq!(b.owner(&id), Some(Machine::A));
+        bus.clear_ops();
+
+        let sent = a.confirmed(&id, MonitorInput::Hdmi).unwrap();
+        assert_eq!(sent[0].input, Some(MonitorInput::Hdmi));
+        assert_eq!(a.input(&id), Some(MonitorInput::Hdmi));
+        assert_eq!(a.reports_here(), sent);
+        assert_eq!(b.confirmed(&id, MonitorInput::Hdmi), None);
+        assert_eq!(b.input(&id), Some(MonitorInput::Hdmi));
+        assert!(bus.ops().is_empty(), "{:?}", bus.ops());
+        // Already shown: nothing to send again.
+        assert_eq!(a.confirmed(&id, MonitorInput::Hdmi), None);
+        // A monitor nobody reads stays as it is.
+        assert_eq!(a.confirmed("other", MonitorInput::Hdmi), None);
     }
 
     #[tokio::test]

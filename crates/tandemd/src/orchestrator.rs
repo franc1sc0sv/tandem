@@ -32,7 +32,7 @@ use std::sync::{Arc, Mutex, PoisonError, RwLock};
 use std::time::Duration;
 
 use tandem_core::{Executor, Machine, MonitorInput, Plan, State, Step, TxnError, TxnReport};
-use tandem_proto::{ControlMsg, TxnEvent};
+use tandem_proto::{ControlMsg, MonitorReport, TxnEvent};
 
 use tokio::sync::{broadcast, watch};
 
@@ -71,6 +71,12 @@ pub trait MonitorControl: Send + Sync {
     /// Changes the input here (this machine is the owner) and waits for the verdict. An error that
     /// starts with [`tandem_monitor::NO_VERDICT`] leaves in doubt whether it changed.
     fn switch<'a>(&'a self, monitor: &'a str, input: MonitorInput) -> StepFuture<'a>;
+    /// The owner (here or on the other machine) confirmed `input` on `monitor` with the firmware's
+    /// verdict: it is shown right away, without waiting for the owner's next reading (T-342). If
+    /// this machine is the owner, it returns what it now reads to send to the other.
+    fn confirmed(&self, _monitor: &str, _input: MonitorInput) -> Option<Vec<MonitorReport>> {
+        None
+    }
 }
 
 /// How often the Wake-on-LAN is repeated while waiting for the other machine: a UDP
@@ -489,7 +495,11 @@ impl Orchestrator {
                     error,
                 })
             } else {
-                self.remote(step).await
+                let r = self.remote(step).await;
+                if r.is_ok() {
+                    self.confirmed(step);
+                }
+                r
             }
         };
         match tokio::time::timeout(limit, work).await {
@@ -505,10 +515,26 @@ impl Orchestrator {
         match step {
             Step::PowerOn { machine } if *machine != self.me() => self.power_on_peer(step).await,
             Step::SwitchMonitor { monitor, input } => match self.monitors() {
-                Some(m) => m.switch(monitor, *input).await,
+                Some(m) => {
+                    m.switch(monitor, *input).await?;
+                    self.confirmed(step);
+                    Ok(())
+                }
                 None => Err(format!("{}: {NO_OWNER}", describe(step))),
             },
             _ => self.local.execute(step).await,
+        }
+    }
+
+    /// A [`Step::SwitchMonitor`] with a confirmed verdict: the new input is shown on this machine
+    /// and, if it is the owner, on the other too, before the step's reply. Whoever waits for it (the
+    /// scene's geometry, the UI) does not depend on the next full reading of the bus (T-342).
+    fn confirmed(&self, step: &Step) {
+        let (Step::SwitchMonitor { monitor, input }, Some(m)) = (step, self.monitors()) else {
+            return;
+        };
+        if let Some(reports) = m.confirmed(monitor, *input) {
+            self.peer().send(ControlMsg::Monitors(reports));
         }
     }
 
@@ -1144,6 +1170,7 @@ pub(crate) mod tests {
         input: Option<MonitorInput>,
         answer: Mutex<Vec<Result<(), String>>>,
         switched: Mutex<Vec<MonitorInput>>,
+        confirmed: Mutex<Vec<MonitorInput>>,
     }
 
     impl FakeMonitors {
@@ -1153,11 +1180,16 @@ pub(crate) mod tests {
                 input: Some(MonitorInput::DisplayPort),
                 answer: Mutex::new(answers),
                 switched: Mutex::new(Vec::new()),
+                confirmed: Mutex::new(Vec::new()),
             })
         }
 
         fn switched(&self) -> Vec<MonitorInput> {
             self.switched.lock().unwrap().clone()
+        }
+
+        fn confirmed(&self) -> Vec<MonitorInput> {
+            self.confirmed.lock().unwrap().clone()
         }
     }
 
@@ -1177,6 +1209,28 @@ pub(crate) mod tests {
                 answers.remove(0)
             };
             Box::pin(async move { r })
+        }
+        fn confirmed(&self, _monitor: &str, input: MonitorInput) -> Option<Vec<MonitorReport>> {
+            self.confirmed.lock().unwrap().push(input);
+            // As the owner, what it reads goes to the other.
+            (self.owner == Some(Machine::A)).then(Vec::new)
+        }
+    }
+
+    /// The other agent that also keeps the notices it receives.
+    #[derive(Default)]
+    struct NoticePeer {
+        steps: FakeSteps,
+        sent: Mutex<Vec<ControlMsg>>,
+    }
+
+    impl PeerLink for NoticePeer {
+        fn execute<'a>(&'a self, step: &'a Step) -> StepFuture<'a> {
+            self.steps.execute(step)
+        }
+        fn publish_state(&self, _state: &State) {}
+        fn send(&self, msg: ControlMsg) {
+            self.sent.lock().unwrap().push(msg);
         }
     }
 
@@ -1239,6 +1293,51 @@ pub(crate) mod tests {
         assert!(e.contains(NO_OWNER), "{e}");
     }
 
+    /// T-342: a change with a confirmed verdict is shown at once, on the machine that asked and, if
+    /// the owner did it, on the other too (before the step's reply), without waiting for the next
+    /// reading of the bus. A failed verdict changes nothing.
+    #[tokio::test]
+    async fn a_confirmed_switch_is_shown_at_once() {
+        // This machine owns: it confirms and sends what it reads to the other.
+        let (o, _, _) = mac(FakeSteps::default(), FakeSteps::default());
+        let peer = Arc::new(NoticePeer::default());
+        o.set_peer(peer.clone());
+        let m = FakeMonitors::new(Some(Machine::A), vec![Ok(()), Err("still on DP".into())]);
+        o.set_monitors(m.clone());
+        o.dispatch(&to_hdmi()).await.unwrap();
+        assert_eq!(m.confirmed(), [MonitorInput::Hdmi]);
+        assert!(matches!(
+            peer.sent.lock().unwrap()[..],
+            [ControlMsg::Monitors(_)]
+        ));
+        o.dispatch(&to_hdmi()).await.unwrap_err();
+        assert_eq!(m.confirmed(), [MonitorInput::Hdmi], "a failed verdict");
+
+        // The same when the other machine asks for it.
+        let (o, _, _) = mac(FakeSteps::default(), FakeSteps::default());
+        let peer = Arc::new(NoticePeer::default());
+        o.set_peer(peer.clone());
+        let m = FakeMonitors::new(Some(Machine::A), vec![]);
+        o.set_monitors(m.clone());
+        o.execute_for_peer(&to_hdmi()).await.unwrap();
+        assert_eq!(m.confirmed(), [MonitorInput::Hdmi]);
+        assert!(matches!(
+            peer.sent.lock().unwrap()[..],
+            [ControlMsg::Monitors(_)]
+        ));
+
+        // The other owns: it is confirmed here when it answers, and nothing is sent.
+        let (o, _, _) = mac(FakeSteps::default(), FakeSteps::default());
+        let peer = Arc::new(NoticePeer::default());
+        o.set_peer(peer.clone());
+        let m = FakeMonitors::new(Some(Machine::B), vec![]);
+        o.set_monitors(m.clone());
+        o.dispatch(&to_hdmi()).await.unwrap();
+        assert_eq!(peer.steps.steps(), [to_hdmi()]);
+        assert_eq!(m.confirmed(), [MonitorInput::Hdmi]);
+        assert!(peer.sent.lock().unwrap().is_empty());
+    }
+
     #[tokio::test]
     async fn a_switch_without_verdict_goes_back_to_the_input_before() {
         let (o, _, _) = mac(FakeSteps::default(), FakeSteps::default());
@@ -1267,6 +1366,7 @@ pub(crate) mod tests {
             input: None,
             answer: Mutex::new(Vec::new()),
             switched: Mutex::new(Vec::new()),
+            confirmed: Mutex::new(Vec::new()),
         });
         o.set_monitors(m.clone());
         let mut state = both_on();
