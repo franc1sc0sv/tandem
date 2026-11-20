@@ -22,6 +22,7 @@ const SKYLIGHT: &CStr = c"/System/Library/PrivateFrameworks/SkyLight.framework/S
 const SYMBOL: &CStr = c"CGSConfigureDisplayEnabled";
 
 /// `CGError CGSConfigureDisplayEnabled(CGDisplayConfigRef, CGDirectDisplayID, bool)`.
+// SAFETY: only a type; each call says why it is sound.
 type ConfigureEnabledFn = unsafe extern "C" fn(CGDisplayConfigRef, CGDirectDisplayID, bool) -> i32;
 
 /// The address of `name`: first among the images already loaded, then in `library`.
