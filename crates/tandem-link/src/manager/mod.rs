@@ -6,7 +6,9 @@
 //! 1 s budget (T-310). The active link is the healthy one of highest priority: if it
 //! drops, it moves to the next as soon as its ping goes unanswered for
 //! [`HealthConfig::misses_to_drop`] windows in a row, or fails outright (without
-//! waiting for QUIC's idle timeout). To go back to a
+//! waiting for QUIC's idle timeout). With no healthy backup to move to, the active
+//! link waits longer for its Pong ([`HealthConfig::ping_interval`]): dropping it
+//! early would gain nothing and cost a reconnect. To go back to a
 //! better link that already dropped, it has to have
 //! [`HealthConfig::settle`] answering without cuts (hysteresis: a cable that
 //! flickers does not drag traffic back and forth), and it does not go up while there is
@@ -83,7 +85,41 @@ impl HealthConfig {
     /// The longest a cut on the active link can go unnoticed: from its last answer
     /// to the next ping, plus every window that ping waits for its Pong.
     pub fn worst_detection(&self) -> Duration {
-        self.active_ping_interval + self.ping_timeout * self.misses_to_drop
+        self.active_ping_interval + self.drop_after()
+    }
+
+    /// How long a ping waits for its Pong while there is a healthy link to move to.
+    fn drop_after(&self) -> Duration {
+        self.ping_timeout * self.misses_to_drop
+    }
+
+    /// How long the active link's ping waits when there is no healthy backup: a
+    /// drop would leave input with no path at all, so a stall is given as long
+    /// as a backup's ping interval (1 s), and never less than the normal wait.
+    fn lone_patience(&self) -> Duration {
+        self.ping_interval.max(self.drop_after())
+    }
+}
+
+/// What each ping task needs to know about the others to pick its pace.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+struct Cadence {
+    active: Option<LinkKind>,
+    /// Some link other than the active one is healthy.
+    backup_ready: bool,
+}
+
+impl Cadence {
+    fn of<H>(table: &LinkTable<H>) -> Self {
+        let active = table.active().map(|(kind, _)| kind);
+        let backup_ready = table
+            .statuses()
+            .iter()
+            .any(|l| Some(l.kind) != active && l.rtt.is_some());
+        Self {
+            active,
+            backup_ready,
+        }
     }
 }
 
@@ -215,7 +251,7 @@ impl<H: Clone + Send + Sync + 'static> LinkManager<H> {
         let mut held = holds.subscribe();
         // Each ping task looks at this to know whether it is the active link and
         // has to ping at the fast rate.
-        let (active_tx, active_rx) = watch::channel(None::<LinkKind>);
+        let (active_tx, active_rx) = watch::channel(Cadence::default());
 
         let prober = Arc::new(prober);
         let mut links = JoinSet::new();
@@ -277,10 +313,10 @@ impl<H: Clone + Send + Sync + 'static> LinkManager<H> {
                 };
                 // The snapshot first: whoever receives the event already sees the new state.
                 state_tx.send_replace(snapshot(&table));
-                let now_active = table.active().map(|(kind, _)| kind);
-                active_tx.send_if_modified(|a| {
-                    let changed = *a != now_active;
-                    *a = now_active;
+                let cadence = Cadence::of(&table);
+                active_tx.send_if_modified(|c| {
+                    let changed = *c != cadence;
+                    *c = cadence;
                     changed
                 });
                 if let Some(e) = event {
@@ -387,7 +423,7 @@ async fn run_link<P: Prober>(
     link: LinkCandidate,
     config: HealthConfig,
     reports: mpsc::UnboundedSender<Report<P::Handle>>,
-    mut active: watch::Receiver<Option<LinkKind>>,
+    mut active: watch::Receiver<Cadence>,
 ) {
     let mut session = None;
     let mut was_up = false;
@@ -398,7 +434,7 @@ async fn run_link<P: Prober>(
         // active one while waiting, the wait is cut short. A probe slower than the
         // interval is followed by the next one right away, never by a burst.
         loop {
-            let is_active = *active.borrow_and_update() == Some(link.kind);
+            let is_active = active.borrow_and_update().active == Some(link.kind);
             let every = if is_active {
                 config.active_ping_interval
             } else {
@@ -417,7 +453,7 @@ async fn run_link<P: Prober>(
             }
         }
         last_start = Some(Instant::now());
-        let up = match probe_once(&*prober, link.addr, &mut session, &config).await {
+        let up = match probe_once(&*prober, link, &mut session, &config, &active).await {
             Ok(up) => {
                 if !was_up {
                     tracing::info!(link = %link.kind, addr = %link.addr, "healthy link");
@@ -442,10 +478,12 @@ async fn run_link<P: Prober>(
 
 async fn probe_once<P: Prober>(
     prober: &P,
-    addr: SocketAddr,
+    link: LinkCandidate,
     session: &mut Option<P::Session>,
     config: &HealthConfig,
+    cadence: &watch::Receiver<Cadence>,
 ) -> Result<(P::Handle, Duration), Failure<P::Error>> {
+    let addr = link.addr;
     let s = match session {
         Some(s) => s,
         None => match time::timeout(config.connect_timeout, prober.connect(addr)).await {
@@ -466,7 +504,16 @@ async fn probe_once<P: Prober>(
                 Ok(Err(e)) => break Err(Failure::Ping(e)),
                 Err(_) => {
                     misses += 1;
-                    if misses >= config.misses_to_drop {
+                    // Looked at on every window: a backup that turns healthy while
+                    // the active one stalls ends the extra patience.
+                    let c = *cadence.borrow();
+                    let lone = c.active == Some(link.kind) && !c.backup_ready;
+                    let limit = if lone {
+                        config.lone_patience()
+                    } else {
+                        config.drop_after()
+                    };
+                    if start.elapsed() >= limit {
                         break Err(Failure::PingTimeout);
                     }
                     tracing::debug!(%addr, misses, "missed probe, still waiting for the Pong");
