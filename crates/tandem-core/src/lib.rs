@@ -10,11 +10,13 @@
 //! - [`plan`]: powering on and off as an ordered list of steps.
 //! - [`txn`]: transactional execution of a plan, with rollback.
 //! - [`monitor`]: the inputs of a compatible monitor.
+//! - [`link`]: a shared monitor's link state: what it shows, its cables and its power (T-349).
 //! - [`scene`]: scenes (D6) and how they are applied.
 
 pub mod data;
 pub mod desk;
 pub mod legacy;
+pub mod link;
 pub mod model;
 pub mod monitor;
 pub mod plan;
@@ -26,6 +28,10 @@ pub use data::{DEFAULT_WIFI_CAP_PERCENT, DataPrefs, DataPrefsError};
 pub use desk::{
     DeskHistory, DeskPatch, DeskStamp, DeskVersion, HISTORY_LEN, HistoryEntry, InputPrefs, Modules,
     PatchError, Shortcuts, UndoError, valid_color,
+};
+pub use link::{
+    CableState, Cables, LinkState, MonitorLink, OFF_AFTER, PowerSample, PowerState, PowerTracker,
+    live_power, own_cable,
 };
 pub use model::{
     Align, Arrangement, Config, DEFAULT_COLORS, Desk, Machine, MachineInfo, Machines, Os, PALETTE,

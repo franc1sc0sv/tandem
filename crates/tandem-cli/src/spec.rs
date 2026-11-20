@@ -70,6 +70,12 @@ pub const TOOLS: &[Tool] = &[
         ],
     },
     Tool {
+        name: "monitors",
+        desc: "The shared monitors and their link state: which machine each one shows, whether it is on, \
+               in standby or off, and each machine's cable (connected, disconnected or unknown).",
+        params: &[],
+    },
+    Tool {
         name: "tunnels",
         desc: "Open tunnels grouped by project, with their running processes.",
         params: &[],
@@ -308,6 +314,7 @@ mod tests {
         for want in [
             "machines",
             "resources",
+            "monitors",
             "tunnels",
             "tunnel_open",
             "tunnel_close",

@@ -2,7 +2,8 @@
 // the store calls it with the previous state and the current one.
 
 import type { Machine } from "./model";
-import type { DeskChange, DeskView, LinkKind, TransferView } from "./store/types";
+import { shortMonitor } from "./monitors";
+import type { DeskChange, DeskView, LinkKind, MonitorUi, TransferView } from "./store/types";
 
 export type ToastTone = "ok" | "bad" | "warn" | "info" | "claude";
 
@@ -126,4 +127,47 @@ export function deskEvents(before: DeskView, after: DeskView): ToastSpec[] {
     }
   }
   return out;
+}
+
+/**
+ * What was last said about each monitor (T-349): each cable end and whether it was off. Only
+ * known values are kept, so an `unknown` in between never makes a notice come back.
+ */
+export type LinkMemo = Record<string, { a?: "connected" | "disconnected"; b?: "connected" | "disconnected"; off?: boolean }>;
+
+/**
+ * The notices of the monitors' link transitions: "Mac cable unplugged", "Mac cable connected",
+ * "34" turned off", "34" back on". The first state seen of a monitor is remembered without a
+ * notice, and the same state is never announced twice in a row.
+ */
+export function monitorNotices(memo: LinkMemo, monitors: MonitorUi[], name: (m: Machine) => string): { specs: ToastSpec[]; memo: LinkMemo } {
+  const next: LinkMemo = { ...memo };
+  const specs: ToastSpec[] = [];
+  for (const m of monitors) {
+    if (!m.link) continue;
+    const was = memo[m.id];
+    const now = { ...(was ?? {}) };
+    const size = shortMonitor(m.name);
+    for (const who of ["a", "b"] as Machine[]) {
+      const c = m.link.cables[who];
+      if (c === "unknown") continue;
+      if (was?.[who] !== undefined && was[who] !== c) {
+        specs.push(
+          c === "disconnected"
+            ? { text: `${name(who)} cable unplugged`, body: `${size} has no picture from ${name(who)} until it is plugged back in.`, tone: "warn" }
+            : { text: `${name(who)} cable connected`, body: `${size} sees ${name(who)} again.`, tone: "ok" },
+        );
+      }
+      now[who] = c;
+    }
+    if (m.link.kind !== "unknown") {
+      const off = m.link.kind === "off";
+      if (was?.off !== undefined && was.off !== off) {
+        specs.push(off ? { text: `${size} turned off`, body: "The cursor stays on the screens that are on.", tone: "warn" } : { text: `${size} back on`, tone: "ok" });
+      }
+      now.off = off;
+    }
+    next[m.id] = now;
+  }
+  return { specs, memo: next };
 }

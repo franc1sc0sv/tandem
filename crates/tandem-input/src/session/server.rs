@@ -453,12 +453,18 @@ impl ServerSession {
     }
 
     /// The geometry changed (mode or screens change). If the other machine no longer
-    /// has visible screens, the cursor comes back.
+    /// has visible screens, the cursor comes back. A local cursor left in a screen that is no
+    /// longer in the geometry (its monitor went off, to standby or to the other machine, T-349)
+    /// is taken to the nearest live screen.
     pub fn set_layout(&mut self, layout: Layout) -> Vec<ServerOutput> {
         self.layout = layout;
         let mut out = Vec::new();
         if let Some(s) = self.layout.screen_at(self.machine, self.local) {
-            self.local = s.rect.clamp(self.local);
+            let inside = s.rect.clamp(self.local);
+            if inside != self.local && !self.is_remote() {
+                out.push(ServerOutput::Warp(inside));
+            }
+            self.local = inside;
         }
         if let Focus::Remote { pos } = self.focus {
             match self.layout.screen_at(self.machine.other(), pos) {
@@ -545,6 +551,7 @@ mod tests {
     use crate::event::{Button, HidUsage, KeyState, ModifierKey, Modifiers};
     use crate::session::testutil::{
         edge_pc, layout_mac_pc_hidpi, layout_pc_mac, layout_pc_mac_small, layout_pc_only,
+        layout_pc_two_mac,
     };
 
     fn session() -> ServerSession {
@@ -982,6 +989,23 @@ mod tests {
         );
         assert!(!s.is_remote());
         assert_eq!(s.flush(), None);
+    }
+
+    /// T-349: the screen the local cursor is on leaves the geometry (its monitor went to standby):
+    /// the cursor is taken to the nearest live screen, once.
+    #[test]
+    fn a_local_cursor_in_a_screen_that_left_is_moved_to_the_nearest_live_one() {
+        let mut s = ServerSession::new(
+            Machine::B,
+            layout_pc_two_mac(),
+            Point::new(-500.0, 300.0),
+            4,
+        );
+        let out = s.set_layout(layout_pc_mac());
+        assert_eq!(out, vec![ServerOutput::Warp(Point::new(0.0, 300.0))]);
+        assert_eq!(s.local_cursor(), Point::new(0.0, 300.0));
+        // Already inside: nothing more to do.
+        assert!(s.set_layout(layout_pc_mac()).is_empty());
     }
 
     #[test]

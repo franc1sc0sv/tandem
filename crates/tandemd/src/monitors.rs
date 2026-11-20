@@ -22,6 +22,11 @@
 //! but not yet given up for lost, it reads the live state itself (`0xEE` and `0x60`, never the
 //! events) and can switch the input itself; when the owner is lost, the monitor passes to it in
 //! the same turn and its reading carries on from the owner's last reported cursor (T-346).
+//!
+//! Each published view carries its derived link (T-349, [`tandem_core::link`]): this machine's
+//! cable end (from its last scan), the other's (from its announcement, while it is reachable),
+//! the input on screen and a debounced power state. A display change on the system asks for a
+//! rescan at once ([`MonitorHub::request_scan`]) instead of waiting for the next periodic one.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -29,9 +34,13 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 use monitor_ddc::Clock;
-use tandem_core::{Desk, DisplayKey, Inputs, Machine, MonitorInput, link_screens};
+use tandem_core::{
+    CableState, Cables, Desk, DisplayKey, Inputs, Machine, MonitorInput, MonitorLink, PowerSample,
+    PowerTracker, link_screens, live_power, own_cable,
+};
+use tandem_input::hotplug::{DisplayChanges, Watch};
 use tandem_monitor::{Directory, LocalMonitors};
-use tandem_proto::{MonitorChannel, MonitorReport, MonitorView};
+use tandem_proto::{CableReport, MonitorChannel, MonitorReport, MonitorView};
 use tokio::sync::{Notify, watch};
 
 use crate::orchestrator::{MonitorControl, StepFuture};
@@ -96,8 +105,30 @@ pub struct Tick {
     pub reports: Option<Vec<MonitorReport>>,
 }
 
+/// What the link of each monitor is derived from, besides the directory (T-349).
+#[derive(Debug, Default)]
+struct Links {
+    desk: Desk,
+    /// The last scan succeeded: before it, and after a failed one, this machine's ends are unknown.
+    scanned: bool,
+    /// The other machine's ends, as it last announced them.
+    peer: BTreeMap<String, CableState>,
+    /// This machine's ends, as last computed.
+    own: Vec<CableReport>,
+    /// `own` changed since the agent last announced it.
+    own_changed: bool,
+    power: BTreeMap<String, PowerTracker>,
+}
+
 pub struct MonitorHub {
     dir: Mutex<Directory>,
+    links: Mutex<Links>,
+    /// The clock the power debounce counts on (tokio's, so a paused test clock drives it).
+    epoch: tokio::time::Instant,
+    /// A display change asked for a rescan in the next turn.
+    scan_now: AtomicBool,
+    /// The system's display-change watch, alive as long as the hub ([`MonitorHub::watch_displays`]).
+    hotplug: Mutex<Option<Watch>>,
     /// The EDID identity of each monitor this machine sees, channel or not (T-340).
     keys: Mutex<BTreeMap<String, DisplayKey>>,
     /// This machine's screens (`screen-N`) with their EDID identity.
@@ -135,6 +166,10 @@ impl MonitorHub {
     pub fn new(me: Machine) -> Self {
         MonitorHub {
             dir: Mutex::new(Directory::new(me)),
+            links: Mutex::new(Links::default()),
+            epoch: tokio::time::Instant::now(),
+            scan_now: AtomicBool::new(false),
+            hotplug: Mutex::new(None),
             keys: Mutex::new(BTreeMap::new()),
             screens: Mutex::new(Vec::new()),
             local: Mutex::new(None),
@@ -212,8 +247,81 @@ impl MonitorHub {
     /// again, it stops and the owner's next report replaces that reading.
     pub fn set_peer_reachable(&self, reachable: bool) {
         if self.reachable.swap(reachable, Ordering::Relaxed) != reachable {
+            self.publish();
             self.wake.notify_one();
         }
+    }
+
+    /// The desk, for the cables of each monitor (T-349).
+    pub fn set_desk(&self, desk: &Desk) {
+        {
+            let mut links = lock(&self.links);
+            if links.desk == *desk {
+                return;
+            }
+            links.desk = desk.clone();
+        }
+        self.publish();
+    }
+
+    /// The other machine's cable ends from its announcement; `None` while it is not on.
+    pub fn set_peer_cables(&self, cables: Option<Vec<CableReport>>) {
+        let peer: BTreeMap<String, CableState> = cables
+            .unwrap_or_default()
+            .into_iter()
+            .map(|c| (c.monitor, c.state))
+            .collect();
+        {
+            let mut links = lock(&self.links);
+            if links.peer == peer {
+                return;
+            }
+            links.peer = peer;
+        }
+        self.publish();
+    }
+
+    /// This machine's cable ends, for its announcement.
+    pub fn own_cables(&self) -> Vec<CableReport> {
+        lock(&self.links).own.clone()
+    }
+
+    /// Whether this machine's ends changed since the last call: they have to be announced.
+    pub fn take_cables_changed(&self) -> bool {
+        std::mem::take(&mut lock(&self.links).own_changed)
+    }
+
+    /// The system reported a display change (hot-plug): rescan in the next turn, now.
+    pub fn request_scan(&self) {
+        self.scan_now.store(true, Ordering::Relaxed);
+        self.wake.notify_one();
+    }
+
+    /// Follows the system's display changes (T-349): each one asks for a rescan at once. The
+    /// watch lives as long as the hub.
+    pub fn watch_displays(self: &Arc<Self>, changes: &dyn DisplayChanges) -> Result<(), String> {
+        let hub = Arc::downgrade(self);
+        let watch = changes.watch(Arc::new(move || {
+            if let Some(hub) = hub.upgrade() {
+                hub.request_scan();
+            }
+        }))?;
+        *lock(&self.hotplug) = Some(watch);
+        Ok(())
+    }
+
+    /// Whether a rescan was asked for since the last call.
+    pub fn take_scan_request(&self) -> bool {
+        self.scan_now.swap(false, Ordering::Relaxed)
+    }
+
+    /// The derived link of each monitor, by id.
+    pub fn links(&self) -> BTreeMap<String, MonitorLink> {
+        self.views
+            .borrow()
+            .iter()
+            .map(|v| (v.id.clone(), v.link))
+            .collect()
     }
 
     /// The monitors this machine reads directly now: the other owns them and is unreachable.
@@ -250,12 +358,78 @@ impl MonitorHub {
     }
 
     fn publish(&self) {
-        let views = lock(&self.dir).views();
+        let views = self.derive_links();
         self.views.send_if_modified(|v| {
             let changed = *v != views;
             *v = views;
             changed
         });
+    }
+
+    /// The directory's views, each with its link (T-349). Also recomputes this machine's cable
+    /// ends and feeds each monitor's power debounce.
+    fn derive_links(&self) -> Vec<MonitorView> {
+        let dir = lock(&self.dir);
+        let mut views = dir.views();
+        let me = dir.me();
+        let reachable = self.reachable.load(Ordering::Relaxed);
+        let now = self.epoch.elapsed();
+        let mut links = lock(&self.links);
+        let shown = shows(&views, &links.desk);
+        let own: Vec<CableReport> = if links.scanned {
+            let ids: BTreeSet<String> = views
+                .iter()
+                .map(|v| v.id.clone())
+                .chain(links.desk.cables.iter().map(|c| c.monitor.clone()))
+                .collect();
+            ids.into_iter()
+                .map(|id| {
+                    let listed = dir.channel_of(me, &id).is_some();
+                    let state = own_cable(listed, shown.get(&id).copied(), me);
+                    CableReport { monitor: id, state }
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+        if own != links.own {
+            links.own = own;
+            links.own_changed = true;
+            self.wake.notify_one();
+        }
+        for v in &mut views {
+            let mut cables = Cables::default();
+            if let Some(c) = links.own.iter().find(|c| c.monitor == v.id) {
+                cables.set(me, c.state);
+            }
+            if reachable && let Some(state) = links.peer.get(&v.id) {
+                cables.set(me.other(), *state);
+            }
+            let inputs = inputs(&links.desk, &v.id, Some(v));
+            let report = v.report.as_ref().filter(|_| v.compat.is_compatible());
+            let input = report.and_then(|r| r.input);
+            let live = report.and_then(|r| live_power(r.power_on, r.signal));
+            // A reading through a channel on the input it shows arms "off"; a monitor that moved
+            // to an input whose machine has no channel goes quiet for that reason.
+            let reader_on_input = match input.and_then(|i| inputs.machine_on(i)) {
+                Some(m) => dir
+                    .channel_of(m, &v.id)
+                    .is_some_and(|c| c.compat.is_compatible()),
+                None => true,
+            };
+            let sample = PowerSample {
+                live,
+                reader_on_input,
+                listed: cables.any_connected(),
+            };
+            let power = links
+                .power
+                .entry(v.id.clone())
+                .or_default()
+                .observe(now, sample);
+            v.link = MonitorLink::new(inputs, input, power, cables);
+        }
+        views
     }
 
     /// Runs `f` with the bus: in place or on a separate thread. `None` without a bus.
@@ -289,10 +463,12 @@ impl MonitorHub {
             match self.with_core(|c| c.scan().map(|ch| (ch, c.keys()))).await {
                 Some(Ok((channels, keys))) => {
                     *lock(&self.keys) = keys;
+                    lock(&self.links).scanned = true;
                     tick.channels_changed = lock(&self.dir).set_local(channels);
                 }
                 Some(Err(e)) => {
                     lock(&self.keys).clear();
+                    lock(&self.links).scanned = false;
                     tick.channels_changed = lock(&self.dir).set_local(Vec::new());
                     tick.scan_error = Some(e.to_string());
                 }

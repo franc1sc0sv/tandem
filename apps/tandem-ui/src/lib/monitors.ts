@@ -4,8 +4,8 @@
 
 import { wallOf } from "./arrangement";
 import { MACHINES } from "./machines";
-import type { CableJson, Machine, MonitorCompatJson, MonitorEventJson, MonitorInput, MonitorJson } from "./model";
-import type { MonitorEventView, MonitorUi } from "./store/types";
+import type { CableJson, LinkJson, Machine, MonitorCompatJson, MonitorEventJson, MonitorInput, MonitorJson } from "./model";
+import type { LinkUi, MonitorEventView, MonitorUi } from "./store/types";
 
 export const INPUT_LABEL: Record<MonitorInput, string> = { display_port: "DP", hdmi: "HDMI" };
 
@@ -74,14 +74,49 @@ function compatOf(c: MonitorCompatJson): MonitorUi["compat"] {
   return "Compatible" in c ? { ok: true } : { ok: false, reason: c.NotCompatible.reason };
 }
 
+/** The agent's derived link (T-349) for the UI. */
+export function linkUi(j: LinkJson): LinkUi {
+  const base = { power: j.power, cables: j.cables };
+  if (typeof j.state === "object") {
+    if ("shows_machine" in j.state) return { ...base, kind: "shows", machine: j.state.shows_machine };
+    return { ...base, kind: "unplugged", machine: j.state.active_input_unplugged };
+  }
+  return { ...base, kind: j.state, machine: null };
+}
+
+/** The monitor shows neither machine: off, in standby or on an unplugged input. */
+export function isDim(link: LinkUi | undefined): boolean {
+  return link?.kind === "off" || link?.kind === "standby" || link?.kind === "unplugged";
+}
+
+/** The plain words of a monitor's link: "Showing PC", "Mac cable unplugged", "Monitor in standby", "Monitor off"; `null` if unknown. */
+export function linkText(link: LinkUi | undefined, name: (m: Machine) => string): string | null {
+  switch (link?.kind) {
+    case "shows":
+      return link.machine ? `Showing ${name(link.machine)}` : null;
+    case "unplugged":
+      return link.machine ? `${name(link.machine)} cable unplugged` : null;
+    case "standby":
+      return "Monitor in standby";
+    case "off":
+      return "Monitor off";
+    default:
+      return null;
+  }
+}
+
 export function monitorUi(m: MonitorJson): MonitorUi {
   const compat = compatOf(m.compat);
   const ports: MonitorUi["ports"] = {};
   for (const [who, input] of m.via) ports[who] = input;
   const input = m.report?.input ?? null;
-  const shows: Machine | null = input ? (MACHINES.find((who) => ports[who] === input) ?? null) : null;
+  const link = m.link ? linkUi(m.link) : undefined;
+  // With the agent's link, what it shows is its derivation (an off monitor shows nobody).
+  const shows: Machine | null = link ? (link.kind === "shows" ? link.machine : null) : input ? (MACHINES.find((who) => ports[who] === input) ?? null) : null;
   const events = [...(m.report?.events ?? [])].reverse().slice(0, EVENTS_SHOWN).map(eventView);
-  return { id: m.id, name: m.name, compat, connected: m.seen_by.length > 0, owner: m.owner, input, ports, shows, events };
+  const ui: MonitorUi = { id: m.id, name: m.name, compat, connected: m.seen_by.length > 0, owner: m.owner, input, ports, shows, events };
+  if (link) ui.link = link;
+  return ui;
 }
 
 /**
@@ -91,9 +126,40 @@ export function monitorUi(m: MonitorJson): MonitorUi {
  * machine it shows, as the agent's geometry does.
  */
 export function hiddenScreens(cables: CableJson[] | undefined, monitors: MonitorUi[]): Record<Machine, string[]> {
+  return deskScreens(cables, monitors, () => "").hidden;
+}
+
+/**
+ * Like [`hiddenScreens`], with the monitors that show neither machine (T-349): such a monitor is
+ * drawn once, dimmed, with its state text (`dim`), on the first machine whose cable names its
+ * screen, and is left out of the other.
+ */
+export function deskScreens(
+  cables: CableJson[] | undefined,
+  monitors: MonitorUi[],
+  name: (m: Machine) => string,
+): { hidden: Record<Machine, string[]>; dim: Record<Machine, Record<string, string>> } {
   const hidden: Record<Machine, string[]> = { a: [], b: [] };
+  const dim: Record<Machine, Record<string, string>> = { a: {}, b: {} };
   for (const c of cables ?? []) {
     const m = monitors.find((x) => x.id === c.monitor);
+    if (m?.link) {
+      if (isDim(m.link)) {
+        const keep = MACHINES.find((who) => c[who]?.screen);
+        if (!keep) continue;
+        const other: Machine = keep === "a" ? "b" : "a";
+        dim[keep][c[keep]?.screen as string] = linkText(m.link, name) ?? "";
+        const screen = c[other]?.screen;
+        if (screen) hidden[other].push(screen);
+        continue;
+      }
+      if (m.link.kind === "shows" && m.link.machine) {
+        const other: Machine = m.link.machine === "a" ? "b" : "a";
+        const screen = c[other]?.screen;
+        if (screen) hidden[other].push(screen);
+      }
+      continue;
+    }
     if (!m?.compat.ok || !m.input) continue;
     const shows = MACHINES.find((who) => (c[who]?.input ?? m.ports[who]) === m.input);
     if (!shows) continue;
@@ -101,7 +167,7 @@ export function hiddenScreens(cables: CableJson[] | undefined, monitors: Monitor
     const screen = c[other]?.screen;
     if (screen) hidden[other].push(screen);
   }
-  return hidden;
+  return { hidden, dim };
 }
 
 /** Compatible first, as the screen shows them; the agent's order is kept within each group. */
@@ -114,6 +180,8 @@ export function monitorsUi(list: MonitorJson[]): MonitorUi[] {
 export function whyNotSwitch(m: MonitorUi, who: Machine, name: string): string | null {
   if (!m.compat.ok) return `${m.name} does not support the Tandem standard`;
   if (!m.connected) return `${m.name} is disconnected`;
+  // T-349: it would leave a black screen; the agent refuses it too, before any DDC write.
+  if (m.link?.cables[who] === "disconnected") return `${name} cable unplugged: switching to it would leave a black screen`;
   if (!m.ports[who]) return `It is not known which input ${name} uses`;
   return null;
 }

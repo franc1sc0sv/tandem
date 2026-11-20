@@ -13,7 +13,7 @@ import { machineColor, machineName, other } from "../machines";
 import type { Action, ActionResult, AdminView, Bindings, Caps, Desk, DragStatus, Link, Machine, MachineCaps, MonitorInput, Side, Permission, ResourceSample, SceneJson, SetupView, ShortcutsView, Snapshot, TxnView } from "../model";
 import { devicesOfHub } from "../wizard";
 import { gbpsOf, measuredText, networkFromWire, primaryOf } from "../network";
-import { hiddenScreens, monitorsUi } from "../monitors";
+import { deskScreens, monitorsUi } from "../monitors";
 import { sceneView } from "../scenes";
 import { grantTo, permissionState } from "../permissions";
 import type { ActResult, Capability, CursorEvent, DeskChange, DeskView, FilesView, EnvView, HardwareView, LinkKind, LiveView, MachineView, ModuleView, NetworkView, OutputChunk, OutputCursor, PairActionKind, PermissionsView, PrefsView, ProcessRow, Source, Topic, TransferView, TunnelView } from "./types";
@@ -207,8 +207,9 @@ export function deskFromSnapshot(raw: Snapshot, live: LiveByMachine = {}, networ
  */
 export function layoutFromDesk(snap: Extract<Snapshot, { kind: "connected" }>): LayoutView {
   const screens: LayoutScreen[] = [];
-  // A monitor that shows the other machine is not a screen of this one (T-340): drawn once.
-  const hidden = hiddenScreens(snap.desk.cables, monitorsUi(snap.monitors));
+  // A monitor that shows the other machine is not a screen of this one (T-340): drawn once. One
+  // that shows neither (off, standby, unplugged input) is drawn once, dimmed (T-349).
+  const { hidden, dim } = deskScreens(snap.desk.cables, monitorsUi(snap.monitors), (m) => machineName(m, snap.caps, snap.desk));
   for (const m of ["a", "b"] as Machine[]) {
     const name = machineName(m, snap.caps, snap.desk);
     const known = snap.desk.machines?.[m] ?? (snap.caps.here.machine === m ? snap.caps.here : snap.caps.peer?.machine === m ? snap.caps.peer : null);
@@ -248,6 +249,7 @@ export function layoutFromDesk(snap: Extract<Snapshot, { kind: "connected" }>): 
         usable: true,
         line: name,
         native: { id: s.id, x: s.x, y: s.y, w: s.width, h: s.height },
+        ...(dim[m][s.id] !== undefined ? { dim: dim[m][s.id] } : {}),
       });
     }
   }

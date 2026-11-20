@@ -162,7 +162,7 @@ fn declare_screens(d: &Desk) {
 fn geometry(d: &Desk, on: Machine) -> (Vec<String>, Vec<String>) {
     let agent = d.agent(on);
     let desk = agent.desk();
-    let shows = tandemd::monitors::shows(&agent.monitors(), &desk);
+    let shows = agent.monitor_hub().links();
     let arr = screens::arrangement(&desk, &agent.state(), on, &[], &[], &shows);
     (
         arr.a.into_iter().map(|s| s.id.0).collect(),

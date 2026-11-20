@@ -56,8 +56,16 @@ impl Agent {
 
     /// One turn: this machine's displays follow what each monitor shows.
     fn reconcile_displays(&self, guard: &DisplayGuard) {
-        let now = shows(&self.monitors(), &self.desk());
-        guard.reconcile(self.machine(), &now, &self.monitors.keys(), Instant::now());
+        let me = self.machine();
+        let mut now = shows(&self.monitors(), &self.desk());
+        // A monitor that is off is treated like one showing the other machine (T-349): nobody
+        // sees this machine's display of it, so it goes off with the same rules and limits.
+        for (id, link) in self.monitors.links() {
+            if link.state == tandem_core::LinkState::Off {
+                now.insert(id, me.other());
+            }
+        }
+        guard.reconcile(me, &now, &self.monitors.keys(), Instant::now());
     }
 }
 

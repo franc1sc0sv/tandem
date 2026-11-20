@@ -10,7 +10,7 @@ import type { Bindings, DragStatus, Permission, ShortcutsView } from "../model";
 import { dragNotice } from "../drag";
 import { HOME, SCREEN_TOPICS, formatHash, parseHash, sameRoute, type Route } from "../routes";
 import { EMPTY_DESK, deskFromError } from "./live";
-import { changeToast, demoNotices, deskEvents, transferToast, type ToastSpec, type ToastTone } from "../notices";
+import { changeToast, demoNotices, deskEvents, monitorNotices, transferToast, type LinkMemo, type ToastSpec, type ToastTone } from "../notices";
 import type { ActResult, Capability, CursorEvent, DeskView, FilesView, LinkKind, OutputChunk, OutputCursor, PairActionKind, ProcessRow, Source, Topic } from "./types";
 import { updatedResult, type UpdateView } from "../updates";
 import type { Arrangement } from "../arrangement";
@@ -94,6 +94,9 @@ export class Store implements CommandContext {
     if (location) this.route = parseHash(location.hash);
   }
 
+  /** What was last announced about each monitor's link (T-349). */
+  private linkMemo: LinkMemo = {};
+
   /** The tray has no setup: only the main window opens it on pairing. */
   private get opensOnPairing(): boolean {
     return this.fixedTopics === null;
@@ -113,6 +116,12 @@ export class Store implements CommandContext {
         this.desk = d;
         // The notices for what changed, only in the main window; the tray does not repeat them.
         if (this.opensOnPairing) for (const spec of deskEvents(prev, d)) this.notify(spec);
+        // The monitors' link transitions (T-349), each state only once.
+        if (d.ready) {
+          const r = monitorNotices(this.linkMemo, d.monitors, (m) => d.machines[m]?.name ?? `machine ${m.toUpperCase()}`);
+          this.linkMemo = r.memo;
+          if (this.opensOnPairing) for (const spec of r.specs) this.notify(spec);
+        }
         // If the other machine started pairing (or the code appeared), the setup opens at that step.
         if (this.opensOnPairing && pairingShouldOpen(before, d.pair.pairing)) this.openWizard(WIZARD_PAIR);
         },

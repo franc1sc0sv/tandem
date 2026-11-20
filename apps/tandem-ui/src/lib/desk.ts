@@ -19,6 +19,8 @@ export interface DeskBox {
   /** "MacBook Pro" (built-in) or "34" · PC-Desktop". */
   label: string;
   wall: string;
+  /** Its monitor shows neither machine (off, standby, unplugged input): drawn dimmed (T-349). */
+  dim?: boolean;
 }
 
 /** A piece of the stand (support or base), as a percentage of the canvas. */
@@ -55,6 +57,9 @@ const LAPTOP_H = 0.993;
 const EXTERNAL_H = 1.005;
 
 /** The desk screens at physical scale, lowered onto the table (with their stands). */
+/** The wall of a monitor that shows neither machine: dark and flat, no machine's colour. */
+export const DIM_WALL = "#16171b";
+
 export function sceneOf(layout: LayoutView, names: Record<Machine, string>, colors: Record<Machine, string>): DeskScene {
   const usable: LayoutView = { ...layout, screens: layout.screens.filter((s) => s.usable && s.machine !== null) };
   const d: Drawing = draw(usable, DESK_DRAW);
@@ -68,7 +73,11 @@ export function sceneOf(layout: LayoutView, names: Record<Machine, string>, colo
     const who = names[s.machine];
     const height = b.height * (ext ? EXTERNAL_H : LAPTOP_H);
     const top = b.top + b.height - height;
-    desks.push({ id: s.id, machine: s.machine, left: b.left, top, width: b.width, height, label: ext ? `${s.short} · ${who}` : who, wall: wallOf(colors[s.machine]) });
+    if (s.dim) {
+      desks.push({ id: s.id, machine: s.machine, left: b.left, top, width: b.width, height, label: `${s.short} · ${s.dim}`, wall: DIM_WALL, dim: true });
+    } else {
+      desks.push({ id: s.id, machine: s.machine, left: b.left, top, width: b.width, height, label: ext ? `${s.short} · ${who}` : who, wall: wallOf(colors[s.machine]) });
+    }
     const floor = b.top + b.height;
     const mid = b.left + b.width / 2;
     if (ext) {

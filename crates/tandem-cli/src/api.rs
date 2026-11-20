@@ -5,11 +5,11 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
-use tandem_core::Machine;
+use tandem_core::{LinkState, Machine, MonitorLink};
 use tandem_proto::files::Direction;
 use tandem_proto::{
-    ExecSpec, OutputCursor, ProcessId, Project, Reply, Tunnel, TunnelProcess, UiCommand,
-    WorkspaceSpec,
+    ExecSpec, MonitorView, OutputCursor, ProcessId, Project, Reply, Tunnel, TunnelProcess,
+    UiCommand, WorkspaceSpec,
 };
 use tandemd::ipc::IpcClient;
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -260,6 +260,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Api<S> {
         match name {
             "machines" => self.machines().await,
             "resources" => self.resources(&a).await,
+            "monitors" => self.monitors().await,
             "tunnels" => match self.ask(UiCommand::GetTunnels).await? {
                 Reply::Tunnels(groups) => {
                     let groups: Vec<Value> = groups
@@ -434,6 +435,25 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Api<S> {
         }))
     }
 
+    /// The monitors with their derived link (T-349).
+    async fn monitors(&mut self) -> Result<Value, ToolError> {
+        let views = match self.ask(UiCommand::GetMonitors).await? {
+            Reply::Monitors(v) => v,
+            r => return Err(unexpected(&r)),
+        };
+        let caps = self.caps().await?;
+        let mut names = std::collections::BTreeMap::new();
+        for c in std::iter::once(&caps.here).chain(caps.peer.as_ref()) {
+            names.insert(c.machine, c.info.name.clone());
+        }
+        Ok(monitors_json(&views, |m| {
+            names
+                .get(&m)
+                .cloned()
+                .unwrap_or_else(|| format!("machine {}", m.as_str().to_uppercase()))
+        }))
+    }
+
     async fn resources(&mut self, a: &Args<'_>) -> Result<Value, ToolError> {
         let this = self.ipc.agent();
         let machine = match a.str("machine") {
@@ -570,6 +590,46 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Api<S> {
     }
 }
 
+/// The plain words of a monitor's link ("Showing PC", "Mac cable unplugged"), as the UI says them.
+pub fn link_summary(link: &MonitorLink, name: &dyn Fn(Machine) -> String) -> String {
+    match link.state {
+        LinkState::ShowsMachine(m) => format!("Showing {}", name(m)),
+        LinkState::ActiveInputUnplugged(m) => format!("{} cable unplugged", name(m)),
+        LinkState::Standby => "Monitor in standby".to_owned(),
+        LinkState::Off => "Monitor off".to_owned(),
+        LinkState::Unknown => "State unknown".to_owned(),
+    }
+}
+
+/// `monitors`: each monitor with its derived state and each end's cable state.
+pub fn monitors_json(views: &[MonitorView], name: impl Fn(Machine) -> String) -> Value {
+    let list: Vec<Value> = views
+        .iter()
+        .map(|v| {
+            let link = v.link;
+            let (state, machine) = match link.state {
+                LinkState::ShowsMachine(m) => ("shows_machine", Some(m)),
+                LinkState::ActiveInputUnplugged(m) => ("active_input_unplugged", Some(m)),
+                LinkState::Standby => ("standby", None),
+                LinkState::Off => ("off", None),
+                LinkState::Unknown => ("unknown", None),
+            };
+            json!({
+                "id": v.id,
+                "name": v.name,
+                "state": state,
+                "machine": machine.map(Machine::as_str),
+                "summary": link_summary(&link, &name),
+                "power": link.power,
+                "cables": link.cables,
+                "owner": v.owner.map(Machine::as_str),
+                "input": v.report.as_ref().and_then(|r| r.input),
+            })
+        })
+        .collect();
+    json!({ "monitors": list })
+}
+
 fn parse_machine(s: &str) -> Result<Machine, ToolError> {
     Machine::parse(&s.trim().to_ascii_lowercase())
         .ok_or_else(|| ToolError::Args(format!("`{s}` is not a machine: use `a` or `b`")))
@@ -644,6 +704,61 @@ mod tests {
             }
             proptest::prop_assert_eq!(got, bytes);
         }
+    }
+
+    /// T-349: `monitors` returns the derived state and each end's cable state.
+    #[test]
+    fn monitors_carry_the_link_state_and_each_cable() {
+        use tandem_core::{CableState, Cables, PowerState};
+        use tandem_proto::{MonitorCompat, MonitorView};
+        let view = |state, a, b, power| MonitorView {
+            id: "lc34-1".into(),
+            name: "LC34G55T".into(),
+            compat: MonitorCompat::Compatible { protocol: 2 },
+            seen_by: vec![Machine::A, Machine::B],
+            via: vec![],
+            owner: Some(Machine::B),
+            report: None,
+            link: MonitorLink {
+                state,
+                power,
+                cables: Cables { a, b },
+            },
+        };
+        let name = |m: Machine| if m == Machine::A { "Mac" } else { "PC" }.to_owned();
+        let views = [
+            view(
+                LinkState::ShowsMachine(Machine::B),
+                CableState::Unknown,
+                CableState::Connected,
+                PowerState::On,
+            ),
+            view(
+                LinkState::ActiveInputUnplugged(Machine::A),
+                CableState::Disconnected,
+                CableState::Connected,
+                PowerState::Standby,
+            ),
+            view(
+                LinkState::Off,
+                CableState::Connected,
+                CableState::Connected,
+                PowerState::Off,
+            ),
+        ];
+        let v = monitors_json(&views, name);
+        let m = &v["monitors"];
+        assert_eq!(m[0]["state"], "shows_machine");
+        assert_eq!(m[0]["machine"], "b");
+        assert_eq!(m[0]["summary"], "Showing PC");
+        assert_eq!(m[0]["cables"], json!({"a": "unknown", "b": "connected"}));
+        assert_eq!(m[0]["power"], "on");
+        assert_eq!(m[1]["state"], "active_input_unplugged");
+        assert_eq!(m[1]["summary"], "Mac cable unplugged");
+        assert_eq!(m[1]["cables"]["a"], "disconnected");
+        assert_eq!(m[2]["summary"], "Monitor off");
+        assert_eq!(m[2]["machine"], Value::Null);
+        assert!(find("monitors").is_some());
     }
 
     #[test]

@@ -9,6 +9,8 @@
 
 pub mod capture;
 pub mod emulate;
+#[cfg(windows)]
+pub mod hotplug;
 
 /// Mark in `dwExtraInfo` of everything Tandem injects ("TNDM"), so that the capture
 /// can discard its own events without depending only on `LL*HF_INJECTED`.

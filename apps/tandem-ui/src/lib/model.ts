@@ -94,6 +94,19 @@ export interface MonitorEventJson {
   input: MonitorInput | null;
 }
 
+/** One machine's cable to a monitor (`tandem_core::CableState`, T-349). */
+export type CableStateJson = "connected" | "disconnected" | "unknown";
+/** Whether a monitor is on (`tandem_core::PowerState`). */
+export type PowerStateJson = "on" | "standby" | "off" | "unknown";
+/** The one state a monitor is in (`tandem_core::LinkState`). */
+export type LinkStateJson = { shows_machine: Machine } | { active_input_unplugged: Machine } | "standby" | "off" | "unknown";
+/** A monitor's derived link (`tandem_core::MonitorLink`). */
+export interface LinkJson {
+  state: LinkStateJson;
+  power: PowerStateJson;
+  cables: Record<Machine, CableStateJson>;
+}
+
 /** A monitor as the agent sends it (`tandem_proto::MonitorView`). */
 export interface MonitorJson {
   id: string;
@@ -103,6 +116,8 @@ export interface MonitorJson {
   via: [Machine, MonitorInput][];
   owner: Machine | null;
   report: { id: string; input: MonitorInput | null; power_on: boolean | null; signal: boolean | null; events: MonitorEventJson[] } | null;
+  /** The derived link (T-349); absent from an older agent. */
+  link?: LinkJson;
 }
 
 export interface DeskState {

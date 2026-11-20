@@ -3,7 +3,7 @@
 
 use std::sync::{Arc, Weak};
 
-use tandem_core::{DisplayKey, MonitorInput, Plan};
+use tandem_core::{DisplayKey, Machine, MonitorInput, Plan};
 use tandem_monitor::LocalMonitors;
 use tandem_proto::{ControlMsg, ModuleId, MonitorReport, MonitorView, Reply};
 use tokio::sync::watch;
@@ -61,11 +61,27 @@ impl Agent {
     pub(super) fn sync_monitor_peer(&self) {
         let other = self.machine().other();
         let peer = if self.state().is_on(other) {
-            self.capabilities().peer.map(|c| c.monitors)
+            self.capabilities().peer
         } else {
             None
         };
-        self.monitors.set_peer(peer);
+        self.monitors
+            .set_peer_cables(peer.as_ref().map(|c| c.cables.clone()));
+        self.monitors.set_peer(peer.map(|c| c.monitors));
+    }
+
+    /// Why `monitor` must not be switched to `machine`'s input: that machine's cable is
+    /// disconnected, so it would leave a black screen (T-349). Checked before any DDC write.
+    pub(super) fn unplugged(&self, monitor: &str, machine: Machine) -> Option<String> {
+        let views = self.monitors();
+        let view = views.iter().find(|v| v.id == monitor)?;
+        view.link.refuses_switch_to(machine).then(|| {
+            format!(
+                "{}: the cable of {} is unplugged; switching to it would leave a black screen",
+                view.name,
+                self.machine_name(machine)
+            )
+        })
     }
 
     /// [`tandem_proto::UiCommand::SwitchMonitor`]: a transaction done by the owner.
@@ -86,6 +102,10 @@ impl Agent {
         if view.owner.is_none() {
             return Reply::Rejected(format!("{}: {NO_OWNER}", view.name));
         }
+        let to = crate::monitors::inputs(&self.desk(), &monitor, Some(&view)).machine_on(input);
+        if let Some(why) = to.and_then(|m| self.unplugged(&monitor, m)) {
+            return Reply::Rejected(why);
+        }
         let what = format!("set {input} on {}", view.name);
         self.start_plan(&what, move |_| Ok(Plan::switch_monitor(monitor, input)))
     }
@@ -102,7 +122,12 @@ async fn monitor_loop(agent: Weak<Agent>, times: MonitorTimes) {
         let Some(a) = agent.upgrade() else { return };
         a.monitors
             .set_peer_reachable(*connected.borrow_and_update());
-        let scan = last_scan.is_none_or(|t| t.elapsed() >= times.scan_every);
+        // The desk's cables, for the links (T-349). Not a wake-up of its own: an extra turn would
+        // spend the periodic scan early (on a machine just powered on, before its bus answers).
+        a.monitors.set_desk(&a.desk());
+        // A display change (hot-plug, T-349) rescans now instead of at the next period.
+        let scan = a.monitors.take_scan_request()
+            || last_scan.is_none_or(|t| t.elapsed() >= times.scan_every);
         if scan {
             last_scan = Some(tokio::time::Instant::now());
         }
@@ -113,7 +138,7 @@ async fn monitor_loop(agent: Weak<Agent>, times: MonitorTimes) {
         } else if scan {
             a.set_module_problem(ModuleId::Monitors, None);
         }
-        if tick.channels_changed {
+        if a.monitors.take_cables_changed() | tick.channels_changed {
             a.refresh_capabilities();
         }
         if let Some(reports) = tick.reports {

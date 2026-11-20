@@ -162,6 +162,12 @@ fn start_monitors(agent: &Arc<Agent>) {
             );
             // The task lives as long as the agent: it ends on its own when it is dropped.
             drop(agent.start_monitors(core, crate::monitors::MonitorTimes::default(), false));
+            // A display plugged in, unplugged, turned on or off: rescan now (T-349).
+            if let Some(changes) = tandem_input::hotplug::system()
+                && let Err(e) = agent.monitor_hub().watch_displays(changes.as_ref())
+            {
+                tracing::warn!("display changes are not followed, only the periodic scan: {e}");
+            }
         }
         Err(e) => tracing::info!("monitors: {e}"),
     }

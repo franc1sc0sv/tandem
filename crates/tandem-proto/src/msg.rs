@@ -8,8 +8,8 @@
 
 use serde::{Deserialize, Serialize};
 use tandem_core::{
-    Config, DeskPatch, DeskVersion, HistoryEntry, Machine, MachineInfo, MonitorInput, Side, State,
-    Step,
+    CableState, Config, DeskPatch, DeskVersion, HistoryEntry, Machine, MachineInfo, MonitorInput,
+    MonitorLink, Side, State, Step,
 };
 
 use crate::cursor::CursorSample;
@@ -286,6 +286,16 @@ pub struct Capabilities {
     /// The macOS Local Network permission of the agent's process (T-344); `None` on a system
     /// without it.
     pub local_network: Option<LocalNetwork>,
+    /// This machine's end of each shared monitor's cable (T-349): every monitor it lists or the
+    /// desk's `[[cables]]` names, after its first scan. Empty until then.
+    pub cables: Vec<CableReport>,
+}
+
+/// One machine's end of a monitor cable, as that machine reports it (T-349).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CableReport {
+    pub monitor: String,
+    pub state: CableState,
 }
 
 /// Whether macOS lets the agent reach the local network (T-344). There is no API that reads it
@@ -486,6 +496,8 @@ pub struct MonitorView {
     pub owner: Option<Machine>,
     /// The latest the owner read; `None` while there is no reading.
     pub report: Option<MonitorReport>,
+    /// The derived link (T-349): which machine it shows, each end's cable and its power.
+    pub link: MonitorLink,
 }
 
 /// A machine's keyboard and mouse engine.
@@ -1324,6 +1336,14 @@ pub(crate) mod samples {
                 ],
                 owner: Some(Machine::B),
                 report: Some(monitor_report()),
+                link: MonitorLink {
+                    state: tandem_core::LinkState::ShowsMachine(Machine::B),
+                    power: tandem_core::PowerState::On,
+                    cables: tandem_core::Cables {
+                        a: CableState::Unknown,
+                        b: CableState::Connected,
+                    },
+                },
             },
             MonitorView {
                 id: "odyssey-0f0f0f0f".into(),
@@ -1335,6 +1355,7 @@ pub(crate) mod samples {
                 via: vec![],
                 owner: None,
                 report: None,
+                link: MonitorLink::default(),
             },
         ]
     }
@@ -1574,6 +1595,10 @@ pub(crate) mod samples {
                     },
                 ],
                 local_network: None,
+                cables: vec![CableReport {
+                    monitor: "lc34g55t-0a1b2c3d".into(),
+                    state: CableState::Disconnected,
+                }],
             },
             Capabilities {
                 machine: Machine::A,
@@ -1609,6 +1634,7 @@ pub(crate) mod samples {
                 hardware: Hardware::default(),
                 monitors: vec![],
                 local_network: Some(LocalNetwork::Denied),
+                cables: vec![],
             },
         ]
     }

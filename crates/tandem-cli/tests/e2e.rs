@@ -244,6 +244,7 @@ async fn an_mcp_client_opens_a_tunnel_runs_reads_copies_and_closes() {
     for want in [
         "machines",
         "resources",
+        "monitors",
         "tunnel_open",
         "exec",
         "output",
@@ -256,6 +257,9 @@ async fn an_mcp_client_opens_a_tunnel_runs_reads_copies_and_closes() {
     // Machines and resources of the other (once there is a link).
     let machines = mcp.tool("machines", json!({})).await.unwrap();
     assert_eq!(machines["this"], "a");
+    // T-349: the monitors and their link state (these agents have no DDC bus).
+    let monitors = mcp.tool("monitors", json!({})).await.unwrap();
+    assert_eq!(monitors, json!({"monitors": []}));
     within(async {
         while mcp.tool("resources", json!({})).await.is_err() {
             tokio::time::sleep(Duration::from_millis(50)).await;

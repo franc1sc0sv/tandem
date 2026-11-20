@@ -7,7 +7,7 @@
 
 import type { Arrangement, LayoutView } from "../arrangement";
 import type { CrossSample } from "../crossing";
-import type { AdminView, Bindings, Machine, MonitorInput, Notice, Os, PairingView, PeerView, Permission, SceneJson, SetupView, ShortcutsView, TxnView, DragStatus } from "../model";
+import type { AdminView, Bindings, CableStateJson, Machine, MonitorInput, Notice, Os, PairingView, PeerView, Permission, PowerStateJson, SceneJson, SetupView, ShortcutsView, TxnView, DragStatus } from "../model";
 import type { PermissionState } from "../permissions";
 import type { UpdateView } from "../updates";
 
@@ -299,6 +299,17 @@ export interface MonitorUi {
   shows: Machine | null;
   /** From newest to oldest (up to 3). */
   events: MonitorEventView[];
+  /** Which machine it shows, its cables and its power, as the agent derived them (T-349). */
+  link?: LinkUi;
+}
+
+/** A monitor's link state for the UI (T-349). */
+export interface LinkUi {
+  kind: "shows" | "unplugged" | "standby" | "off" | "unknown";
+  /** The machine shown (`shows`) or whose cable is unplugged (`unplugged`). */
+  machine: Machine | null;
+  power: PowerStateJson;
+  cables: Record<Machine, CableStateJson>;
 }
 
 /** Pair with the other machine (what the agent sends). */

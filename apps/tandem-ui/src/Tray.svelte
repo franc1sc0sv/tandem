@@ -13,6 +13,7 @@
   import { shortName } from "./lib/commands";
   import { machineLine, shortLabels } from "./lib/tunnels";
   import { LINK_NAME } from "./lib/machines";
+  import { isDim, linkText, shortMonitor } from "./lib/monitors";
   import type { Machine } from "./lib/model";
   import type { Store } from "./lib/store/store.svelte";
   import type { TunnelView } from "./lib/store/types";
@@ -57,6 +58,11 @@
   /** Trouble state (`V3-States`) in one line: the tray mockup only draws the VRAM notice. */
   const peer = $derived<Machine>(desk.here === "a" ? "b" : "a");
   const canWake = $derived(desk.trouble === "peer-off" && store.can("power"));
+  /** Monitors that show neither machine (T-349): one line each, "34" · Mac cable unplugged". */
+  const dark = $derived(desk.monitors.flatMap((m) => {
+    const text = isDim(m.link) ? linkText(m.link, (x) => name(x)) : null;
+    return text ? [{ id: m.id, text: `${shortMonitor(m.name)} · ${text}` }] : [];
+  }));
 </script>
 
 <div class="pop">
@@ -98,6 +104,10 @@
       {/each}
     </div>
   {/if}
+
+  {#each dark as d (d.id)}
+    <div class="warn" role="status"><Icon name="power" size={16} stroke={2} /><span class="fill">{d.text}</span></div>
+  {/each}
 
   {#if desk.trouble !== "none"}
     <div class="warn" role="status">

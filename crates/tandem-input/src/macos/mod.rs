@@ -7,11 +7,14 @@
 //! - [`capture`]: CGEventTap on the server (T-022).
 //! - [`emulate`]: injection with `CGEventPost` (T-023, docs/research/input-engine.md).
 //! - `display_power`: turning a display off and on (T-341).
+//! - `hotplug`: display changes (T-349).
 
 pub mod capture;
 #[cfg(target_os = "macos")]
 pub mod display_power;
 pub mod emulate;
+#[cfg(target_os = "macos")]
+pub mod hotplug;
 
 /// Tag that Tandem's injection writes into `kCGEventSourceUserData` of every event it
 /// posts ("TNDM"). The tap lets tagged events through without forwarding them, so what

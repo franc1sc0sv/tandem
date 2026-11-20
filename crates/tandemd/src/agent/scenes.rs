@@ -257,6 +257,15 @@ impl Agent {
         let Some(scene) = desk.scenes.iter().find(|s| s.id == id).cloned() else {
             return Reply::Rejected(format!("scene `{id}` does not exist"));
         };
+        // Preflight (T-349): a monitor step to a machine whose cable is unplugged would leave a
+        // black screen. Refused before anything is done, so there is nothing to roll back.
+        if let Some(why) = scene
+            .monitors
+            .iter()
+            .find_map(|(m, machine)| self.unplugged(m, *machine))
+        {
+            return Reply::Rejected(format!("scene \"{}\" cannot be applied: {why}", scene.name));
+        }
         let abilities = self.abilities();
         let backend = self.scene_backend();
         let run = SceneRun {
@@ -288,6 +297,7 @@ impl Agent {
     /// What the monitors read changed (T-111): the new compatible ones are introduced and the
     /// active scene comes from each one's real input.
     pub(super) fn reconcile_monitors(&self) {
+        self.monitors.set_desk(&self.desk());
         self.introduce_monitors();
         self.learn_screens();
         self.recognize_scene();

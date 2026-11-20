@@ -102,6 +102,8 @@ pub fn local(
         monitors: Vec::new(),
         // Set by the agent with what its probe found (T-344, [`crate::local_network`]).
         local_network: None,
+        // Set by the agent with its cable ends ([`crate::monitors::MonitorHub::own_cables`], T-349).
+        cables: Vec::new(),
     }
 }
 
