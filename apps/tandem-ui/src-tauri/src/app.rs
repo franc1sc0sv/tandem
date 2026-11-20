@@ -25,7 +25,7 @@ use tauri::tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, Tray
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, WebviewWindow, WindowEvent, Wry};
 use tauri_plugin_global_shortcut::{GlobalShortcut, ShortcutState};
 
-use crate::launch_agent::Report;
+use crate::launch_agent::{Report, ReviveGate};
 use crate::session::{self, Action, ActionResult, Handle, Notice, Sink, Snapshot};
 use crate::setup::{self, Permission, SetupView};
 use crate::shortcuts::{self, Bindings, ShortcutAction, Shortcuts, ShortcutsView};
@@ -636,9 +636,15 @@ fn start_session(app: &AppHandle) -> Handle {
     match status::endpoint_from_env() {
         Ok(endpoint) => {
             let shown = Some(endpoint.display().to_string());
+            let gate = Arc::new(Mutex::new(ReviveGate::default()));
             let connect = move || {
                 let endpoint = endpoint.clone();
-                async move { ipc::connect(&endpoint).await }
+                let gate = gate.clone();
+                async move {
+                    let connected = ipc::connect(&endpoint).await;
+                    watch_agent(&gate, connected.as_ref().err());
+                    connected
+                }
             };
             let (handle, run) = session::start(connect, shown, sink);
             tauri::async_runtime::spawn(run);
@@ -647,6 +653,43 @@ fn start_session(app: &AppHandle) -> Handle {
         Err(reason) => session::unavailable(None, reason),
     }
 }
+
+/// While the app is open, a `tandemd` that launchd keeps loaded but without a process (it
+/// exited in a way `KeepAlive` does not relaunch) is started again (T-331). The gate keeps it
+/// to the launchd throttle.
+fn watch_agent(gate: &Mutex<ReviveGate>, failed: Option<&ipc::IpcError>) {
+    let ask = {
+        let mut gate = gate.lock().unwrap_or_else(PoisonError::into_inner);
+        match failed {
+            Some(e) if status::nobody_listening(e) => gate.missed(Instant::now()),
+            _ => {
+                gate.reached();
+                false
+            }
+        }
+    };
+    if ask {
+        revive_agent();
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn revive_agent() {
+    // `launchctl` blocks for milliseconds: off the session's task.
+    tauri::async_runtime::spawn_blocking(|| {
+        use crate::launch_agent::{self, Revived, system::SystemLaunchd};
+        match SystemLaunchd::current_user().and_then(|l| launch_agent::revive(&l)) {
+            Ok(Revived::Started) => {
+                eprintln!("tandem-ui: tandemd was loaded but not running; started it");
+            }
+            Ok(Revived::NotLoaded | Revived::Running) => {}
+            Err(e) => eprintln!("tandem-ui: could not start tandemd: {e}"),
+        }
+    });
+}
+
+#[cfg(not(target_os = "macos"))]
+fn revive_agent() {}
 
 fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let handle = app.handle().clone();
