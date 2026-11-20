@@ -64,7 +64,7 @@ All of these depend on code, UI and mockup files that are byte-identical between
 | F9 / T-322 behavior | Round 7: F9 8 PASS on the full suite; unit test above |
 | Smoke on three fresh pairs | Round 7: 144 PASS, 0 FAIL ([`smoke.log`](acceptance/2026-11-19-r7/smoke.log)) |
 | Baseline (`fmt`, `clippy -D warnings`, `cargo test`, `pnpm test`, `pnpm check`, `pnpm build`) | Round 7: green. Source unchanged; CI on `6356a95` ran the same gate and passed |
-| `[hw]` items | As in round 7: covered by the hardware suite (T-123) or listed under their task's `## Verificación en hardware pendiente` |
+| `[hw]` items | As in round 7: covered by the hardware suite (T-123) or listed under their task's `## Pending hardware verification` |
 
 ## Tasks created
 
