@@ -1677,10 +1677,10 @@ mod tests {
     fn a_discovery_change_only_adds_what_the_manager_does_not_follow() {
         let have = [
             status(LinkKind::Usb4, "[fe80::c0c:1e4f:2370:bfc5%21]:52000"),
-            status(LinkKind::Wifi, "192.168.1.191:52000"),
+            status(LinkKind::Wifi, "192.0.2.10:52000"),
         ];
         let same = [
-            link(LinkKind::Wifi, "192.168.1.191:52000"),
+            link(LinkKind::Wifi, "192.0.2.10:52000"),
             link(LinkKind::Usb4, "[fe80::c0c:1e4f:2370:bfc5%21]:52000"),
         ];
         assert!(links_to_add(&same, &have).is_empty());
