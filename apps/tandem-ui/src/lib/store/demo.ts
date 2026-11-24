@@ -23,7 +23,7 @@
 import { exitSide, isVertical, type Arrangement, type LayoutScreen, type LayoutView } from "../arrangement";
 import { perUserAdminNote, isSwitchable } from "../capabilities";
 import type { CrossSample } from "../crossing";
-import type { AdminView, Bindings, MonitorInput, PairingView, Permission, SceneJson, SetupView, ShortcutsView, Step, TxnView } from "../model";
+import type { AdminView, Bindings, BuiltinMode, MonitorInput, PairingView, Permission, SceneJson, SetupView, ShortcutsView, Step, TxnView } from "../model";
 import { measuredText } from "../network";
 import { sceneView } from "../scenes";
 import { isDim, linkText } from "../monitors";
@@ -615,6 +615,7 @@ export function demoDesk(o: DemoOptions): DeskView {
       live: power === "on" ? s.live : null,
       wake: here ? null : { mac: "aa:bb:cc:dd:ee:ff" },
       ...(s.inputDevices ? { inputDevices: s.inputDevices } : {}),
+      ...(s.os === "macos" ? { builtinDisplay: "external-only" as const } : {}),
     };
   };
   const base = demoMonitors(sa, sb).map((m) => (o.txn === "fail" && m.compat.ok ? { ...m, input: "hdmi" as const, shows: "a" as const, owner: "b" as const } : m));
@@ -748,6 +749,14 @@ export class DemoSource implements Source {
   async setLockShortcut(lock: string[]): Promise<ActResult> {
     this.set({ ...this.desk, lockShortcut: lock });
     return { ok: true, text: "Lock shortcut saved" };
+  }
+
+  async setBuiltinDisplay(machine: Machine, mode: BuiltinMode): Promise<ActResult> {
+    const m = this.desk.machines[machine];
+    if (!m || m.os !== "macos") return { ok: false, reason: "That machine has no built-in display" };
+    this.bump();
+    this.set({ ...this.desk, machines: { ...this.desk.machines, [machine]: { ...m, builtinDisplay: mode } } });
+    return { ok: true };
   }
 
   async setPrefs(p: { cmdCtrl: boolean; dragFiles: boolean }): Promise<ActResult> {

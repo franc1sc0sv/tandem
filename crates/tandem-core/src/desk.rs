@@ -110,6 +110,80 @@ impl Modules {
     }
 }
 
+/// What a Mac does with its built-in display while an external display is active (T-351).
+/// Without any active external display the built-in display always stays on, whatever the mode.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, PartialOrd, Ord,
+)]
+#[serde(rename_all = "kebab-case")]
+pub enum BuiltinMode {
+    /// Off: for a Mac used with its lid closed, only the external monitors count.
+    #[default]
+    ExternalOnly,
+    /// It mirrors the main external display.
+    Mirror,
+    /// A screen of its own, as macOS leaves it.
+    Extended,
+}
+
+impl BuiltinMode {
+    pub const ALL: [BuiltinMode; 3] = [
+        BuiltinMode::ExternalOnly,
+        BuiltinMode::Mirror,
+        BuiltinMode::Extended,
+    ];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            BuiltinMode::ExternalOnly => "external-only",
+            BuiltinMode::Mirror => "mirror",
+            BuiltinMode::Extended => "extended",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|m| m.as_str() == s)
+    }
+}
+
+/// The built-in display mode of each machine (`[builtin_display]`, T-351). A machine without one
+/// has the default ([`BuiltinMode::ExternalOnly`]); a machine without a built-in display ignores it.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, PartialOrd, Ord,
+)]
+#[serde(deny_unknown_fields)]
+pub struct BuiltinDisplays {
+    #[serde(default)]
+    pub a: Option<BuiltinMode>,
+    #[serde(default)]
+    pub b: Option<BuiltinMode>,
+}
+
+impl BuiltinDisplays {
+    /// The mode of `side`, with the default when it was never chosen.
+    pub fn of(&self, side: Machine) -> BuiltinMode {
+        match side {
+            Machine::A => self.a,
+            Machine::B => self.b,
+        }
+        .unwrap_or_default()
+    }
+
+    pub fn set(&mut self, side: Machine, mode: BuiltinMode) {
+        match side {
+            Machine::A => self.a = Some(mode),
+            Machine::B => self.b = Some(mode),
+        }
+    }
+
+    pub fn swapped(self) -> Self {
+        BuiltinDisplays {
+            a: self.b,
+            b: self.a,
+        }
+    }
+}
+
 /// `#rrggbb`.
 pub fn valid_color(color: &str) -> bool {
     color.len() == 7 && color.starts_with('#') && color[1..].chars().all(|c| c.is_ascii_hexdigit())
@@ -155,6 +229,11 @@ pub enum DeskPatch {
     },
     /// A monitor's cabling (replaces any it had; T-111).
     Cable(MonitorCable),
+    /// What `machine` does with its built-in display (T-351).
+    BuiltinDisplay {
+        machine: Machine,
+        mode: BuiltinMode,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -278,6 +357,9 @@ impl Desk {
                 module,
                 on,
             } => self.modules.set(machine, module.trim(), on),
+            DeskPatch::BuiltinDisplay { machine, mode } => {
+                self.builtin_display.set(machine, mode);
+            }
             DeskPatch::Cable(cable) => {
                 match self.cables.iter_mut().find(|c| c.monitor == cable.monitor) {
                     Some(c) => *c = cable,
@@ -324,6 +406,10 @@ impl Desk {
             (self.prefs != new.prefs, "keyboard and mouse"),
             (self.modules != new.modules, "modules"),
             (self.data != new.data, "data over Wi-Fi"),
+            (
+                self.builtin_display != new.builtin_display,
+                "built-in display",
+            ),
         ];
         let changed: Vec<&str> = sections
             .iter()
@@ -774,6 +860,31 @@ mod tests {
             d.apply(DeskPatch::Scenes(vec![Scene::new("", "x")]))
                 .is_err()
         );
+    }
+
+    #[test]
+    fn the_built_in_display_mode_defaults_to_external_only_and_is_set_per_machine() {
+        let mut d = known();
+        assert_eq!(d.builtin_display.of(Machine::A), BuiltinMode::ExternalOnly);
+        d.apply(DeskPatch::BuiltinDisplay {
+            machine: Machine::A,
+            mode: BuiltinMode::Mirror,
+        })
+        .unwrap();
+        assert_eq!(d.builtin_display.of(Machine::A), BuiltinMode::Mirror);
+        assert_eq!(d.builtin_display.of(Machine::B), BuiltinMode::ExternalOnly);
+        assert_eq!(
+            known().summary_of_changes(&d).as_deref(),
+            Some("Built-in display")
+        );
+        let swapped = d.clone().swap_sides();
+        assert_eq!(swapped.builtin_display.of(Machine::B), BuiltinMode::Mirror);
+        for m in BuiltinMode::ALL {
+            assert_eq!(BuiltinMode::parse(m.as_str()), Some(m));
+        }
+        let toml: Desk = toml::from_str("[builtin_display]\nb = \"extended\"\n").unwrap();
+        assert_eq!(toml.builtin_display.of(Machine::B), BuiltinMode::Extended);
+        assert!(toml::from_str::<Desk>("[builtin_display]\nb = \"off\"\n").is_err());
     }
 
     #[test]

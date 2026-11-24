@@ -10,7 +10,7 @@ import type { Bridge } from "../bridge";
 import type { CrossSample } from "../crossing";
 import { nextLive, summaryOf } from "../machine";
 import { machineColor, machineName, other } from "../machines";
-import type { Action, ActionResult, AdminView, Bindings, Caps, Desk, DragStatus, Link, Machine, MachineCaps, MonitorInput, Side, Permission, ResourceSample, SceneJson, SetupView, ShortcutsView, Snapshot, TxnView } from "../model";
+import type { Action, ActionResult, AdminView, Bindings, BuiltinMode, Caps, Desk, DragStatus, Link, Machine, MachineCaps, MonitorInput, Side, Permission, ResourceSample, SceneJson, SetupView, ShortcutsView, Snapshot, TxnView } from "../model";
 import { devicesOfHub } from "../wizard";
 import { gbpsOf, measuredText, networkFromWire, primaryOf } from "../network";
 import { deskScreens, monitorsUi } from "../monitors";
@@ -137,6 +137,7 @@ function machineView(who: Machine, here: Machine, caps: Caps, snap: Extract<Snap
     inputDevices: devicesOfHub(c?.hub),
     live: shown,
     wake: who === here ? null : { mac: caps.here.power.wol_mac ?? null },
+    ...(os === "macos" ? { builtinDisplay: snap.desk.builtin_display?.[who] ?? "external-only" } : {}),
   };
 }
 
@@ -471,6 +472,10 @@ export class LiveSource implements Source {
 
   setPrefs(p: { cmdCtrl: boolean; dragFiles: boolean }): Promise<ActResult> {
     return this.ask({ kind: "set_prefs", cmd_ctrl: p.cmdCtrl, drag_files: p.dragFiles });
+  }
+
+  setBuiltinDisplay(machine: Machine, mode: BuiltinMode): Promise<ActResult> {
+    return this.ask({ kind: "set_builtin_display", machine, mode });
   }
 
   setDeskName(name: string): Promise<ActResult> {

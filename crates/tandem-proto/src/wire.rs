@@ -242,6 +242,12 @@ mod tests {
                                     c
                                 })
                                 .collect(),
+                            builtin_display: tandem_core::BuiltinDisplays {
+                                a: None,
+                                b: tandem_core::BuiltinMode::ALL
+                                    .get(usize::from(data.0 % 4))
+                                    .copied(),
+                            },
                         },
                     }
                 },

@@ -15,8 +15,8 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use tandem_core::{
-    Align, Arrangement, Config, DeskPatch, InputPrefs, Machine, MonitorInput, Scene, Shortcuts,
-    Side, State, Step,
+    Align, Arrangement, BuiltinMode, Config, DeskPatch, InputPrefs, Machine, MonitorInput, Scene,
+    Shortcuts, Side, State, Step,
 };
 use tandem_proto::{
     AgentToUi, Capabilities, CursorSample, DeskCapabilities, DragStatus, EnvKind, Environment,
@@ -884,6 +884,11 @@ pub enum Action {
         cmd_ctrl: bool,
         drag_files: bool,
     },
+    /// What the Mac `machine` does with its built-in display (`EditDesk { BuiltinDisplay }`, T-351).
+    SetBuiltinDisplay {
+        machine: Machine,
+        mode: BuiltinMode,
+    },
     /// The desk's lock shortcut (`EditDesk { Shortcuts }`); empty = no shortcut.
     SetLockShortcut {
         lock: Vec<String>,
@@ -992,6 +997,9 @@ impl From<Action> for UiCommand {
                     cmd_ctrl,
                     drag_files,
                 }),
+            },
+            Action::SetBuiltinDisplay { machine, mode } => UiCommand::EditDesk {
+                patch: DeskPatch::BuiltinDisplay { machine, mode },
             },
             Action::SetLockShortcut { lock } => UiCommand::EditDesk {
                 patch: DeskPatch::Shortcuts(Shortcuts { lock }),
@@ -2451,7 +2459,8 @@ mac = "aa:bb:cc:dd:ee:ff"
                 "prefs": { "cmd_ctrl": true, "drag_files": true },
                 "modules": { "a": {}, "b": {} },
                 "data": { "wifi_cap_percent": 50, "wifi_cap_mbps": null },
-                "cables": []
+                "cables": [],
+                "builtin_display": { "a": null, "b": null }
             })
         );
         assert_eq!(
@@ -2801,6 +2810,17 @@ mac = "aa:bb:cc:dd:ee:ff"
                     cmd_ctrl: false,
                     drag_files: true
                 })
+            }
+        );
+        assert_eq!(
+            read(
+                serde_json::json!({ "kind": "set_builtin_display", "machine": "b", "mode": "mirror" })
+            ),
+            UiCommand::EditDesk {
+                patch: DeskPatch::BuiltinDisplay {
+                    machine: Machine::B,
+                    mode: BuiltinMode::Mirror
+                }
             }
         );
         assert_eq!(

@@ -171,7 +171,7 @@ pub fn set_wol_mac(path: &Path, mac: Option<tandem_power::MacAddr>) -> Result<()
 /// The shared desk of `sync` over the text of `tandem.toml` (T-084, T-099): the
 /// `[[screens]]` (the ones already there are updated in place, new ones are added at the
 /// end and the ones no longer there are removed), `[machines]`, `[arrangement]`, `[[scenes]]`,
-/// `[shortcuts]`, `[prefs]`, `[modules]`, `[data]` and the stamp (`desk_rev`, `desk_at`, `desk_origin`,
+/// `[shortcuts]`, `[prefs]`, `[modules]`, `[data]`, `[builtin_display]` and the stamp (`desk_rev`, `desk_at`, `desk_origin`,
 /// `desk_sum`). What is local-only (machine, network, power, `[input]`) is not touched. The
 /// v0.1 `[[monitors]]` and what of the desk used to live in `[input]` are deleted.
 ///
@@ -251,6 +251,7 @@ pub fn with_desk(
     prefs.remove("clipboard");
     fill_modules(&mut doc, &desk.modules)?;
     fill_data(&mut doc, &desk.data)?;
+    fill_builtin(&mut doc, desk.builtin_display)?;
     write_cables(&mut doc, &desk.cables);
     // What the desk used to keep in `[input]`.
     if let Some(input) = doc.get_mut("input").and_then(Item::as_table_like_mut) {
@@ -386,6 +387,29 @@ fn fill_data(doc: &mut DocumentMut, data: &DataPrefs) -> Result<(), ConfigEditEr
         }
         None => {
             t.remove("wifi_cap_mbps");
+        }
+    }
+    Ok(())
+}
+
+/// `[builtin_display]` (T-351): only the machines with a mode chosen; with none, without the table.
+fn fill_builtin(
+    doc: &mut DocumentMut,
+    modes: tandem_core::BuiltinDisplays,
+) -> Result<(), ConfigEditError> {
+    if modes == tandem_core::BuiltinDisplays::default() {
+        doc.remove("builtin_display");
+        return Ok(());
+    }
+    let t = section(doc, "builtin_display")?;
+    for (side, mode) in [(Machine::A, modes.a), (Machine::B, modes.b)] {
+        match mode {
+            Some(m) => {
+                t.insert(side.as_str(), toml_edit::value(m.as_str()));
+            }
+            None => {
+                t.remove(side.as_str());
+            }
         }
     }
     Ok(())
@@ -742,6 +766,23 @@ scale = 2.0
     }
 
     #[test]
+    fn the_built_in_display_mode_travels_with_the_desk() {
+        let plain = with_desk(PC, Machine::B, &sync_of(PC, 2)).unwrap();
+        assert!(!plain.contains("builtin_display"));
+        let mut sync = sync_of(PC, 3);
+        sync.desk
+            .builtin_display
+            .set(Machine::B, tandem_core::BuiltinMode::Mirror);
+        let out = with_desk(PC, Machine::B, &sync).unwrap();
+        assert!(out.contains("[builtin_display]\nb = \"mirror\""), "{out}");
+        let cfg = AgentConfig::from_toml(&out).unwrap();
+        assert_eq!(cfg.desk.builtin_display, sync.desk.builtin_display);
+        sync.desk.builtin_display = Default::default();
+        let back = with_desk(&out, Machine::B, &sync).unwrap();
+        assert!(!back.contains("builtin_display"), "{back}");
+    }
+
+    #[test]
     fn the_keyboard_is_saved_without_touching_the_rest() {
         let text = format!("{PC}\n[input]\nserver = \"a\"\n\n[prefs]\ndrag_files = false\n");
         let out = with_keyboard(&text, Machine::B).unwrap();
@@ -973,6 +1014,12 @@ scale = 2.0
                                 c
                             })
                             .collect(),
+                        builtin_display: tandem_core::BuiltinDisplays {
+                            a: tandem_core::BuiltinMode::ALL
+                                .get(usize::from(data.0 % 4))
+                                .copied(),
+                            b: None,
+                        },
                     }
                 },
             )

@@ -17,7 +17,15 @@ use tandem_core::Desk;
 /// on the Rust version or the agent's, so it does not change on its own between starts.
 pub fn fingerprint(desk: &Desk) -> String {
     // Serializing these types to JSON does not fail: the maps have text keys.
-    let json = serde_json::to_vec(desk).unwrap_or_default();
+    let mut json = serde_json::to_vec(desk).unwrap_or_default();
+    // A section added later counts only once it is used: a file written by an earlier version keeps
+    // its fingerprint and is not taken for a hand edit after an update. `builtin_display` is the
+    // last field of the desk (T-351).
+    let unused = br#","builtin_display":{"a":null,"b":null}}"#;
+    if json.ends_with(unused) {
+        json.truncate(json.len() - unused.len());
+        json.push(b'}');
+    }
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for b in json {
         h ^= u64::from(b);
@@ -58,6 +66,29 @@ mod tests {
                 .collect(),
             ..Desk::default()
         }
+    }
+
+    /// The fingerprint of a desk that does not use `[builtin_display]` is the one earlier versions
+    /// wrote (computed here as they did, without the field).
+    #[test]
+    fn an_unused_builtin_display_keeps_the_old_fingerprint() {
+        let d = desk(&["34"]);
+        let mut json = serde_json::to_vec(&d).unwrap();
+        let cut = json.len() - br#","builtin_display":{"a":null,"b":null}}"#.len();
+        json.truncate(cut);
+        json.push(b'}');
+        let back: Desk = serde_json::from_slice(&json).unwrap();
+        assert_eq!(back, d, "what is hashed is the desk without the field");
+        let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+        for b in json {
+            h ^= u64::from(b);
+            h = h.wrapping_mul(0x0000_0100_0000_01b3);
+        }
+        assert_eq!(fingerprint(&d), format!("{h:016x}"));
+        let mut used = d.clone();
+        used.builtin_display
+            .set(Machine::B, tandem_core::BuiltinMode::Extended);
+        assert_ne!(fingerprint(&used), fingerprint(&d));
     }
 
     #[test]

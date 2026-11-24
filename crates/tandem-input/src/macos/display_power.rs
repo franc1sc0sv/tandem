@@ -13,10 +13,22 @@ use std::sync::OnceLock;
 
 use objc2_core_graphics::{
     CGBeginDisplayConfiguration, CGCancelDisplayConfiguration, CGCompleteDisplayConfiguration,
-    CGConfigureOption, CGDirectDisplayID, CGDisplayConfigRef, CGError,
+    CGConfigureDisplayMirrorOfDisplay, CGConfigureOption, CGDirectDisplayID, CGDisplayConfigRef,
+    CGDisplayIsActive, CGDisplayIsBuiltin, CGDisplayIsMain, CGDisplayMirrorsDisplay,
+    CGDisplayModelNumber, CGDisplaySerialNumber, CGDisplayVendorNumber, CGError,
+    CGGetOnlineDisplayList,
 };
 
-use crate::displays::{DisplayControl, DisplayPower, DisplayPowerError, PowerDisplay};
+use crate::displays::{
+    BuiltinState, DisplayControl, DisplayPower, DisplayPowerError, PowerDisplay, SystemDisplay,
+    mac_display_key,
+};
+
+/// Maximum number of displays requested from CoreGraphics; plenty for a desktop.
+const MAX_DISPLAYS: usize = 32;
+
+/// `kCGNullDirectDisplay`: as the master of a mirror, "mirror nothing".
+const NO_DISPLAY: CGDirectDisplayID = 0;
 
 const SKYLIGHT: &CStr = c"/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight";
 const SYMBOL: &CStr = c"CGSConfigureDisplayEnabled";
@@ -92,6 +104,82 @@ impl DisplayPower for MacDisplayPower {
             cancel(config);
             return Err(DisplayPowerError::Platform(format!(
                 "CGSConfigureDisplayEnabled({id}, {on}) failed: {err}"
+            )));
+        }
+        complete(config)
+    }
+
+    fn online(&self) -> Result<Vec<SystemDisplay>, DisplayPowerError> {
+        let mut ids: [CGDirectDisplayID; MAX_DISPLAYS] = [0; MAX_DISPLAYS];
+        let mut count: u32 = 0;
+        // SAFETY: `ids` has room for `MAX_DISPLAYS` and `count` is a valid u32; CoreGraphics
+        // writes no more than it is told.
+        let err =
+            unsafe { CGGetOnlineDisplayList(MAX_DISPLAYS as u32, ids.as_mut_ptr(), &mut count) };
+        if err != CGError::Success {
+            return Err(failed("CGGetOnlineDisplayList", err));
+        }
+        let count = (count as usize).min(MAX_DISPLAYS);
+        Ok(ids[..count]
+            .iter()
+            .map(|&id| {
+                let mirror = CGDisplayMirrorsDisplay(id);
+                let mirror_of = (mirror != NO_DISPLAY).then_some(mirror);
+                SystemDisplay {
+                    id,
+                    key: mac_display_key(
+                        CGDisplayVendorNumber(id),
+                        CGDisplayModelNumber(id),
+                        CGDisplaySerialNumber(id),
+                    ),
+                    builtin: CGDisplayIsBuiltin(id),
+                    enabled: CGDisplayIsActive(id) || mirror_of.is_some(),
+                    mirror_of,
+                    main: CGDisplayIsMain(id),
+                }
+            })
+            .collect())
+    }
+
+    fn lid_closed(&self) -> bool {
+        super::iokit::lid_closed()
+    }
+
+    fn set_builtin(&self, id: u32, state: BuiltinState) -> Result<(), DisplayPowerError> {
+        let Some(configure) = configure_enabled() else {
+            return Err(DisplayPowerError::Unavailable(
+                "this macOS does not have CGSConfigureDisplayEnabled".into(),
+            ));
+        };
+        let on = CGDisplayIsActive(id) || CGDisplayMirrorsDisplay(id) != NO_DISPLAY;
+        let config = begin()?;
+        let master = match state {
+            BuiltinState::Mirror(of) => of,
+            BuiltinState::Off | BuiltinState::Own => NO_DISPLAY,
+        };
+        // Turned on first (a display that is off cannot be set to mirror), then its mirror, and
+        // only then off: everything lands in one configuration.
+        let mut steps: Vec<(&str, i32)> = Vec::new();
+        if state != BuiltinState::Off && !on {
+            // SAFETY: `config` comes from a successful `CGBeginDisplayConfiguration` and has not
+            // been completed or cancelled yet; `configure` has the signature it was resolved with.
+            steps.push(("CGSConfigureDisplayEnabled", unsafe {
+                configure(config, id, true)
+            }));
+        }
+        // SAFETY: as above; a null master leaves the display unmirrored.
+        let err = unsafe { CGConfigureDisplayMirrorOfDisplay(config, id, master) };
+        steps.push(("CGConfigureDisplayMirrorOfDisplay", err.0));
+        if state == BuiltinState::Off && on {
+            // SAFETY: as above.
+            steps.push(("CGSConfigureDisplayEnabled", unsafe {
+                configure(config, id, false)
+            }));
+        }
+        if let Some((what, err)) = steps.into_iter().find(|(_, e)| *e != CGError::Success.0) {
+            cancel(config);
+            return Err(DisplayPowerError::Platform(format!(
+                "{what}({id}, {state:?}) failed: {err}"
             )));
         }
         complete(config)
