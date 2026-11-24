@@ -149,8 +149,8 @@ describe("the real two-monitor desk (`desk=g5`, T-356)", () => {
     // In canvas units: width over height, corrected by the canvas aspect (the mockup draws a
     // monitor 0.5 % taller than its measurement).
     const ratio = (k: { width: number; height: number }) => (k.width * s.aspect) / k.height;
-    expect(ratio(wide!)).toBeCloseTo(797 / 334 / 1.005, 2);
-    expect(ratio(std!)).toBeCloseTo(700 / 400 / 1.005, 2);
+    expect(ratio(wide!)).toBeCloseTo(798 / 334 / 1.005, 2);
+    expect(ratio(std!)).toBeCloseTo(698 / 393 / 1.005, 2);
     // The 34" is wider and lower than the 32".
     expect(wide!.width).toBeGreaterThan(std!.width);
     expect(wide!.height).toBeLessThan(std!.height);

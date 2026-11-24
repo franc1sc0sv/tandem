@@ -600,13 +600,13 @@ const NO_LINK: LinkView = { kind: null, gbps: null, ms: null, inputP99: null };
 // ---- The real two-monitor desk (`desk=g5`, T-356) -------------------------------------------
 
 /**
- * The two monitors with their EDID data. The 32" G5 reports 70 × 40 cm (bytes 21–22, read from
- * the real monitor); the 34" LC34G55T's 797 × 334 mm is its panel's active area (spec sheet).
+ * The two monitors with the sizes their EDIDs report (detailed timing, read on the real monitors
+ * on 2026-11-24): the 32" G5 698 × 393 mm, the 34" LC34G55T 798 × 334 mm.
  * Each machine's engine screen of each monitor is the `screen` of its `[[cables]]` end.
  */
 export const G5_MONITORS = [
-  { id: "lc34g55t-5a1e", name: "LC34G55T", sizeMm: [797, 334] as [number, number], res: [3440, 1440] as const, screen: { a: "screen-1", b: "screen-1" } },
-  { id: "odyssey-g5-7489", name: "Odyssey G5", sizeMm: [700, 400] as [number, number], res: [2560, 1440] as const, screen: { a: "screen-2", b: "screen-2" } },
+  { id: "lc34g55t-5a1e", name: "LC34G55T", sizeMm: [798, 334] as [number, number], res: [3440, 1440] as const, screen: { a: "screen-1", b: "screen-1" } },
+  { id: "odyssey-g5-7489", name: "Odyssey G5", sizeMm: [698, 393] as [number, number], res: [2560, 1440] as const, screen: { a: "screen-2", b: "screen-2" } },
 ];
 
 const G5_MAC: Spec = { ...MACBOOK, name: "Mac", detail: "macOS · M5", screens: [BUILTIN_14] };
