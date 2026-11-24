@@ -6,6 +6,7 @@
   import { wallOf } from "../lib/arrangement";
   import { cursorPoint, flowSeconds, RateMeter, sceneOf, type Point } from "../lib/desk";
   import { isDim, linkText, shortMonitor } from "../lib/monitors";
+  import { linkFigures } from "../lib/network";
   import Button from "../ui/Button.svelte";
   import type { Machine } from "../lib/model";
   import { LINK_NAME } from "../lib/machines";
@@ -27,6 +28,8 @@
   const b = $derived(desk.machines.b);
   const link = $derived(desk.link);
   const linkName = $derived(link.kind ? LINK_NAME[link.kind] : "No link");
+  // Real measurements only; what was not measured yet reads 0, never a dash (T-356).
+  const figures = $derived(linkFigures(link));
   const AMBER = "#d9a75a";
 
   // The desktops at physical scale, from the same calculation as the arrangement.
@@ -91,7 +94,7 @@
   const nameOf = (m: Machine) => desk.machines[m]?.name ?? m.toUpperCase();
   const monitorStates = $derived(desk.monitors.flatMap((m) => {
     const text = linkText(m.link, nameOf);
-    return text ? [{ id: m.id, size: shortMonitor(m.name), text, dim: isDim(m.link) }] : [];
+    return text ? [{ id: m.id, size: shortMonitor(m.name, m.sizeMm), text, dim: isDim(m.link) }] : [];
   }));
   const spokenStates = $derived(monitorStates.map((x) => ` ${x.size}: ${x.text}.`).join(""));
 
@@ -183,13 +186,15 @@
       </svg>
       <span class="node"><span class="nt">{b.name}</span><span class="ndot" style="background:{b.color}"></span></span>
       <span class="sep"></span>
-      <span class="stat w130">
-        <span class="st"><Icon name={link.kind === "wifi" ? "wifi" : "bolt"} size={13} color={a.color} />{linkName}</span>
-        <span class="mono mut ss">{link.gbps !== null ? `${link.gbps} Gbps` : "—"} · {link.ms !== null ? `${link.ms} ms` : "—"}</span>
-      </span>
-      <span class="stat w110">
-        <span class="st">Input</span>
-        <span class="mono mut ss">{link.inputP99 !== null ? `p99 ${link.inputP99} ms` : "—"}</span>
+      <span class="stats" title={figures.title || undefined}>
+        <span class="stat w130">
+          <span class="st"><Icon name={link.kind === "wifi" ? "wifi" : "bolt"} size={13} color={a.color} />{linkName}</span>
+          <span class="mono mut ss">{figures.rate}</span>
+        </span>
+        <span class="stat w110">
+          <span class="st">Input</span>
+          <span class="mono mut ss">{figures.input}</span>
+        </span>
       </span>
     </Card>
   {/if}
@@ -201,10 +206,10 @@
         {#if scene && a && b}
           <div role="img" aria-label="To scale: {scene.desks.map((k) => k.label).join(' and ')}. The cursor moves between the two.{spokenStates}" class="scale" style="aspect-ratio:{scene.aspect}">
             {#each scene.desks as k (k.id)}
-              <div class="desk" class:dim={k.dim} style="left:{k.left}%;top:{k.top}%;width:{k.width}%;height:{k.height}%"><div class="w" style="background:{k.wall}">{k.label}</div></div>
+              <div class="desk" class:dim={k.dim} style="left:{k.left}%;top:{k.top}%;width:{k.width}%;height:{k.height}%"><div class="w" style="background:{k.wall}" title={k.label}><span class="wl">{k.label}</span></div></div>
             {/each}
             {#each scene.feet as f, i (i)}
-              <div class="foot" style="left:{f.left}%;top:{f.top}%;width:{f.width}%;height:{f.height}%;border-radius:0 0 {f.radius}px {f.radius}px"></div>
+              <div class="foot {f.shape ?? ''}" style="left:{f.left}%;top:{f.top}%;width:{f.width}%;height:{f.height}%;border-radius:0 0 {f.radius}px {f.radius}px"></div>
             {/each}
             {#if scene.edge}
               {@const e = scene.edge}
@@ -232,11 +237,11 @@
         {#each desk.scenes as s (s.id)}
           {@const on = desk.activeScene === s.id}
           {@const shows = s.shows ? desk.machines[s.shows] : null}
-          <button type="button" class="scene" class:act={on} aria-pressed={on} onclick={() => store.applyScene(s.id)}>
+          <button type="button" class="scene" class:act={on} aria-pressed={on} title="{s.name}: {sceneLine(s.desc)}" onclick={() => store.applyScene(s.id)}>
             <span class="srow">
               <span class="thumb"><div style="background:{wallOf(shows?.color ?? "#7aa7e6")}"></div></span>
-              <span class="stext"><b>{s.name}</b><span class="mut sd">{sceneLine(s.desc)}</span></span>
-              <Kbd>{s.key}</Kbd>
+              <span class="stext"><b>{s.name}</b>{#each s.lines ?? [s.desc] as line, k (k)}<span class="mut sd">{sceneLine(line)}</span>{/each}</span>
+              {#if s.key}<span class="skey"><Kbd>{s.key}</Kbd></span>{/if}
             </span>
           </button>
         {/each}
@@ -258,11 +263,28 @@
   .sm {
     font-size: 12px;
   }
-  /* The third column is the gap of "Add machine" (D1): the mockup splits the width like that. */
+  /* Two machines (D1): they share the row and fill it, as wide as the cards below (T-356). */
+  .page {
+    container: desk / inline-size;
+  }
   .machines {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 200px;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     gap: 14px;
+  }
+  @container desk (max-width: 620px) {
+    .machines {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .page :global(.card.link) {
+      flex-wrap: wrap;
+    }
+    .sep {
+      display: none;
+    }
+    .stats {
+      flex-basis: 100%;
+    }
   }
   .mslot > :global(.card.mcard) {
     display: flex;
@@ -279,6 +301,13 @@
     display: flex;
     flex-direction: column;
     gap: 2px;
+    min-width: 0;
+  }
+  .mname b,
+  .mname span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .mname b {
     font-weight: 600;
@@ -335,6 +364,10 @@
   }
   .nt {
     font-size: 13px;
+    max-width: 22ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .wire {
     flex: 1;
@@ -354,6 +387,11 @@
     width: 1px;
     align-self: stretch;
     background: #25272d;
+  }
+  .stats {
+    display: flex;
+    gap: 18px;
+    flex: none;
   }
   .stat {
     display: flex;
@@ -482,6 +520,19 @@
     position: absolute;
     background: #1c1d22;
   }
+  /* The model stands (T-356): the ultrawide G5's V legs and the 32" G5's trapezoid. */
+  .foot.v {
+    clip-path: polygon(0 100%, 14% 0, 86% 0, 100% 100%, 60% 100%, 50% 40%, 40% 100%);
+  }
+  .foot.trapezoid {
+    clip-path: polygon(16% 0, 84% 0, 100% 100%, 0 100%);
+  }
+  .wl {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
   .curdot {
     position: absolute;
     width: 10px;
@@ -577,10 +628,20 @@
   .stext b {
     font-weight: 600;
     font-size: 13.5px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
+  /* One line per monitor; a long machine name ends in an ellipsis (the full text is the title). */
   .sd {
     font-size: 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .skey {
+    flex: none;
+    display: flex;
   }
   @keyframes eg {
     0% {

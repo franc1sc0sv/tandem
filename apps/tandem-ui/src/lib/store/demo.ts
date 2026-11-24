@@ -19,14 +19,16 @@
 //   being undone (for screenshots). `fail=<scene>`: applying that scene fails and is undone.
 //   With `still`, an input or scene change is applied instantly and adds no events or
 //   changes the active scene: so screenshots do not depend on the clock.
+// - `desk=g5`: the real two-monitor desk (T-356): a Mac and a PC with a long Windows name, both
+//   cabled to a 34" LC34G55T (21:9) and a 32" Odyssey G5 (16:9), sized from their EDID.
 
-import { exitSide, isVertical, type Arrangement, type LayoutScreen, type LayoutView } from "../arrangement";
+import { exitSide, isVertical, placePhysical, type Arrangement, type LayoutScreen, type LayoutView } from "../arrangement";
 import { perUserAdminNote, isSwitchable } from "../capabilities";
 import type { CrossSample } from "../crossing";
 import type { AdminView, Bindings, BuiltinMode, MonitorInput, PairingView, Permission, SceneJson, SetupView, ShortcutsView, Step, TxnView } from "../model";
 import { measuredText } from "../network";
 import { sceneView } from "../scenes";
-import { isDim, linkText } from "../monitors";
+import { isDim, linkText, shortMonitor, standOf } from "../monitors";
 import { DEFAULT_BINDINGS } from "../shortcuts";
 import { checkName } from "../machine";
 import { reducedMotion } from "../motion";
@@ -116,6 +118,8 @@ export interface DemoOptions {
   offer?: boolean;
   /** The other machine changes the desk shortly after opening ("Changed from…" notice, D5). */
   peerEdit?: boolean;
+  /** The real two-monitor desk (T-356): both monitors on both machines, at their EDID size. */
+  desk?: "g5";
 }
 
 export function demoOptions(query: string): DemoOptions {
@@ -145,6 +149,7 @@ export function demoOptions(query: string): DemoOptions {
     pcOnly: p.has("pconly") || p.has("palette") || p.has("tray"),
     cross: p.get("cross") === "ok" ? "ok" : p.get("cross") === "wrong" ? "wrong" : p.get("cross") === "timeout" ? "timeout" : undefined,
     monitor: (["off", "standby", "unplugged"] as const).find((m) => m === p.get("monitor")),
+    ...(p.get("desk") === "g5" ? { desk: "g5" as const } : {}),
   };
 }
 
@@ -592,9 +597,107 @@ const TRAY_LINK: LinkView = { ...PAIRED_LINK, ms: 0.4 };
 const UNPAIRED_LINK: LinkView = { kind: "wifi", gbps: 0.41, ms: 3.8, inputP99: null };
 const NO_LINK: LinkView = { kind: null, gbps: null, ms: null, inputP99: null };
 
+// ---- The real two-monitor desk (`desk=g5`, T-356) -------------------------------------------
+
+/**
+ * The two monitors with the sizes their EDIDs report (detailed timing, read on the real monitors
+ * on 2026-11-24): the 32" G5 698 × 393 mm, the 34" LC34G55T 798 × 334 mm.
+ * Each machine's engine screen of each monitor is the `screen` of its `[[cables]]` end.
+ */
+export const G5_MONITORS = [
+  { id: "lc34g55t-5a1e", name: "LC34G55T", sizeMm: [798, 334] as [number, number], res: [3440, 1440] as const, screen: { a: "screen-1", b: "screen-1" } },
+  { id: "odyssey-g5-7489", name: "Odyssey G5", sizeMm: [698, 393] as [number, number], res: [2560, 1440] as const, screen: { a: "screen-2", b: "screen-2" } },
+];
+
+const G5_MAC: Spec = { ...MACBOOK, name: "Mac", detail: "macOS · M5", screens: [BUILTIN_14] };
+const G5_PC: Spec = { ...DESKTOP, name: "DESKTOP-7Q4K2M9", detail: "Windows · RTX 5080", screens: [] };
+
+function g5Monitors(): MonitorUi[] {
+  const at = (h: number, m: number) => new Date(2026, 10, 17, h, m).getTime();
+  return G5_MONITORS.map((g) => ({
+    id: g.id,
+    name: g.name,
+    sizeMm: g.sizeMm,
+    compat: { ok: true },
+    connected: true,
+    owner: "b",
+    input: "hdmi",
+    ports: { a: "hdmi", b: "display_port" },
+    shows: "a",
+    events: [
+      { at: at(14, 2), kind: "switch", text: "Input → HDMI, requested by Tandem" },
+      { at: at(13, 47), kind: "signal", text: "HDMI signal detected" },
+    ],
+  }));
+}
+
+function g5Scenes(a: string, b: string, monitors: MonitorUi[], mac: boolean): SceneView[] {
+  const [wide, g5] = G5_MONITORS;
+  const raw: SceneJson[] = [
+    { id: "work", name: "Work", monitors: [[wide!.id, "b"], [g5!.id, "a"]], shortcut: ctrlAlt(1) },
+    { id: "only-b", name: `Only ${b}`, monitors: [[wide!.id, "b"], [g5!.id, "b"]], shortcut: ctrlAlt(2) },
+    { id: "only-a", name: `Only ${a}`, monitors: [[wide!.id, "a"], [g5!.id, "a"]], shortcut: ctrlAlt(3) },
+  ];
+  return raw.map((r) => sceneView(r, { monitors, name: (x) => (x === "a" ? a : b), mac }));
+}
+
+/**
+ * The live desktops of the real desk: each monitor on the machine it shows, side by side as the
+ * engine reads them (the 34" first), at its EDID size and with its model's stand. A Mac without
+ * an external monitor shows its built-in display (`external-only`).
+ */
+export function g5Layout(monitors: MonitorUi[], arrangement: Arrangement, names: Record<Machine, string>): LayoutView {
+  const screens: LayoutScreen[] = [];
+  for (const m of ["a", "b"] as Machine[]) {
+    const shown = G5_MONITORS.flatMap((g) => {
+      const mon = monitors.find((x) => x.id === g.id);
+      return mon?.shows === m ? [{ g, mon }] : [];
+    });
+    if (shown.length === 0) {
+      if (m === "a") {
+        const { external: _, off: __, ...rest } = BUILTIN_14;
+        screens.push({ ...rest, id: "a:builtin", machine: "a", x: 0, y: 0, usable: true, line: names.a, native: { id: "builtin", x: 0, y: 0, w: 1512, h: 982 } });
+      }
+      continue;
+    }
+    let x = 0;
+    const parts = shown.map(({ g }) => {
+      const part = { x, y: 0, w: g.res[0], h: g.res[1], pw: g.sizeMm[0] / 25.4, ph: g.sizeMm[1] / 25.4 };
+      x += g.res[0];
+      return part;
+    });
+    const at = placePhysical(parts);
+    shown.forEach(({ g, mon }, i) => {
+      const short = shortMonitor(g.name, g.sizeMm);
+      const p = parts[i]!;
+      screens.push({
+        id: `${m}:${g.screen[m]}`,
+        machine: m,
+        name: g.name,
+        short,
+        ask: `the ${short}`,
+        x: at[i]?.x ?? 0,
+        y: at[i]?.y ?? 0,
+        w: p.pw,
+        h: p.ph,
+        size: short,
+        res: `${g.res[0]} × ${g.res[1]}`,
+        ratio: g.res[0] / g.res[1] > 2 ? "21:9" : "16:9",
+        scale: "100 %",
+        usable: true,
+        line: names[m],
+        external: true,
+        stand: standOf(mon.name, mon.sizeMm),
+        native: { id: g.screen[m], x: p.x, y: 0, w: p.w, h: p.h },
+      });
+    });
+  }
+  return { screens, arrangement };
+}
+
 /** The simulated desk for some options (pure: same options, same desk). */
 export function demoDesk(o: DemoOptions): DeskView {
-  const [sa, sb] = PAIRS[o.pair];
+  const [sa, sb] = o.desk === "g5" ? [G5_MAC, G5_PC] : PAIRS[o.pair];
   const peer: Machine = o.here === "a" ? "b" : "a";
   const peerSpec = peer === "a" ? sa : sb;
   const mk = (id: Machine, s: Spec, otherName: string): MachineView => {
@@ -619,9 +722,10 @@ export function demoDesk(o: DemoOptions): DeskView {
       ...(s.os === "macos" ? { builtinDisplay: "external-only" as const } : {}),
     };
   };
-  const base = demoMonitors(sa, sb).map((m) => (o.txn === "fail" && m.compat.ok ? { ...m, input: "hdmi" as const, shows: "a" as const, owner: "b" as const } : m));
+  const base = (o.desk === "g5" ? g5Monitors() : demoMonitors(sa, sb)).map((m) => (o.txn === "fail" && m.compat.ok ? { ...m, input: "hdmi" as const, shows: "a" as const, owner: "b" as const } : m));
   const monitors = o.monitor ? base.map((m) => (m.compat.ok ? demoLink(m, o.monitor as NonNullable<DemoOptions["monitor"]>) : m)) : base;
-  const scenes = demoScenes(sa.name, sb.name, monitors, (o.here === "a" ? sa : sb).os === "macos", o.pcOnly, o.palette);
+  const mac = (o.here === "a" ? sa : sb).os === "macos";
+  const scenes = o.desk === "g5" ? g5Scenes(sa.name, sb.name, monitors, mac) : demoScenes(sa.name, sb.name, monitors, mac, o.pcOnly, o.palette);
   const linkUp = o.trouble !== "peer-off" && o.trouble !== "link-down" && o.trouble !== "no-agent";
   return {
     ready: true,
@@ -637,14 +741,17 @@ export function demoDesk(o: DemoOptions): DeskView {
     network: o.txn && linkUp ? { ...demoNetwork(linkUp), measuring: "usb4" } : demoNetwork(linkUp),
     tunnels: demoTunnels(o.still ? DEMO_NOW : Date.now(), o.tunnels, { a: sa.os, b: sb.os }),
     scenes,
-    activeScene: "work",
+    activeScene: o.desk === "g5" ? "only-a" : "work",
     monitors,
     pair: {
       peer: o.unpaired ? { kind: "unpaired" } : { kind: "paired", name: peerSpec.name, link: linkUp ? "usb4" : null },
       pairing: o.pairing === "code" ? { kind: "comparing", code: DEMO_CODE, peer: peerSpec.name, confirmed: false } : o.offer && !o.unpaired ? { kind: "offered" } : { kind: "idle" },
     },
     permissions: permissionsFor((o.here === "a" ? sa : sb).os, o.trouble === "permissions" || o.perms === "missing", o.perms === "missing", o.net),
-    layout: dimDemoLayout(demoLayout(sa, sb, scenes, "work"), monitors, (m) => (m === "a" ? sa.name : sb.name)),
+    layout:
+      o.desk === "g5"
+        ? g5Layout(monitors, { aSide: "left", align: "center" }, { a: sa.name, b: sb.name })
+        : dimDemoLayout(demoLayout(sa, sb, scenes, "work"), monitors, (m) => (m === "a" ? sa.name : sb.name)),
   };
 }
 
@@ -832,6 +939,8 @@ export class DemoSource implements Source {
   }
 
   private set(d: DeskView): void {
+    // The real desk redraws its live desktops from what each monitor shows (T-356).
+    if (this.opts.desk === "g5") d = { ...d, layout: g5Layout(d.monitors, d.layout.arrangement, { a: d.machines.a?.name ?? "A", b: d.machines.b?.name ?? "B" }) };
     this.desk = d;
     this.emit(d);
   }

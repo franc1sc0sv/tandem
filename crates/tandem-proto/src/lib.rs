@@ -54,7 +54,7 @@ pub use workspace::{BringBackReport, CommitInfo, WorkspaceDown, WorkspaceSpec, W
 /// Protocol version. Bumped on any incompatible change to the messages.
 ///
 /// Only the same version talks: the two agents and the UI ship together.
-pub const PROTOCOL_VERSION: u16 = 49;
+pub const PROTOCOL_VERSION: u16 = 50;
 
 /// Since this version each agent announces its capabilities on connecting (T-084): an
 /// older one does not send them and cannot be spoken to as a peer.
@@ -157,9 +157,11 @@ mod tests {
     /// display mode) bumps to v49.
     /// Terminal tunnels (`ExecSpec::pty`, `TunnelUp::Input`/`Resize`, `UiCommand::Input`/`Resize`/
     /// `WatchOutput`, `wait_ms` in `Output` and the pushed `AgentToUi::Output`) bump to v49.
+    /// T-356 (`MonitorChannel::size_mm` and `MonitorView::size_mm`, each monitor's physical size
+    /// from its EDID) bumps to v50.
     #[test]
     fn version_stays_above_the_one_from_t084() {
-        assert_eq!(PROTOCOL_VERSION, 49);
+        assert_eq!(PROTOCOL_VERSION, 50);
         assert_eq!(super::CAPABILITIES_SINCE, 10);
         assert_eq!(super::SIDES_SINCE, 16);
     }

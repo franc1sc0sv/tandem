@@ -147,7 +147,7 @@ export function monitorNotices(memo: LinkMemo, monitors: MonitorUi[], name: (m: 
     if (!m.link) continue;
     const was = memo[m.id];
     const now = { ...(was ?? {}) };
-    const size = shortMonitor(m.name);
+    const size = shortMonitor(m.name, m.sizeMm);
     for (const who of ["a", "b"] as Machine[]) {
       const c = m.link.cables[who];
       if (c === "unknown") continue;

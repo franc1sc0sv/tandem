@@ -45,6 +45,7 @@ mod tests {
             id: "m".into(),
             name: "M".into(),
             via: None,
+            size_mm: None,
             compat: if compatible {
                 MonitorCompat::Compatible { protocol: 2 }
             } else {

@@ -277,6 +277,8 @@ export interface SceneView {
   key: string;
   /** What it does, in one line. */
   desc: string;
+  /** The same, one line per monitor (`34" → PC`), for cards where long machine names wrap (T-356). */
+  lines?: string[];
   /** Which machine it shows (for the thumbnail); `null` if the scene changes no monitor. */
   shows: Machine | null;
   /** Which machine each compatible monitor shows (those the scene does not touch are absent). */
@@ -314,6 +316,8 @@ export interface MonitorUi {
   events: MonitorEventView[];
   /** Which machine it shows, its cables and its power, as the agent derived them (T-349). */
   link?: LinkUi;
+  /** The picture's physical size in mm (width, height), from its EDID (T-356). */
+  sizeMm?: [number, number];
 }
 
 /** A monitor's link state for the UI (T-349). */

@@ -463,6 +463,49 @@ describe("real source", () => {
     expect(ids("hdmi")).toEqual(["b:screen-1", "b:screen-2"]);
   });
 
+  it("T-356: a cabled monitor is drawn at its EDID size, named by it and with its model's stand", () => {
+    const shows = { state: { shows_machine: "b" as const }, power: "on" as const, cables: { a: "connected" as const, b: "connected" as const } };
+    const snap = connected({
+      agent: "b",
+      desk: {
+        machines: { a: { os: "windows", name: "DESKTOP-7Q4K2M9", color: "#a99be8" }, b: { os: "macos", name: "Mac", color: "#7aa7e6" } },
+        screens: [],
+        arrangement: null,
+        scenes: [],
+        cables: [
+          { monitor: "lc34", a: { input: "display_port", screen: "screen-1" }, b: { input: "hdmi", screen: "screen-1" } },
+          { monitor: "g5", a: { input: "display_port", screen: "screen-2" }, b: { input: "hdmi", screen: "screen-2" } },
+        ],
+      },
+      input: {
+        server: "b", hub_here: null, session: true, locked: false, missing: [], problem: null, defined: true,
+        // macOS points: the ultrawide at 1:1 and the G5 scaled; the engine reads them side by side.
+        screens: [{ id: "screen-1", x: 0, y: 0, width: 3440, height: 1440, scale_milli: 1000 }, { id: "screen-2", x: 3440, y: 0, width: 1920, height: 1080, scale_milli: 1333 }],
+        peer_screens: [{ id: "screen-1", x: 0, y: 0, width: 3440, height: 1440, scale_milli: 1000 }, { id: "screen-2", x: 3440, y: 0, width: 2560, height: 1440, scale_milli: 1000 }],
+      },
+      monitors: [
+        { id: "lc34", name: "LC34G55T", compat: { Compatible: { protocol: 3 } }, seen_by: ["a", "b"], via: [], owner: "a", report: null, link: shows, size_mm: [797, 334] },
+        { id: "g5", name: "Odyssey G5", compat: { Compatible: { protocol: 3 } }, seen_by: ["a", "b"], via: [], owner: "a", report: null, link: shows, size_mm: [700, 400] },
+      ],
+    });
+    if (snap.kind !== "connected") throw new Error("snapshot");
+    const { screens } = layoutFromDesk(snap);
+    // Both show the Mac: the PC draws nothing.
+    expect(screens.map((s) => s.id)).toEqual(["b:screen-1", "b:screen-2"]);
+    const [wide, g5] = screens;
+    expect(wide).toMatchObject({ name: "LC34G55T", short: '34"', size: '34"', ask: 'the 34"', external: true, stand: "ultrawide-g5" });
+    expect(g5).toMatchObject({ name: "Odyssey G5", short: '32"', size: '32"', external: true, stand: "g5" });
+    expect(wide!.w).toBeCloseTo(797 / 25.4, 6);
+    expect(g5!.h).toBeCloseTo(400 / 25.4, 6);
+    // Touching at their real widths, even though the G5 has another density.
+    expect(g5!.x - wide!.x).toBeCloseTo(797 / 25.4, 6);
+    // A monitor without a size keeps the engine's estimate, named by the EDID model.
+    const noSize = { ...snap, monitors: snap.monitors.map((m) => ({ ...m, size_mm: null })) };
+    const [w2] = layoutFromDesk(noSize).screens;
+    expect(w2).toMatchObject({ name: "LC34G55T", short: "LC34G55T", size: "—", stand: "ultrawide-g5" });
+    expect(w2!.w).toBeCloseTo(3440 / 110, 6);
+  });
+
   it("watchCrossing delivers the real Crossed with the input measured on the arrival screen", async () => {
     const act = vi.fn(async (_a: unknown) => ({ kind: "done" as const }));
     let notice: ((n: Notice) => void) | undefined;

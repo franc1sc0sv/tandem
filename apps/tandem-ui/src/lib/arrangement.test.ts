@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { ALIGNS, DEFAULT_ARRANGEMENT, OPPOSITE, SIDES, alignLabels, draw, exitSide, fillOf, initialSelection, panelFor, placeOther, ratioLabel, wallOf, type Box, type LayoutScreen, type LayoutView } from "./arrangement";
+import { ALIGNS, DEFAULT_ARRANGEMENT, OPPOSITE, SIDES, alignLabels, draw, exitSide, fillOf, initialSelection, panelFor, placeOther, placePhysical, ratioLabel, wallOf, type Box, type LayoutScreen, type LayoutView } from "./arrangement";
 import { demoDesk, demoOptions } from "./store/demo";
 
 const screen = (id: string, machine: "a" | "b" | null, w: number, h: number, usable = true, x = 0, y = 0): LayoutScreen => ({
@@ -283,3 +283,35 @@ describe("data and colors", () => {
     }
   });
 });
+
+describe("screens at their physical size (T-356)", () => {
+  const in_ = (mm: number) => mm / 25.4;
+  const wide = { x: 0, y: 0, w: 3440, h: 1440, pw: in_(797), ph: in_(334) };
+  const g5 = { x: 3440, y: 0, w: 2560, h: 1440, pw: in_(700), ph: in_(400) };
+
+  it("two monitors side by side touch at their real widths, whatever their density", () => {
+    const [a, b] = placePhysical([wide, g5]);
+    expect(a).toEqual({ x: 0, y: 0 });
+    expect(b!.x).toBeCloseTo(in_(797), 6);
+    expect(b!.y).toBe(0);
+    // The same order the other way round, and to the left.
+    const [c, d] = placePhysical([{ ...g5, x: -2560 }, { ...wide }]);
+    expect(d!.x - c!.x).toBeCloseTo(in_(700), 6);
+  });
+
+  it("one under another touches at its real height and keeps its offset along the edge", () => {
+    const top = { x: 0, y: 0, w: 2560, h: 1440, pw: in_(700), ph: in_(400) };
+    const under = { x: 640, y: 1440, w: 1512, h: 982, pw: 12, ph: 7.8 };
+    const [, u] = placePhysical([top, under]);
+    expect(u!.y).toBeCloseTo(in_(400), 6);
+    expect(u!.x).toBeCloseTo(640 * (in_(700) / 2560), 6);
+  });
+
+  it("a screen that touches none keeps its native offset, at the first one's scale", () => {
+    const far = { x: 5000, y: 0, w: 1920, h: 1080, pw: 20, ph: 11 };
+    const [, f] = placePhysical([wide, far]);
+    expect(f!.x).toBeCloseTo(5000 * (in_(797) / 3440), 6);
+    expect(placePhysical([])).toEqual([]);
+  });
+});
+

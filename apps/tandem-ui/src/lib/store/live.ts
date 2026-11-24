@@ -5,15 +5,15 @@
 // visible screen asks for. Per-topic events (resources, tunnels, modules) arrive with
 // T-098/T-102/T-104 and are subscribed to here.
 
-import { ASSUMED_PPI, DEFAULT_ARRANGEMENT, EMPTY_LAYOUT, isVertical, ratioLabel, type Arrangement, type LayoutScreen, type LayoutView } from "../arrangement";
+import { ASSUMED_PPI, DEFAULT_ARRANGEMENT, EMPTY_LAYOUT, isVertical, placePhysical, ratioLabel, type Arrangement, type LayoutScreen, type LayoutView } from "../arrangement";
 import type { Bridge } from "../bridge";
 import type { CrossSample } from "../crossing";
 import { nextLive, summaryOf } from "../machine";
 import { machineColor, machineName, other } from "../machines";
 import type { Action, ActionResult, AdminView, Bindings, BuiltinMode, Caps, Desk, DragStatus, Link, Machine, MachineCaps, MonitorInput, Side, Permission, ResourceSample, SceneJson, SetupView, ShortcutsView, Snapshot, TxnView } from "../model";
 import { devicesOfHub } from "../wizard";
-import { gbpsOf, measuredText, networkFromWire, primaryOf } from "../network";
-import { deskScreens, monitorsUi } from "../monitors";
+import { gbpsOf, linkSummary, measuredText, networkFromWire, primaryOf } from "../network";
+import { deskScreens, monitorsUi, shortMonitor, standOf } from "../monitors";
 import { sceneView } from "../scenes";
 import { grantTo, permissionState } from "../permissions";
 import type { ActResult, Capability, CursorEvent, DeskChange, DeskView, FilesView, EnvView, HardwareView, LinkKind, LiveChunk, LiveView, MachineView, ModuleView, NetworkView, OutputChunk, OutputCursor, PairActionKind, PermissionsView, PrefsView, ProcessRow, Source, Topic, TransferView, TunnelView } from "./types";
@@ -143,10 +143,9 @@ function machineView(who: Machine, here: Machine, caps: Caps, snap: Extract<Snap
 
 const LINK_KIND: Record<Link, DeskView["link"]["kind"]> = { usb4: "usb4", ethernet: "ethernet", wifi: "wifi" };
 
-/** The summary of the path carrying the input; the numbers come from the network if it is being watched. */
+/** The summary of the path carrying the input, from the network the agent pushes while the link is shown. */
 function linkOf(kind: DeskView["link"]["kind"], network: NetworkView): DeskView["link"] {
-  const p = kind && primaryOf(network)?.kind === kind ? primaryOf(network) : null;
-  return { kind, gbps: p?.gbps ?? null, ms: p?.rttMs ?? null, inputP99: p?.inputP99Ms ?? null };
+  return linkSummary(kind, network);
 }
 
 /** The desk the UI draws from the agent's snapshot. Pure; throws `ShapeError`. */
@@ -203,14 +202,20 @@ export function deskFromSnapshot(raw: Snapshot, live: LiveByMachine = {}, networ
 
 /**
  * The arrangement screens according to the desk: those declared by each machine, or one per
- * machine if it declared none. The agent does not report the physical size yet: it is estimated
- * with [`ASSUMED_PPI`] from the logical points.
+ * machine if it declared none. A screen that is a monitor of the desk's `[[cables]]` (the end of
+ * that machine names it) takes the monitor's name and its physical size from the EDID (T-356);
+ * any other is estimated with [`ASSUMED_PPI`] from its logical points.
  */
 export function layoutFromDesk(snap: Extract<Snapshot, { kind: "connected" }>): LayoutView {
   const screens: LayoutScreen[] = [];
+  const monitors = monitorsUi(snap.monitors);
   // A monitor that shows the other machine is not a screen of this one (T-340): drawn once. One
   // that shows neither (off, standby, unplugged input) is drawn once, dimmed (T-349).
-  const { hidden, dim } = deskScreens(snap.desk.cables, monitorsUi(snap.monitors), (m) => machineName(m, snap.caps, snap.desk));
+  const { hidden, dim } = deskScreens(snap.desk.cables, monitors, (m) => machineName(m, snap.caps, snap.desk));
+  const monitorOn = (m: Machine, screen: string) => {
+    const c = (snap.desk.cables ?? []).find((x) => x[m]?.screen === screen);
+    return c ? (monitors.find((x) => x.id === c.monitor) ?? null) : null;
+  };
   for (const m of ["a", "b"] as Machine[]) {
     const name = machineName(m, snap.caps, snap.desk);
     const known = snap.desk.machines?.[m] ?? (snap.caps.here.machine === m ? snap.caps.here : snap.caps.peer?.machine === m ? snap.caps.peer : null);
@@ -227,32 +232,42 @@ export function layoutFromDesk(snap: Extract<Snapshot, { kind: "connected" }>): 
       screens.push({ id: `desk-${m}`, machine: m, name, short: name.split(" ")[0] ?? name, ask: name, x: 0, y: 0, w: 16, h: 10, size: "—", res: "—", ratio: "—", scale: "—", usable: true, line: name });
       continue;
     }
-    // The positions (`x`, `y`) are in the machine's coordinates: they are converted to points with the
-    // scale of its first screen. It is approximate if the scales of its monitors differ.
-    const base = mac ? 1 : own[0]?.scale || 1;
-    for (const s of own) {
+    const parts = own.map((s) => {
+      const mon = monitorOn(m, s.id);
       // macOS gives points; Windows, physical pixels that the scale converts to logical ones.
       const logical = mac ? 1 : s.scale || 1;
+      const size = mon?.sizeMm;
+      return {
+        s,
+        mon,
+        part: { x: s.x, y: s.y, w: s.width, h: s.height, pw: size ? size[0] / 25.4 : s.width / logical / ASSUMED_PPI, ph: size ? size[1] / 25.4 : s.height / logical / ASSUMED_PPI },
+      };
+    });
+    const at = placePhysical(parts.map((p) => p.part));
+    parts.forEach(({ s, mon, part }, i) => {
+      const short = mon ? shortMonitor(mon.name, mon.sizeMm) : s.id;
+      const sized = mon?.sizeMm !== undefined;
       screens.push({
         id: `${m}:${s.id}`,
         machine: m,
-        name: s.id,
-        short: s.id,
-        ask: s.id,
-        x: s.x / base / ASSUMED_PPI,
-        y: s.y / base / ASSUMED_PPI,
-        w: s.width / logical / ASSUMED_PPI,
-        h: s.height / logical / ASSUMED_PPI,
-        size: "—",
+        name: mon?.name ?? s.id,
+        short,
+        ask: mon ? `the ${short}` : s.id,
+        x: at[i]?.x ?? 0,
+        y: at[i]?.y ?? 0,
+        w: part.pw,
+        h: part.ph,
+        size: sized ? short : "—",
         res: `${s.width} × ${s.height}`,
         ratio: ratioLabel(s.width, s.height),
         scale: `${Math.round(s.scale * 100)} %`,
         usable: true,
         line: name,
         native: { id: s.id, x: s.x, y: s.y, w: s.width, h: s.height },
+        ...(mon ? { external: true, stand: standOf(mon.name, mon.sizeMm) } : {}),
         ...(dim[m][s.id] !== undefined ? { dim: dim[m][s.id] } : {}),
       });
-    }
+    });
   }
   const arr = snap.desk.arrangement;
   const arrangement: Arrangement = arr ? { aSide: arr.a_side, align: arr.align } : DEFAULT_ARRANGEMENT;
@@ -375,7 +390,8 @@ export class LiveSource implements Source {
       // The session remembers the request and repeats it on reconnect; if it fails now, there is no agent.
       this.bridge.act({ kind: "watch_resources", on: resources }).catch(() => {});
     }
-    const network = topics.includes("network");
+    // The link summary (Desk, tray) is the network's numbers too (T-356).
+    const network = topics.includes("network") || topics.includes("link");
     if (network !== this.watchingNetwork) {
       this.watchingNetwork = network;
       this.bridge.act({ kind: "watch_network", on: network }).catch(() => {});

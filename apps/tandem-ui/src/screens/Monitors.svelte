@@ -86,8 +86,11 @@
     other: { icon: "info", color: "#9a9da6", stroke: 2 },
   };
 
+  /** The EDID size next to a name that does not say it ("LC34G55T" → `34"`, T-356). */
+  const sizeOf = (m: { name: string; sizeMm?: [number, number] }) => (m.sizeMm && !m.name.includes('"') ? shortMonitor(m.name, m.sizeMm) : "");
+
   /** "34 inches" in the accessible label, like the mockup. */
-  const spoken = (name: string) => shortMonitor(name).replace('"', " inches");
+  const spoken = (m: { name: string; sizeMm?: [number, number] }) => shortMonitor(m.name, m.sizeMm).replace('"', " inches");
 
   /** "Apply" leads to the step-by-step progress (F-Transactions). */
   async function apply(id: string) {
@@ -111,7 +114,7 @@
           <div class="head">
             <Thumb width={132} height={58} wall={isDim(m.link) ? DIM_WALL : wall(m.shows)} dim={isDim(m.link)} flashKey={m.shows ?? ""} label={state ?? undefined} />
             <div class="who">
-              <b>{m.name}</b>
+              <b>{m.name}{#if sizeOf(m)}<span class="size">{sizeOf(m)}</span>{/if}</b>
               <span class="chips">
                 <Chip dot={false} style="padding:4px 10px 4px 8px"><Icon name="shield" size={13} stroke={2} color="#6cc59a" />Tandem standard</Chip>
                 {#if m.owner}
@@ -139,13 +142,13 @@
                 iconStroke={1.8}
                 iconOnly
                 class="power"
-                label={asleep ? `Wake the ${spoken(m.name)}` : `Put the ${spoken(m.name)} in standby`}
+                label={asleep ? `Wake the ${spoken(m)}` : `Put the ${spoken(m)} in standby`}
                 pressed={asleep}
                 onclick={() => store.monitorPower(m.id, asleep)}
               />
             {/if}
           </div>
-          <Segmented size="lg" label="Which machine shows the {spoken(m.name)}" options={options(m)} value={selected(m)} onchange={(v) => pick(m, v)} />
+          <Segmented size="lg" label="Which machine shows the {spoken(m)}" options={options(m)} value={selected(m)} onchange={(v) => pick(m, v)} />
           {#if m.events.length > 0}
             <div class="events">
               {#each m.events as e, k (`${e.at}-${e.text}-${k}`)}
@@ -197,7 +200,7 @@
         <article class="sc" class:act={on} style="animation-delay:{0.15 + i * 0.06}s" aria-label="Scene {s.name}">
           <div class="st">
             <Thumb width={72} height={36} pad={3} wall={wall(s.shows)} />
-            <div class="sn"><b>{s.name}</b><span class="mut">{s.desc}</span></div>
+            <div class="sn" title="{s.name}: {s.desc}"><b>{s.name}</b>{#each s.lines ?? [s.desc] as line, k (k)}<span class="mut">{line}</span>{/each}</div>
           </div>
           <div class="sb">
             {#if s.key}<Kbd raised>{s.key}</Kbd>{/if}
@@ -225,7 +228,7 @@
   }
   .grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 400px), 1fr));
     gap: 14px;
   }
   .grid :global(.card.mon) {
@@ -262,6 +265,11 @@
   .who b {
     font-weight: 600;
     font-size: 15px;
+  }
+  .who .size {
+    margin-left: 8px;
+    font-weight: 500;
+    color: #9a9da6;
   }
   .chips {
     display: flex;
@@ -324,7 +332,7 @@
   }
   .sgrid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr));
     gap: 12px;
   }
   .sc {
@@ -373,9 +381,16 @@
   .sn b {
     font-weight: 600;
     font-size: 14px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
+  /* One line per monitor (T-356); a long machine name ends in an ellipsis, the title has it all. */
   .sn span {
     font-size: 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .badge {
     display: inline-flex;

@@ -3,6 +3,7 @@
 // and the text of the crossing test. Pure: used by the screen, the demo and the tests.
 
 import type { Align, Machine, Side } from "./model";
+import type { StandKind } from "./monitors";
 
 export type { Align, Side };
 
@@ -47,6 +48,8 @@ export interface LayoutScreen {
   line: string;
   /** External monitor (with a stand); without data, those wider than 16" are treated as external. */
   external?: boolean;
+  /** The stand it is drawn with on the Desk (T-356): per model family when the EDID names one. */
+  stand?: StandKind;
   /** Its rectangle in the system's native coordinates (those of the `CursorSample` cursor). */
   native?: NativeRect;
 }
@@ -303,6 +306,69 @@ export function ratioLabel(w: number, h: number): string {
 
 /** Logical points per inch assumed when the screen does not report its physical size. */
 export const ASSUMED_PPI = 110;
+
+/** A screen in its machine's native coordinates, with its physical size in inches. */
+export interface NativePart {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  /** Physical width and height, in inches. */
+  pw: number;
+  ph: number;
+}
+
+/** Native units that still count as touching (the systems round some edges). */
+const TOUCH = 2;
+
+/**
+ * Where each screen of one machine sits in inches (T-356): its physical size, and its
+ * position from the native layout. Screens of different densities do not share one scale, so a
+ * screen that touches one already placed is put right against it (and slides along that edge
+ * by the neighbour's scale); one that touches none keeps its native offset from the first.
+ * Returns the position of each part, in the same order.
+ */
+export function placePhysical(parts: NativePart[]): { x: number; y: number }[] {
+  const out: ({ x: number; y: number } | null)[] = parts.map(() => null);
+  const k = parts.map((p) => (p.w > 0 ? p.pw / p.w : 1 / ASSUMED_PPI));
+  const order = parts.map((_, i) => i).sort((i, j) => (parts[i]?.x ?? 0) - (parts[j]?.x ?? 0) || (parts[i]?.y ?? 0) - (parts[j]?.y ?? 0));
+  const first = order[0];
+  if (first === undefined) return [];
+  out[first] = { x: 0, y: 0 };
+  const near = (a: number, b: number) => Math.abs(a - b) <= TOUCH;
+  for (;;) {
+    let placed = false;
+    for (const i of order) {
+      if (out[i]) continue;
+      const p = parts[i]!;
+      for (const j of order) {
+        const at = out[j];
+        const q = parts[j]!;
+        if (!at) continue;
+        const kj = k[j]!;
+        let pos: { x: number; y: number } | null = null;
+        if (near(p.x, q.x + q.w)) pos = { x: at.x + q.pw, y: at.y + (p.y - q.y) * kj };
+        else if (near(p.x + p.w, q.x)) pos = { x: at.x - p.pw, y: at.y + (p.y - q.y) * kj };
+        else if (near(p.y, q.y + q.h)) pos = { x: at.x + (p.x - q.x) * kj, y: at.y + q.ph };
+        else if (near(p.y + p.h, q.y)) pos = { x: at.x + (p.x - q.x) * kj, y: at.y - p.ph };
+        if (pos) {
+          out[i] = pos;
+          placed = true;
+          break;
+        }
+      }
+    }
+    if (out.every((o) => o !== null)) break;
+    if (!placed) {
+      // Not touching any placed screen: keep its native offset from the first one.
+      const i = order.find((x) => out[x] === null)!;
+      const p = parts[i]!;
+      const f = parts[first]!;
+      out[i] = { x: (p.x - f.x) * k[first]!, y: (p.y - f.y) * k[first]! };
+    }
+  }
+  return out.map((o) => o ?? { x: 0, y: 0 });
+}
 
 // ---- Colors --------------------------------------------------------------------------------
 

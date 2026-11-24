@@ -22,7 +22,10 @@ pub mod ring;
 
 pub use directory::Directory;
 pub use election::elect;
-pub use local::{LocalConfig, LocalMonitors, NO_VERDICT, NOT_OWNER, edid_input, set_edid_input};
+pub use local::{
+    LocalConfig, LocalMonitors, NO_VERDICT, NOT_OWNER, edid_input, edid_size_mm, set_edid_input,
+    set_edid_size_mm,
+};
 
 use monitor_ddc::Input;
 use tandem_core::MonitorInput;

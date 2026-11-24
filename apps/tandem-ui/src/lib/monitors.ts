@@ -12,9 +12,41 @@ export const INPUT_LABEL: Record<MonitorInput, string> = { display_port: "DP", h
 /** How many events are listed on the card (the most recent). */
 export const EVENTS_SHOWN = 3;
 
-/** The short name of a monitor for sentences ("34"" from `Odyssey G5 34"`). */
-export function shortMonitor(name: string): string {
+/** A picture's physical size, in millimetres (width, height), as the EDID gives it. */
+export type SizeMm = [number, number];
+
+/** The diagonal in inches of a picture `size` mm; `null` without a usable size. */
+export function diagonalInches(size: SizeMm | null | undefined): number | null {
+  if (!size) return null;
+  const [w, h] = size;
+  if (!(w > 0 && h > 0)) return null;
+  return Math.hypot(w, h) / 25.4;
+}
+
+/**
+ * The short name of a monitor for sentences and labels: `34"` from its EDID size (T-356, a
+ * 797 × 334 mm picture), else from a name that says it (`Odyssey G5 34"`), else the name.
+ */
+export function shortMonitor(name: string, size?: SizeMm | null): string {
+  const d = diagonalInches(size);
+  if (d !== null) return `${Math.round(d)}"`;
   return /\d+(?:[.,]\d+)?"/.exec(name)?.[0] ?? name;
+}
+
+/**
+ * The stand a monitor is drawn with (T-356): each known model family has its own shape and
+ * height, the rest a generic one. Known from the EDID model name and size.
+ * - `ultrawide-g5`: the 34" Odyssey G5 (LC34G55T, 21:9): a low, wide V-shaped base.
+ * - `g5`: a 16:9 Odyssey G5 (the 32" `LS32CG55*`): a taller neck on a narrow trapezoid base.
+ */
+export type StandKind = "generic" | "ultrawide-g5" | "g5";
+
+export function standOf(name: string, size?: SizeMm | null): StandKind {
+  const n = name.toUpperCase();
+  const wide = size ? size[0] / size[1] > 2 : false;
+  if (/C34G55/.test(n) || (/ODYSSEY G5/.test(n) && wide)) return "ultrawide-g5";
+  if (/ODYSSEY G5|S\d\dCG55|C\d\dG55/.test(n)) return "g5";
+  return "generic";
 }
 
 // The two default accents have the exact tone of the mockup (indicator border); the
@@ -116,6 +148,7 @@ export function monitorUi(m: MonitorJson): MonitorUi {
   const events = [...(m.report?.events ?? [])].reverse().slice(0, EVENTS_SHOWN).map(eventView);
   const ui: MonitorUi = { id: m.id, name: m.name, compat, connected: m.seen_by.length > 0, owner: m.owner, input, ports, shows, events };
   if (link) ui.link = link;
+  if (m.size_mm && m.size_mm[0] > 0 && m.size_mm[1] > 0) ui.sizeMm = [m.size_mm[0], m.size_mm[1]];
   return ui;
 }
 

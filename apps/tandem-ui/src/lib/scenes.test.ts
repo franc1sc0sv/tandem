@@ -76,3 +76,17 @@ describe("scenes (D6)", () => {
     expect(problemOf({ ...d, name: "New", shortcut: ["ControlLeft", "Digit9"] }, [other])).toBeNull();
   });
 });
+
+describe("scene lines name monitors by their EDID size (T-356)", () => {
+  it("one line per monitor, `34\"`/`32\"` instead of the model, joined for the one-line description", () => {
+    const sized: MonitorUi[] = [
+      { ...mon("lc34"), name: "LC34G55T", sizeMm: [797, 334] },
+      { ...mon("g5"), name: "Odyssey G5", sizeMm: [700, 400] },
+    ];
+    const v = sceneView(scene({ monitors: [["lc34", "b"], ["g5", "a"]] }), { monitors: sized, name: (m) => (m === "a" ? "Mac" : "DESKTOP-7Q4K2M9"), mac: true });
+    expect(v.lines).toEqual(['34" → DESKTOP-7Q4K2M9', '32" → Mac']);
+    expect(v.desc).toBe('34" → DESKTOP-7Q4K2M9, 32" → Mac');
+    expect(sceneView(scene({ monitors: [] }), { monitors: sized, name: () => "X", mac: true }).lines).toEqual(["No monitors changed"]);
+  });
+});
+

@@ -864,6 +864,7 @@ mod tests {
                 power,
                 cables: Cables { a, b },
             },
+            size_mm: None,
         };
         let name = |m: Machine| if m == Machine::A { "Mac" } else { "PC" }.to_owned();
         let views = [

@@ -47,12 +47,13 @@ export function sceneView(s: SceneJson, ctx: SceneContext): SceneView {
     const m = ctx.monitors.find((x) => x.id === id);
     return m ? [{ m, machine }] : [];
   });
-  const desc = known.length > 0 ? known.map(({ m, machine }) => `${shortMonitor(m.name)} → ${ctx.name(machine)}`).join(", ") : "No monitors changed";
+  const lines = known.length > 0 ? known.map(({ m, machine }) => `${shortMonitor(m.name, m.sizeMm)} → ${ctx.name(machine)}`) : ["No monitors changed"];
   return {
     id: s.id,
     name: s.name,
     key: shortcutText(s.shortcut, ctx.mac),
-    desc,
+    desc: lines.join(", "),
+    lines,
     shows: s.monitors[0]?.[1] ?? null,
     monitors: s.monitors.map(([monitor, machine]) => ({ monitor, machine })),
     shortcut: s.shortcut,

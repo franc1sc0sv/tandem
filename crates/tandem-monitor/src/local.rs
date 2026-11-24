@@ -72,6 +72,45 @@ pub fn edid_input(raw: &[u8]) -> Option<MonitorInput> {
     }
 }
 
+/// The physical size of the picture, in millimetres (width, height), from the EDID: the first
+/// detailed timing descriptor (bytes 66–68, in mm) when it gives one, otherwise the screen size
+/// of bytes 21–22 (whole cm). `None` when neither says (a projector, or bytes 21–22 holding only
+/// an aspect ratio). The UI draws each monitor at its real proportions with it.
+pub fn edid_size_mm(raw: &[u8]) -> Option<[u16; 2]> {
+    let dtd = raw.get(54..72)?;
+    // A detailed timing descriptor has a pixel clock; a display descriptor starts with 0 0.
+    if dtd[0] != 0 || dtd[1] != 0 {
+        let w = u16::from(dtd[12]) | (u16::from(dtd[14] >> 4) << 8);
+        let h = u16::from(dtd[13]) | (u16::from(dtd[14] & 0x0F) << 8);
+        // Some EDIDs write an aspect ratio there (16 × 9) instead of millimetres.
+        if w >= 50 && h >= 50 {
+            return Some([w, h]);
+        }
+    }
+    let (w, h) = (*raw.get(21)?, *raw.get(22)?);
+    (w > 0 && h > 0).then(|| [u16::from(w) * 10, u16::from(h) * 10])
+}
+
+/// Writes the picture size into an EDID (128-byte base block) as [`edid_size_mm`] reads it:
+/// bytes 21–22 rounded to cm and, if the first descriptor is a detailed timing, its mm. With its
+/// checksum; for test doubles, the simulation and the UI demo.
+pub fn set_edid_size_mm(edid: &mut [u8], size_mm: [u16; 2]) {
+    if edid.len() < 128 {
+        return;
+    }
+    let cm = |mm: u16| u8::try_from(mm.saturating_add(5) / 10).unwrap_or(u8::MAX);
+    edid[21] = cm(size_mm[0]);
+    edid[22] = cm(size_mm[1]);
+    if edid[54] != 0 || edid[55] != 0 {
+        let [w, h] = size_mm.map(|v| v.min(0x0FFF));
+        edid[66] = (w & 0xFF) as u8;
+        edid[67] = (h & 0xFF) as u8;
+        edid[68] = (((w >> 8) as u8) << 4) | ((h >> 8) as u8);
+    }
+    let sum = edid[..127].iter().fold(0u8, |a, b| a.wrapping_add(*b));
+    edid[127] = 0u8.wrapping_sub(sum);
+}
+
 /// Writes into an EDID (128-byte base block) the interface type of `input` as E-EDID
 /// 1.4, with its checksum: for test doubles and the simulation. `None` leaves it
 /// undefined.
@@ -305,6 +344,7 @@ impl LocalMonitors {
                         compat,
                         latency_ms,
                         via: via(&info, edid),
+                        size_mm: edid_size_mm(edid.raw()),
                     },
                     reader,
                 },
@@ -348,6 +388,7 @@ impl LocalMonitors {
                         compat: MonitorCompat::NoChannel,
                         latency_ms: 0,
                         via: via(&info, &edid),
+                        size_mm: edid_size_mm(edid.raw()),
                     },
                     reader: None,
                 },
@@ -1451,6 +1492,47 @@ mod tests {
     }
 
     #[test]
+    fn the_edid_gives_the_physical_size() {
+        // The double's EDID has no timing descriptor and no size.
+        let mut e = test_edid("SAM", 0x7155, "LC34G55T", "X1");
+        assert_eq!(edid_size_mm(&e), None, "neither field says");
+        // Bytes 21–22 alone (whole cm): the G5 32" reports 70 × 40 cm.
+        e[21] = 70;
+        e[22] = 40;
+        assert_eq!(edid_size_mm(&e), Some([700, 400]));
+        // Only one of them: an aspect ratio, not a size.
+        e[22] = 0;
+        assert_eq!(edid_size_mm(&e), None);
+        // A detailed timing descriptor in mm wins over the cm.
+        let mut t = [0u8; 128];
+        t[21] = 80;
+        t[22] = 34;
+        t[54] = 0x01;
+        t[66] = (797 & 0xFF) as u8;
+        t[67] = (334 & 0xFF) as u8;
+        t[68] = ((797 >> 8) << 4) as u8 | (334 >> 8) as u8;
+        assert_eq!(edid_size_mm(&t), Some([797, 334]));
+        // An aspect ratio in the descriptor (16 × 9 "mm") falls back to the cm.
+        t[66] = 16;
+        t[67] = 9;
+        t[68] = 0;
+        assert_eq!(edid_size_mm(&t), Some([800, 340]));
+        // A display descriptor (0 0 …) is not a timing.
+        t[54] = 0;
+        t[66] = 0xFF;
+        t[67] = 0xFF;
+        assert_eq!(edid_size_mm(&t), Some([800, 340]));
+        assert_eq!(edid_size_mm(&t[..60]), None);
+        // The writer and the reader agree, and the checksum still holds.
+        set_edid_size_mm(&mut e, [697, 392]);
+        assert!(monitor_ddc::Edid::parse(&e).is_ok());
+        assert_eq!(edid_size_mm(&e), Some([700, 390]), "rounded to whole cm");
+        t[54] = 1;
+        set_edid_size_mm(&mut t, [797, 334]);
+        assert_eq!(edid_size_mm(&t), Some([797, 334]));
+    }
+
+    #[test]
     fn the_edid_says_which_input_the_cable_goes_to() {
         let mut e = test_edid("SAM", 0x7155, "LC34G55T", "X1");
         assert_eq!(edid_input(&e), None, "no interface type");
@@ -1479,6 +1561,7 @@ mod tests {
         let bus = FakeBus::new(clock.clone());
         let mut config = FakeMonitorConfig::new(Personality::Standard);
         set_edid_input(&mut config.edid, Some(MonitorInput::DisplayPort));
+        set_edid_size_mm(&mut config.edid, [800, 340]);
         bus.add(config);
         let mut local = LocalMonitors::new(
             Arc::new(bus),
@@ -1488,6 +1571,8 @@ mod tests {
         );
         let channels = local.scan().unwrap();
         assert_eq!(channels[0].via, Some(MonitorInput::DisplayPort));
+        // And its physical size (T-356).
+        assert_eq!(channels[0].size_mm, Some([800, 340]));
     }
 
     /// `test_edid` does not reproduce the real serial: the identity is the same on DP and HDMI because

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { EVENTS_SHOWN, NO_CHANNEL, accentOf, eventView, formatClock, hiddenScreens, monitorUi, monitorsUi, shortMonitor, whyNotSwitch } from "./monitors";
+import { EVENTS_SHOWN, NO_CHANNEL, accentOf, diagonalInches, eventView, formatClock, hiddenScreens, monitorUi, monitorsUi, shortMonitor, standOf, whyNotSwitch } from "./monitors";
 import type { MonitorJson } from "./model";
 
 const std = (over: Partial<MonitorJson> = {}): MonitorJson => ({
@@ -99,3 +99,36 @@ describe("monitors (V3-Monitors)", () => {
     expect(whyNotSwitch(monitorUi(std({ via: [] })), "a", "PC")).toBe("It is not known which input PC uses");
   });
 });
+
+describe("monitor size and model from the EDID (T-356)", () => {
+  it("the diagonal of the picture names the monitor: 34\" and 32\", not the model", () => {
+    expect(diagonalInches([797, 334])).toBeCloseTo(34.0, 1);
+    // The G5 32" reports 70 × 40 cm in bytes 21–22.
+    expect(diagonalInches([700, 400])).toBeCloseTo(31.7, 1);
+    expect(shortMonitor("LC34G55T", [797, 334])).toBe('34"');
+    expect(shortMonitor("Odyssey G5", [700, 400])).toBe('32"');
+    // Without a size: the name if it says it, else the name.
+    expect(shortMonitor('Odyssey G5 34"')).toBe('34"');
+    expect(shortMonitor("LC34G55T", null)).toBe("LC34G55T");
+    expect(diagonalInches([0, 400])).toBeNull();
+    expect(shortMonitor("X", [0, 0])).toBe("X");
+  });
+
+  it("each known model family has its own stand, the rest the generic one", () => {
+    expect(standOf("LC34G55T", [797, 334])).toBe("ultrawide-g5");
+    expect(standOf("LC34G55T")).toBe("ultrawide-g5");
+    expect(standOf("Odyssey G5", [797, 334])).toBe("ultrawide-g5");
+    expect(standOf("Odyssey G5", [700, 400])).toBe("g5");
+    expect(standOf("LS32CG55x")).toBe("g5");
+    expect(standOf("DELL U2723QE", [597, 336])).toBe("generic");
+  });
+
+  it("the agent's size reaches the monitor, and a missing or empty one stays out", () => {
+    const base: MonitorJson = { id: "m", name: "LC34G55T", compat: { Compatible: { protocol: 3 } }, seen_by: ["a"], via: [], owner: "a", report: null };
+    expect(monitorUi({ ...base, size_mm: [797, 334] }).sizeMm).toEqual([797, 334]);
+    expect(monitorUi(base).sizeMm).toBeUndefined();
+    expect(monitorUi({ ...base, size_mm: null }).sizeMm).toBeUndefined();
+    expect(monitorUi({ ...base, size_mm: [0, 0] }).sizeMm).toBeUndefined();
+  });
+});
+
