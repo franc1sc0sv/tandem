@@ -226,6 +226,73 @@ fn without_the_others_address_there_is_no_link() {
     assert_eq!(wired_changes(&mut cur, &[usb], &|_| None), []);
 }
 
+/// The PC's log of 2026-11-24: mDNS on the PC alternates between the Mac's full answer (with
+/// its link-locals on the cable's interface) and one without them, and the cable's address
+/// flipped with it. While the cable's interface stays the same, that is never a removal: the
+/// link keeps its connection, and a new address only replaces the one to dial next.
+#[test]
+fn an_address_that_flickers_on_the_same_interface_never_removes_the_cable() {
+    let mut cur = Default::default();
+    let usb = iface(
+        21,
+        "USB4 P2P Network Adapter",
+        &["fe80::677:f28f:7726:2c3b"],
+    );
+    let a: SocketAddr = "[fe80::c0c:1e4f:2370:bfc5%21]:52000".parse().unwrap();
+    let b: SocketAddr = "[fe80::1c46:56e:2a49:fb65%21]:52000".parse().unwrap();
+    let add = |addr| {
+        vec![WiredChange::Add(LinkCandidate {
+            kind: LinkKind::Usb4,
+            addr,
+        })]
+    };
+    let list = std::slice::from_ref(&usb);
+    assert_eq!(wired_changes(&mut cur, list, &|_| Some(a)), add(a));
+    for _ in 0..3 {
+        assert_eq!(wired_changes(&mut cur, list, &|_| None), []);
+        assert_eq!(wired_changes(&mut cur, list, &|_| Some(a)), []);
+    }
+    assert_eq!(wired_changes(&mut cur, list, &|_| Some(b)), add(b));
+    assert_eq!(wired_changes(&mut cur, list, &|_| None), []);
+}
+
+/// The adapter came back with another index (20, then 38 on the PC): the old scope is gone, so
+/// that is a real removal, then the new link.
+#[test]
+fn a_cable_that_comes_back_on_another_interface_is_replaced() {
+    let mut cur = Default::default();
+    let old = iface(
+        20,
+        "USB4 P2P Network Adapter",
+        &["fe80::677:f28f:7726:2c3b"],
+    );
+    let new = iface(
+        38,
+        "USB4 P2P Network Adapter #2",
+        &["fe80::d1eb:d9f3:caf4:3ff1"],
+    );
+    let peer = |i: &NetInterface| {
+        Some(SocketAddr::V6(std::net::SocketAddrV6::new(
+            "fe80::c0c:1e4f:2370:bfc5".parse().unwrap(),
+            52000,
+            0,
+            i.index,
+        )))
+    };
+    wired_changes(&mut cur, std::slice::from_ref(&old), &peer);
+    let changes = wired_changes(&mut cur, std::slice::from_ref(&new), &peer);
+    assert_eq!(
+        changes,
+        [
+            WiredChange::Remove(LinkKind::Usb4),
+            WiredChange::Add(LinkCandidate {
+                kind: LinkKind::Usb4,
+                addr: peer(&new).unwrap(),
+            }),
+        ]
+    );
+}
+
 // --- With the link manager and a transport double ---
 
 #[derive(Debug, thiserror::Error)]

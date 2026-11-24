@@ -53,6 +53,21 @@ struct Slot<H> {
     /// It dropped at some point after having been healthy: since then, to
     /// go back to it one has to wait `settle`.
     dropped: bool,
+    /// A new address that came while the link was healthy: it is dialled once the link drops,
+    /// so a flickering discovery never cuts a connection that works.
+    next_addr: Option<SocketAddr>,
+}
+
+/// What [`LinkTable::add`] did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Added {
+    /// Already there with that address.
+    Unchanged,
+    /// The link is healthy over another address: it keeps it, and the new one is used once
+    /// it drops.
+    Deferred,
+    /// A new link, or a new address for one that is down: it has to be pinged from scratch.
+    New,
 }
 
 impl<H> Slot<H> {
@@ -81,6 +96,7 @@ impl<H> LinkTable<H> {
                 up_since: None,
                 last_ok: None,
                 dropped: false,
+                next_addr: None,
             };
             if links.insert(c.kind, slot).is_some() {
                 return Err(ManagerError::DuplicateLink(c.kind));
@@ -95,13 +111,22 @@ impl<H> LinkTable<H> {
         })
     }
 
-    /// A new link (its interface appeared). If it was already there with that address it does
-    /// nothing; with another, it is replaced. Returns whether a new link remains to be pinged.
-    pub(crate) fn add(&mut self, c: LinkCandidate) -> bool {
-        if self.links.get(&c.kind).is_some_and(|s| s.addr == c.addr) {
-            return false;
+    /// A new link (its interface appeared) or a new address for one. If it was already there
+    /// with that address nothing changes. A healthy link keeps the address it answers on and
+    /// takes the new one when it drops ([`Self::readdress`]); one that is down is replaced.
+    pub(crate) fn add(&mut self, c: LinkCandidate) -> Added {
+        if let Some(slot) = self.links.get_mut(&c.kind) {
+            if slot.addr == c.addr {
+                slot.next_addr = None;
+                return Added::Unchanged;
+            }
+            if slot.up.is_some() {
+                slot.next_addr = Some(c.addr);
+                return Added::Deferred;
+            }
         }
-        let dropped = self.flapped.contains(&c.kind);
+        let dropped =
+            self.flapped.contains(&c.kind) || self.links.get(&c.kind).is_some_and(|s| s.dropped);
         self.links.insert(
             c.kind,
             Slot {
@@ -110,9 +135,22 @@ impl<H> LinkTable<H> {
                 up_since: None,
                 last_ok: None,
                 dropped,
+                next_addr: None,
             },
         );
-        true
+        Added::New
+    }
+
+    /// The address a link that is down should be dialled on now, if a new one came while it
+    /// was healthy. The link keeps its place and its history.
+    pub(crate) fn readdress(&mut self, kind: LinkKind) -> Option<LinkCandidate> {
+        let slot = self.links.get_mut(&kind)?;
+        if slot.up.is_some() {
+            return None;
+        }
+        let addr = slot.next_addr.take()?;
+        slot.addr = addr;
+        Some(LinkCandidate { kind, addr })
     }
 
     /// Removes a link (its interface went down). If it was the active one, the switch to the next comes out
@@ -148,7 +186,7 @@ impl<H> LinkTable<H> {
             return self.reevaluate(now, held);
         };
         match (&slot.up, &up) {
-            (None, Some(_)) => slot.up_since = Some(now),
+            (_, Some(_)) if slot.up_since.is_none() => slot.up_since = Some(now),
             (Some(_), None) => {
                 slot.up_since = None;
                 slot.dropped = true;
@@ -160,6 +198,17 @@ impl<H> LinkTable<H> {
         }
         slot.up = up;
         self.reevaluate(now, held)
+    }
+
+    /// A backup's ping is late: it stays healthy, but its streak of good pings starts over,
+    /// so the manager does not move to it until it answers steadily for `settle` again.
+    pub(crate) fn stalled(&mut self, kind: LinkKind) {
+        if let Some(slot) = self.links.get_mut(&kind)
+            && slot.up.is_some()
+        {
+            slot.up_since = None;
+            slot.dropped = true;
+        }
     }
 
     /// Chooses the active one again without a new ping (for example, when a
@@ -207,6 +256,14 @@ impl<H> LinkTable<H> {
                     .map(|(k, _)| *k)
             }),
         }
+    }
+
+    /// Some link other than `active` is healthy and answering steadily (its ping is not
+    /// stalled): the active one can be dropped early, since there is somewhere to go.
+    pub(crate) fn steady_backup(&self, active: Option<LinkKind>) -> bool {
+        self.links
+            .iter()
+            .any(|(k, s)| Some(*k) != active && s.up.is_some() && s.up_since.is_some())
     }
 
     pub(crate) fn active(&self) -> Option<(LinkKind, &H)> {

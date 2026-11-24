@@ -8,7 +8,11 @@
 //! [`HealthConfig::misses_to_drop`] windows in a row, or fails outright (without
 //! waiting for QUIC's idle timeout). With no healthy backup to move to, the active
 //! link waits longer for its Pong ([`HealthConfig::ping_interval`]): dropping it
-//! early would gain nothing and cost a reconnect. To go back to a
+//! early would gain nothing and cost a reconnect. A backup waits longer still
+//! ([`HealthConfig::backup_patience`]): it carries nothing, and Wi-Fi's round trip
+//! spikes now and then; a backup whose ping is late is not moved to, though. A new address
+//! for a healthy link does not touch its connection: it is dialled once the link drops,
+//! so a discovery that flickers never cuts a link that works. To go back to a
 //! better link that already dropped, it has to have
 //! [`HealthConfig::settle`] answering without cuts (hysteresis: a cable that
 //! flickers does not drag traffic back and forth), and it does not go up while there is
@@ -40,7 +44,7 @@ pub use quic::{QuicProber, QuicSession, answer_pings};
 pub use table::{LinkEvent, LinkStatus};
 // `LinkControl` and `ManagerGone` are defined below.
 
-use table::LinkTable;
+use table::{Added, LinkTable};
 
 /// Health check timings.
 ///
@@ -66,6 +70,11 @@ pub struct HealthConfig {
     /// How long a link that already dropped before has to answer without cuts before
     /// going back to it. With 0 it goes back on the first good ping.
     pub settle: Duration,
+    /// How long a backup's ping waits for its Pong. Longer than the active link's wait: a
+    /// backup carries nothing, and Wi-Fi's round trip spikes to hundreds of milliseconds
+    /// every few minutes (the Mac's radio). Dropping it on each spike also closed its
+    /// connection, which the other side saw closed and dialled again.
+    pub backup_patience: Duration,
 }
 
 impl Default for HealthConfig {
@@ -77,6 +86,7 @@ impl Default for HealthConfig {
             misses_to_drop: 2,
             connect_timeout: Duration::from_secs(1),
             settle: Duration::from_secs(3),
+            backup_patience: Duration::from_secs(2),
         }
     }
 }
@@ -105,20 +115,16 @@ impl HealthConfig {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 struct Cadence {
     active: Option<LinkKind>,
-    /// Some link other than the active one is healthy.
+    /// Some link other than the active one is healthy and its ping is not stalled.
     backup_ready: bool,
 }
 
 impl Cadence {
     fn of<H>(table: &LinkTable<H>) -> Self {
         let active = table.active().map(|(kind, _)| kind);
-        let backup_ready = table
-            .statuses()
-            .iter()
-            .any(|l| Some(l.kind) != active && l.rtt.is_some());
         Self {
             active,
-            backup_ready,
+            backup_ready: table.steady_backup(active),
         }
     }
 }
@@ -217,7 +223,16 @@ impl Drop for LinkHold {
     }
 }
 
-type Report<H> = (LinkKind, Option<(H, Duration)>);
+/// What a ping task tells the manager.
+enum Probe<H> {
+    /// The result of a ping: `Some((handle, rtt))` if it answered.
+    Done(Option<(H, Duration)>),
+    /// A backup's ping has gone past the active link's wait without its Pong: it stays
+    /// healthy (a backup has more patience) but it is not steady enough to move to.
+    Stalled,
+}
+
+type Report<H> = (LinkKind, Probe<H>);
 
 impl<H: Clone + Send + Sync + 'static> LinkManager<H> {
     /// Starts one ping per link. It also returns the queue of
@@ -233,6 +248,7 @@ impl<H: Clone + Send + Sync + 'static> LinkManager<H> {
             config.active_ping_interval,
             config.ping_timeout,
             config.connect_timeout,
+            config.backup_patience,
         ]
         .contains(&Duration::ZERO)
             || config.misses_to_drop == 0
@@ -278,18 +294,26 @@ impl<H: Clone + Send + Sync + 'static> LinkManager<H> {
                 let event = tokio::select! {
                     Some(command) = commands.recv() => match command {
                         Command::Add(c) => {
-                            if table.add(c) {
-                                if let Some(old) = pingers.remove(&c.kind) {
-                                    old.abort();
+                            match table.add(c) {
+                                Added::New => {
+                                    if let Some(old) = pingers.remove(&c.kind) {
+                                        old.abort();
+                                    }
+                                    let handle = links.spawn(run_link(
+                                        prober.clone(),
+                                        c,
+                                        config,
+                                        report_tx.clone(),
+                                        active_rx.clone(),
+                                    ));
+                                    pingers.insert(c.kind, handle);
                                 }
-                                let handle = links.spawn(run_link(
-                                    prober.clone(),
-                                    c,
-                                    config,
-                                    report_tx.clone(),
-                                    active_rx.clone(),
-                                ));
-                                pingers.insert(c.kind, handle);
+                                Added::Deferred => tracing::debug!(
+                                    link = %c.kind,
+                                    addr = %c.addr,
+                                    "new address for a healthy link: used once it drops"
+                                ),
+                                Added::Unchanged => {}
                             }
                             // A link without a ping yet does not change the active one.
                             None
@@ -302,9 +326,31 @@ impl<H: Clone + Send + Sync + 'static> LinkManager<H> {
                         }
                     },
                     report = reports.recv() => {
-                        let Some((kind, up)) = report else { return };
+                        let Some((kind, probe)) = report else { return };
                         let held = *held.borrow_and_update() > 0;
-                        table.report(kind, up, Instant::now(), held)
+                        let event = match probe {
+                            Probe::Done(up) => table.report(kind, up, Instant::now(), held),
+                            Probe::Stalled => {
+                                table.stalled(kind);
+                                None
+                            }
+                        };
+                        // A link that dropped with a new address waiting: it is dialled there.
+                        if let Some(c) = table.readdress(kind) {
+                            tracing::info!(link = %c.kind, addr = %c.addr, "the link is dialled on its new address");
+                            if let Some(old) = pingers.remove(&kind) {
+                                old.abort();
+                            }
+                            let handle = links.spawn(run_link(
+                                prober.clone(),
+                                c,
+                                config,
+                                report_tx.clone(),
+                                active_rx.clone(),
+                            ));
+                            pingers.insert(kind, handle);
+                        }
+                        event
                     }
                     Ok(()) = held.changed() => {
                         let held = *held.borrow_and_update() > 0;
@@ -453,7 +499,10 @@ async fn run_link<P: Prober>(
             }
         }
         last_start = Some(Instant::now());
-        let up = match probe_once(&*prober, link, &mut session, &config, &active).await {
+        let stalled = || {
+            let _ = reports.send((link.kind, Probe::Stalled));
+        };
+        let up = match probe_once(&*prober, link, &mut session, &config, &active, stalled).await {
             Ok(up) => {
                 if !was_up {
                     tracing::info!(link = %link.kind, addr = %link.addr, "healthy link");
@@ -470,7 +519,7 @@ async fn run_link<P: Prober>(
             }
         };
         was_up = up.is_some();
-        if reports.send((link.kind, up)).is_err() {
+        if reports.send((link.kind, Probe::Done(up))).is_err() {
             return;
         }
     }
@@ -482,6 +531,7 @@ async fn probe_once<P: Prober>(
     session: &mut Option<P::Session>,
     config: &HealthConfig,
     cadence: &watch::Receiver<Cadence>,
+    stalled: impl Fn(),
 ) -> Result<(P::Handle, Duration), Failure<P::Error>> {
     let addr = link.addr;
     let s = match session {
@@ -497,6 +547,7 @@ async fn probe_once<P: Prober>(
         let ping = prober.ping(s);
         tokio::pin!(ping);
         let mut misses = 0;
+        let mut stall_told = false;
         loop {
             match time::timeout(config.ping_timeout, &mut ping).await {
                 Ok(Ok(())) => break Ok(()),
@@ -507,14 +558,18 @@ async fn probe_once<P: Prober>(
                     // Looked at on every window: a backup that turns healthy while
                     // the active one stalls ends the extra patience.
                     let c = *cadence.borrow();
-                    let lone = c.active == Some(link.kind) && !c.backup_ready;
-                    let limit = if lone {
-                        config.lone_patience()
-                    } else {
-                        config.drop_after()
+                    let active = c.active == Some(link.kind);
+                    let limit = match (active, c.backup_ready) {
+                        (true, false) => config.lone_patience(),
+                        (true, true) => config.drop_after(),
+                        (false, _) => config.backup_patience.max(config.drop_after()),
                     };
                     if start.elapsed() >= limit {
                         break Err(Failure::PingTimeout);
+                    }
+                    if !active && !stall_told && start.elapsed() >= config.drop_after() {
+                        stall_told = true;
+                        stalled();
                     }
                     tracing::debug!(%addr, misses, "missed probe, still waiting for the Pong");
                 }
