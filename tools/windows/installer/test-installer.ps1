@@ -78,7 +78,7 @@ function Install-Silent {
 }
 
 function Assert-Installed {
-    foreach ($f in 'tandemd.exe', 'tandemw.exe', 'uninstall.exe') {
+    foreach ($f in 'tandemd.exe', 'tandemw.exe', 'tandem.exe', 'uninstall.exe') {
         if (-not (Test-Path (Join-Path $installDir $f))) { Fail "$f missing in $installDir" }
     }
     Ok "files in $installDir"

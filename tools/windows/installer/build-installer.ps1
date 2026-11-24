@@ -1,5 +1,5 @@
-# Builds the Tandem NSIS installer (Tandem_<version>_x64-setup.exe) with tandemd.exe and
-# tandemw.exe as sidecars. See docs/dev/install-windows.md.
+# Builds the Tandem NSIS installer (Tandem_<version>_x64-setup.exe) with tandemd.exe,
+# tandemw.exe and tandem.exe (the CLI and MCP server, T-357) as sidecars. See docs/dev/install-windows.md.
 #
 # Usage (PowerShell 7, from any folder, with pnpm and Rust on the PATH):
 #   pwsh tools/windows/installer/build-installer.ps1
@@ -33,13 +33,14 @@ $triple = $hostLine.Substring('host: '.Length).Trim()
 Push-Location $repo
 try {
     Invoke-Checked 'cargo build of tandemd' { cargo build --release -p tandemd --bins }
+    Invoke-Checked 'cargo build of tandem' { cargo build --release -p tandem-cli --bins }
 } finally {
     Pop-Location
 }
 
 $binaries = Join-Path $srcTauri 'binaries'
 New-Item -ItemType Directory -Force -Path $binaries | Out-Null
-foreach ($name in 'tandemd', 'tandemw') {
+foreach ($name in 'tandemd', 'tandemw', 'tandem') {
     Copy-Item -Force (Join-Path $repo "target\release\$name.exe") (Join-Path $binaries "$name-$triple.exe")
 }
 
