@@ -13,6 +13,7 @@ const MAIN_PORT: u32 = 0;
 const UTF8: u32 = 0x0800_0100;
 
 #[link(name = "IOKit", kind = "framework")]
+// SAFETY: declarations of IOKit functions with their C signatures; each call says why it is sound.
 unsafe extern "C" {
     fn IOServiceMatching(name: *const c_char) -> *mut c_void;
     fn IOServiceGetMatchingServices(main: u32, matching: *mut c_void, iter: *mut IoObject) -> i32;
@@ -27,6 +28,7 @@ unsafe extern "C" {
 }
 
 #[link(name = "CoreFoundation", kind = "framework")]
+// SAFETY: declarations of CoreFoundation functions with their C signatures; each call says why it is sound.
 unsafe extern "C" {
     fn CFStringCreateWithCString(alloc: CFTypeRef, s: *const c_char, encoding: u32) -> CFTypeRef;
     fn CFRelease(object: CFTypeRef);
