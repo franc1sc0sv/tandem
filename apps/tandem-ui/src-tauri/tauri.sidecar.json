@@ -1,5 +1,5 @@
 {
   "bundle": {
-    "externalBin": ["binaries/tandemd"]
+    "externalBin": ["binaries/tandemd", "binaries/tandem"]
   }
 }

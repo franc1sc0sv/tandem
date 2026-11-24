@@ -24,9 +24,11 @@ bin="$ui/src-tauri/binaries"
 
 # 1. tandemd for the same target as the app. Tauri looks for the sidecar with the target suffix
 #    and copies it to Contents/MacOS/tandemd (no suffix).
-cargo build --release --locked -p tandemd --target "$target" --manifest-path "$root/Cargo.toml"
+# The `tandem` CLI and MCP server travels in the app too (T-357), so it is always the agent's version.
+cargo build --release --locked -p tandemd -p tandem-cli --target "$target" --manifest-path "$root/Cargo.toml"
 mkdir -p "$bin"
 cp "$root/target/$target/release/tandemd" "$bin/tandemd-$target"
+cp "$root/target/$target/release/tandem" "$bin/tandem-$target"
 
 # 2. The app and the disk image. `tauri.sidecar.json` adds the sidecar only here, so that
 #    the app's `cargo build` does not need it.
@@ -44,6 +46,8 @@ fail() { echo "bundle.sh: $*" >&2; exit 1; }
 [ ${#dmgs[@]} -eq 1 ] || fail "expected one Tandem_*.dmg in $bundle/dmg"
 [ -x "$app/Contents/MacOS/tandemd" ] || fail "tandemd missing inside the app"
 "$app/Contents/MacOS/tandemd" --version
+[ -x "$app/Contents/MacOS/tandem" ] || fail "tandem (CLI) missing inside the app"
+"$app/Contents/MacOS/tandem" --version
 /usr/libexec/PlistBuddy -c 'Print :NSLocalNetworkUsageDescription' "$app/Contents/Info.plist" >/dev/null \
   || fail "Info.plist without NSLocalNetworkUsageDescription"
 codesign --verify --deep --strict --verbose=2 "$app"
