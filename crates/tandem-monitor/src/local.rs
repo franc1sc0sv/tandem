@@ -21,8 +21,9 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use monitor_ddc::{
-    Clock, DdcBus, DdcError, Event, EventCursor, EventKind, Incompatibility, Input, Link,
-    LinkConfig, MonitorHandle, Probe, StandardMonitor, VCP_INPUT, VCP_LIVE, Verdict,
+    CapabilityWord, Clock, DdcBus, DdcError, Event, EventCursor, EventKind, Incompatibility, Input,
+    InputCodes, Link, LinkConfig, MonitorHandle, MonitorInfo, PROFILES, Probe, StandardMonitor,
+    VCP_INPUT, VCP_LIVE, VCP_POWER, Verdict, profile_for,
 };
 use tandem_core::{DisplayKey, MonitorInput};
 use tandem_proto::{
@@ -116,8 +117,41 @@ struct Reader {
     events: VecDeque<MonitorEvent>,
 }
 
+/// How a patched monitor of a known model is spoken to: its `0x60` values (the G5 uses MCCS
+/// `0x0F`/`0x11`, the 34" Samsung `0x09`/`0x06`) and the capability bits its firmware announces
+/// but does not deliver (`monitor-ddc` profiles).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Model {
+    codes: InputCodes,
+    ignored_caps: u16,
+}
+
+impl Model {
+    fn of(info: &MonitorInfo) -> Self {
+        match profile_for(info, PROFILES) {
+            Some(p) => Model {
+                codes: InputCodes {
+                    dp: p.dp,
+                    hdmi: p.hdmi,
+                },
+                ignored_caps: p.patched_ignored_caps,
+            },
+            None => Model {
+                codes: InputCodes::SAMSUNG,
+                ignored_caps: 0,
+            },
+        }
+    }
+
+    fn apply(self, m: StandardMonitor) -> StandardMonitor {
+        m.with_input_codes(self.codes)
+            .with_ignored_caps(self.ignored_caps)
+    }
+}
+
 struct Entry {
     handle: MonitorHandle,
+    model: Model,
     key: Option<DisplayKey>,
     channel: MonitorChannel,
     reader: Option<Reader>,
@@ -221,7 +255,9 @@ impl LocalMonitors {
             let (latency_ms, reader) = match self.entries.remove(&id) {
                 Some(prev) if prev.channel.compat == compat => {
                     let reader = match prev.reader {
-                        Some(r) if prev.handle != info.handle => self.reconnect(r, &link),
+                        Some(r) if prev.handle != info.handle => {
+                            self.reconnect(r, &link, Model::of(&info))
+                        }
                         same => same,
                     };
                     (prev.channel.latency_ms, reader)
@@ -237,6 +273,7 @@ impl LocalMonitors {
                 id.clone(),
                 Entry {
                     handle: info.handle,
+                    model: Model::of(&info),
                     key: DisplayKey::from_edid(edid.raw()),
                     channel: MonitorChannel {
                         id,
@@ -256,9 +293,12 @@ impl LocalMonitors {
     /// The same monitor with another number: it is opened again (another probe, reads only) and
     /// what was read is kept. If it can no longer be opened, it is dropped: the next `set_owned`
     /// retries it with a new cursor.
-    fn reconnect(&self, reader: Reader, link: &Link) -> Option<Reader> {
+    fn reconnect(&self, reader: Reader, link: &Link, model: Model) -> Option<Reader> {
         match link.clone().open_standard() {
-            Ok(monitor) => Some(Reader { monitor, ..reader }),
+            Ok(monitor) => Some(Reader {
+                monitor: model.apply(monitor),
+                ..reader
+            }),
             Err(e) => {
                 tracing::debug!("could not reopen the monitor: {e}");
                 None
@@ -296,7 +336,7 @@ impl LocalMonitors {
             }
             // It is only opened after another probe that confirms it: a monitor that stopped speaking
             // the standard never receives a Set.
-            match self.link(entry.handle).open_standard() {
+            match self.open(entry) {
                 Ok(monitor) => {
                     let reported = handover.remove(&id);
                     tracing::info!(
@@ -311,6 +351,7 @@ impl LocalMonitors {
                             cursor: reported.map(|c| EventCursor {
                                 last: c.last,
                                 clock_10ms: c.clock_10ms,
+                                host_at: None,
                             }),
                             reported,
                             read_at,
@@ -332,10 +373,18 @@ impl LocalMonitors {
                 let reader = entry.reader.as_mut()?;
                 read_events(reader, clock.as_ref(), wall(), kept);
                 let live = reader.monitor.live().ok();
+                // Protocol 3 soft standby: the panel is dark while the firmware keeps running and
+                // answering, so `0xEE` still says powered; `0xE8` says standby.
+                let soft_standby = reader
+                    .monitor
+                    .capability_word()
+                    .ok()
+                    .flatten()
+                    .is_some_and(|w| w.soft_standby());
                 Some(MonitorReport {
                     id: id.clone(),
                     input: live.and_then(|l| l.input()).map(to_core),
-                    power_on: live.map(|l| l.power_on()),
+                    power_on: live.map(|l| l.power_on() && !soft_standby),
                     signal: live.map(|l| l.signal),
                     events: reader.events.iter().cloned().collect(),
                     cursor: reader.reported,
@@ -375,7 +424,7 @@ impl LocalMonitors {
                         return None;
                     }
                 };
-                let Some(on_screen) = live_agrees(live, input, again) else {
+                let Some(on_screen) = live_agrees(live, input, again, entry.model.codes) else {
                     tracing::debug!(
                         monitor = %id,
                         live = ?live,
@@ -408,8 +457,7 @@ impl LocalMonitors {
             return Err(format!("{id}: this machine has no channel to the monitor"));
         }
         let monitor = self
-            .link(entry.handle)
-            .open_standard()
+            .open(entry)
             .map_err(|e| format!("{id}: could not open the monitor: {e}"))?;
         tracing::info!(monitor = %id, input = %input, "input switch without being the owner");
         self.verdict(&monitor, input)
@@ -426,6 +474,40 @@ impl LocalMonitors {
         };
         tracing::info!(monitor = %id, input = %input, "input switch");
         self.verdict(&reader.monitor, input)
+    }
+
+    /// Opens a monitor after another probe (reads only), spoken to as its model needs.
+    fn open(&self, entry: &Entry) -> Result<StandardMonitor, DdcError> {
+        self.link(entry.handle)
+            .open_standard()
+            .map(|m| entry.model.apply(m))
+    }
+
+    /// Puts a monitor of its own in standby (`on = false`, MCCS `0xD6 = 4`) or wakes it (`0xD6 = 1`).
+    /// Waking needs the firmware's power wake (protocol 3 soft standby: the panel goes dark and the
+    /// monitor keeps answering); without it the monitor may drop its link and only a video signal or
+    /// its button wakes it, so a wake is refused instead of sent.
+    pub fn power(&mut self, id: &str, on: bool) -> Result<(), String> {
+        let Some(entry) = self.entries.get(id) else {
+            return Err(format!("this machine does not see monitor {id}"));
+        };
+        let Some(reader) = &entry.reader else {
+            return Err(format!("{id}: {NOT_OWNER}"));
+        };
+        let wake = reader
+            .monitor
+            .caps()
+            .is_some_and(|c| c.has(CapabilityWord::POWER_WAKE));
+        if !wake {
+            return Err(format!(
+                "{id}: this monitor's firmware cannot be woken by command, so it is not put to sleep either"
+            ));
+        }
+        tracing::info!(monitor = %id, on, "monitor power by command");
+        reader
+            .monitor
+            .set_vcp(VCP_POWER, if on { 1 } else { 4 })
+            .map_err(|e| format!("{id}: could not send the power command: {e}"))
     }
 
     /// Set `0x60` and the firmware's verdict, as the text the orchestrator shows.
@@ -459,13 +541,14 @@ pub fn live_agrees(
     live: monitor_ddc::VcpReply,
     input: monitor_ddc::VcpReply,
     again: monitor_ddc::VcpReply,
+    codes: InputCodes,
 ) -> Option<Input> {
     const DDC_ENABLED: u8 = 0x40;
     if live != again || live.ch() & DDC_ENABLED == 0 || input.current > 0xFF {
         return None;
     }
     let on_screen = Input::from_port(live.mh())?;
-    (Input::from_vcp(input.current) == Some(on_screen)).then_some(on_screen)
+    (codes.input(input.current) == Some(on_screen)).then_some(on_screen)
 }
 
 /// Reads what is new in the ring. The first time it only takes the cursor: anything from before this
@@ -520,31 +603,35 @@ fn read_events(reader: &mut Reader, clock: &dyn Clock, wall_ms: u64, kept: usize
         });
     }
     for e in &batch.events {
-        reader.events.push_back(event(e, wall_ms, clock_10ms));
+        reader
+            .events
+            .push_back(event(e, wall_ms, clock_10ms, reader.monitor.input_codes()));
     }
     while reader.events.len() > kept {
         reader.events.pop_front();
     }
 }
 
-fn event(e: &Event, wall_ms: u64, clock_10ms: u32) -> MonitorEvent {
+fn event(e: &Event, wall_ms: u64, clock_10ms: u32, codes: InputCodes) -> MonitorEvent {
     let port = |p: u8| Input::from_port(p).map(to_core);
     let (kind, input) = match e.kind() {
         EventKind::Boot => (MonitorEventKind::Boot, None),
         EventKind::InputPort => (MonitorEventKind::Input, port(e.new)),
         EventKind::DdcSwitchRequest => (
             MonitorEventKind::SwitchRequested,
-            Input::from_vcp(u16::from(e.new)).map(to_core),
+            codes.input(u16::from(e.new)).map(to_core),
         ),
         EventKind::SwitchDone => (MonitorEventKind::SwitchDone, port(e.new)),
         // `old` is the requested input; `new`, the one that stayed.
         EventKind::SwitchFailed => (MonitorEventKind::SwitchFailed, port(e.old)),
-        EventKind::PowerFlags | EventKind::PowersaveFlags | EventKind::DdcPowerRequest => {
-            (MonitorEventKind::Power, None)
-        }
+        EventKind::PowerFlags
+        | EventKind::PowersaveFlags
+        | EventKind::DdcPowerRequest
+        | EventKind::PowerState => (MonitorEventKind::Power, None),
         EventKind::Signal | EventKind::SyncFlags => (MonitorEventKind::Signal, None),
         EventKind::SettingChanged => (MonitorEventKind::Setting, None),
-        EventKind::SourceSelect
+        EventKind::CableMask
+        | EventKind::SourceSelect
         | EventKind::SystemState
         | EventKind::WindowPort
         | EventKind::Unknown(_) => (MonitorEventKind::Other, None),
@@ -981,7 +1068,7 @@ mod tests {
         ) {
             let r = |b: [u8; 4]| monitor_ddc::VcpReply::from_bytes(b[0], b[1], b[2], b[3]);
             let (l, i, a) = (r(live), monitor_ddc::VcpReply { max: 0, current: input }, r(again));
-            if let Some(on_screen) = live_agrees(l, i, a) {
+            if let Some(on_screen) = live_agrees(l, i, a, InputCodes::SAMSUNG) {
                 proptest::prop_assert_eq!(l, a);
                 proptest::prop_assert_eq!(Input::from_port(l.mh()), Some(on_screen));
                 proptest::prop_assert_eq!(Input::from_vcp(input), Some(on_screen));
@@ -1281,5 +1368,74 @@ mod tests {
         let dp = monitor_ddc::Edid::parse(&test_edid("SAM", 0x7155, "LC34G55T", "X1")).unwrap();
         let hdmi = monitor_ddc::Edid::parse(&test_edid("SAM", 0x7156, "LC34G55T", "X1")).unwrap();
         assert_eq!(dp.monitor_id(), hdmi.monitor_id());
+    }
+
+    /// The 32" G5 with its production image (protocol 3, MCCS input values) and the 34" with v3.2:
+    /// both are compatible, switch with their own `0x60` values and go to standby and back by command.
+    #[test]
+    fn protocol_3_monitors_switch_and_sleep_with_their_own_values() {
+        let clock = FakeClock::new();
+        let bus = FakeBus::new(clock.clone());
+        let g5 = bus.add(FakeMonitorConfig::g5_p3());
+        let mut lc34 = FakeMonitorConfig::lc34_v32();
+        lc34.edid = test_edid("SAM", 0x711A, "LC34G55T", "FAKE0000001");
+        let lc34 = bus.add(lc34);
+        let wall_clock = clock.clone();
+        let mut local = LocalMonitors::new(
+            Arc::new(bus.clone()),
+            Arc::new(clock.clone()),
+            Arc::new(move || 1_700_000_000_000 + wall_clock.now().as_millis() as u64),
+            LocalConfig::default(),
+        );
+        let channels = local.scan().unwrap();
+        assert_eq!(channels.len(), 2);
+        assert!(
+            channels
+                .iter()
+                .all(|c| c.compat == MonitorCompat::Compatible { protocol: 3 })
+        );
+        let ids: BTreeSet<String> = channels.iter().map(|c| c.id.clone()).collect();
+        local.set_owned(&ids);
+        local.poll();
+        for c in &channels {
+            let id = &c.id;
+            let id_handle = if c.name.contains("Odyssey") { g5 } else { lc34 };
+            local.switch(id, MonitorInput::Hdmi).unwrap();
+            assert_eq!(bus.screen_input(id_handle), Some(Input::Hdmi), "{id}");
+            local.switch(id, MonitorInput::DisplayPort).unwrap();
+            assert_eq!(
+                bus.screen_input(id_handle),
+                Some(Input::DisplayPort),
+                "{id}"
+            );
+
+            local.power(id, false).unwrap();
+            assert!(bus.is_soft_standby(id_handle), "{id}");
+            let report = local.poll().into_iter().find(|r| &r.id == id).unwrap();
+            assert_eq!(report.power_on, Some(false), "{id}");
+            local.power(id, true).unwrap();
+            let report = local.poll().into_iter().find(|r| &r.id == id).unwrap();
+            assert_eq!(report.power_on, Some(true), "{id}");
+        }
+    }
+
+    /// A G5 direct reading (T-346) agrees with its MCCS `0x60` values, not with the 34"'s.
+    #[test]
+    fn direct_reading_uses_the_models_input_values() {
+        let codes = InputCodes {
+            dp: 0x0F,
+            hdmi: 0x11,
+        };
+        // 0xEE: MH = port 1 (HDMI), ML = 0, CH = power + DDC enabled, CL = signal.
+        let ee = monitor_ddc::VcpReply {
+            max: 0x0100,
+            current: 0x4101,
+        };
+        let g5_hdmi = monitor_ddc::VcpReply {
+            max: 0x0011,
+            current: 0x0011,
+        };
+        assert_eq!(live_agrees(ee, g5_hdmi, ee, codes), Some(Input::Hdmi));
+        assert_eq!(live_agrees(ee, g5_hdmi, ee, InputCodes::SAMSUNG), None);
     }
 }
