@@ -61,7 +61,7 @@
   /** Monitors that show neither machine (T-349): one line each, "34" · Mac cable unplugged". */
   const dark = $derived(desk.monitors.flatMap((m) => {
     const text = isDim(m.link) ? linkText(m.link, (x) => name(x)) : null;
-    return text ? [{ id: m.id, text: `${shortMonitor(m.name)} · ${text}` }] : [];
+    return text ? [{ id: m.id, text: `${shortMonitor(m.name, m.sizeMm)} · ${text}` }] : [];
   }));
 </script>
 

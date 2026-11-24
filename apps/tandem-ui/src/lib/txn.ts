@@ -87,7 +87,7 @@ const other = (m: Machine): Machine => (m === "a" ? "b" : "a");
 /** The monitor of a step, with the short name ("34""). */
 function monitorName(id: string, names: Names): string {
   const m = names.monitors.find((x) => x.id === id);
-  return m ? shortMonitor(m.name) : id;
+  return m ? shortMonitor(m.name, m.sizeMm) : id;
 }
 
 /** `MonitorInput` in the long form the agent uses in its errors. */
@@ -162,7 +162,7 @@ export function viewOf(run: Run, names: Names, now: number): RunView {
   if (failedAt >= 0) {
     const bad = p.steps[failedAt];
     const was = bad && isMonitorStep(bad) ? names.monitors.find((x) => x.id === (bad as { monitor: string }).monitor) : null;
-    const back = was?.shows ? `${shortMonitor(was.name)} → ${names.machine(was.shows)}` : "";
+    const back = was?.shows ? `${shortMonitor(was.name, was.sizeMm)} → ${names.machine(was.shows)}` : "";
     rows.push({ key: "back", icon: outcome === "running" ? "back" : "done", text: "Rolling back to the previous state", detail: back, tone: "" });
   }
 

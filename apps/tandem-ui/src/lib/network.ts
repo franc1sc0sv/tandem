@@ -2,7 +2,7 @@
 // 60 s chart, the indicators, the note of the last change). Pure, to test in vitest.
 
 import { LINK_NAME } from "./machines";
-import { EMPTY_NETWORK, INPUT_TARGET_MS, type LatencyPoint, type LinkKind, type NetworkView, type PathState, type PathSwitchView, type PathView } from "./store/types";
+import { EMPTY_NETWORK, INPUT_TARGET_MS, type LatencyPoint, type LinkKind, type LinkView, type NetworkView, type PathState, type PathSwitchView, type PathView } from "./store/types";
 
 export const HISTORY_SECS = 60;
 
@@ -107,6 +107,40 @@ export function isUp(p: PathView): boolean {
 
 export function primaryOf(n: NetworkView): PathView | null {
   return n.paths.find((p) => p.state === "primary") ?? null;
+}
+
+/** The newest value of a path's history that is not a gap. */
+function newest(p: PathView, of: (h: LatencyPoint) => number | null): number | null {
+  for (let i = p.history.length - 1; i >= 0; i--) {
+    const h = p.history[i];
+    const v = h ? of(h) : null;
+    if (v !== null) return v;
+  }
+  return null;
+}
+
+/**
+ * The Desk's link summary (T-356) from the agent's real measurements of the path carrying the
+ * input: the round trip of the link pings, the input latency the session measures (capture →
+ * injection, p99) and the bandwidth of the last test. A second without input leaves no p99, so
+ * the newest one of the last 60 s is kept; `null` when nothing was measured at all.
+ */
+export function linkSummary(kind: LinkKind | null, network: NetworkView): LinkView {
+  const p = kind ? (network.paths.find((x) => x.kind === kind && x.state === "primary") ?? null) : null;
+  if (!p) return { kind, gbps: null, ms: null, inputP99: null };
+  return { kind, gbps: p.gbps, ms: p.rttMs ?? newest(p, (h) => h.rttMs), inputP99: p.inputP99Ms ?? newest(p, (h) => h.inputP99Ms) };
+}
+
+/** The Desk's link figures: never a dash; what was not measured yet reads 0 (and says so in `title`). */
+export function linkFigures(l: LinkView): { rate: string; input: string; title: string } {
+  const gbps = l.gbps === null ? "0 Gbps" : formatRate(l.gbps);
+  const ms = l.ms === null ? "0 ms" : formatMs(l.ms);
+  const missing = [l.gbps === null && "bandwidth (measure it on Network)", l.ms === null && "latency", l.inputP99 === null && "input latency"].filter(Boolean);
+  return {
+    rate: `${gbps} · ${ms}`,
+    input: `p99 ${l.inputP99 === null ? "0 ms" : formatMs(l.inputP99)}`,
+    title: missing.length > 0 ? `Not measured yet: ${missing.join(", ")}` : "",
+  };
 }
 
 /** The description of a path for screen readers ("USB-C active at 0.3 ms"). */

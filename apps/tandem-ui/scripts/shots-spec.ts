@@ -253,8 +253,6 @@ export const MONITORS: ShotSpec[] = [
 ];
 
 /** The empty gap D1 leaves in the row of machine cards of `V3-Desk`. */
-const NO_ADD_CARD: Ignore = { mockupSelector: 'a[href="F-AddHost.dc.html"].card', reason: "D1: no \"Add machine\" card" };
-
 /** D2: the scaled desks take each machine's color; with two of the same system the background cannot match the mockup. */
 const D2_DESKS: Ignore = { mockupSelector: 'div:has(> div[role="img"][aria-label^="To scale"])', reason: "D2: the machines' color changes the background of the desks" };
 
@@ -481,10 +479,11 @@ export const SHOTS: ShotSpec[] = [
     mockup: "V3-Desk",
     width: W,
     height: H,
-    ignore: [NO_ADD_MACHINE, NO_ADD_CARD],
+    ignore: [NO_ADD_MACHINE],
     regions: [{ ...SIDEBAR, min: SIDEBAR_GATE }],
-    // T-113: the whole screen. Only the empty gap D1 removes ("Add machine") is masked; the
-    // app has no hidden card (Power on/off live inside the other machine's card).
+    // T-113: the whole screen. T-356 removed the "Add machine" card (D1) from the mockup itself:
+    // the two machine cards fill the row, so nothing there is masked (Power on/off live inside
+    // the other machine's card).
     min: SCREEN_GATE,
   },
   // D2 (scope of T-126): the same desk with two Windows and with two Macs. Names and
@@ -493,12 +492,12 @@ export const SHOTS: ShotSpec[] = [
   ...[
     ["scene-macbook-only", "MacBook only"],
     ["scene-game", "Game"],
-  ].map(([state, label]): ShotSpec => ({ name: `desk-${state}`, page: "index.html", query: DEMO, hash: "#/desk", mockup: "V3-Desk", state, width: W, height: H, clicks: [`.scene:has-text("${label}")`], ignore: [NO_ADD_MACHINE, NO_ADD_CARD], min: SCREEN_GATE })),
+  ].map(([state, label]): ShotSpec => ({ name: `desk-${state}`, page: "index.html", query: DEMO, hash: "#/desk", mockup: "V3-Desk", state, width: W, height: H, clicks: [`.scene:has-text("${label}")`], ignore: [NO_ADD_MACHINE], min: SCREEN_GATE })),
   // T-345: the notice of another machine looking for a pair while the paired one is silent. The mockup has no such
   // state: it is captured and measured but has no threshold.
-  { name: "desk-offer", page: "index.html", query: `${DEMO}&trouble=peer-off&offer`, hash: "#/desk", mockup: "V3-Desk", width: W, height: H, ignore: [NO_ADD_MACHINE, NO_ADD_CARD] },
-  { name: "desk-win-win", page: "index.html", query: "demo=win-win&still", hash: "#/desk", mockup: "V3-Desk", width: W, height: H, ignore: [NO_ADD_MACHINE, NO_ADD_CARD, D2_DESKS], regions: [SIDEBAR] },
-  { name: "desk-mac-mac", page: "index.html", query: "demo=mac-mac&still", hash: "#/desk", mockup: "V3-Desk", width: W, height: H, ignore: [NO_ADD_MACHINE, NO_ADD_CARD, D2_DESKS], regions: [SIDEBAR] },
+  { name: "desk-offer", page: "index.html", query: `${DEMO}&trouble=peer-off&offer`, hash: "#/desk", mockup: "V3-Desk", width: W, height: H, ignore: [NO_ADD_MACHINE] },
+  { name: "desk-win-win", page: "index.html", query: "demo=win-win&still", hash: "#/desk", mockup: "V3-Desk", width: W, height: H, ignore: [NO_ADD_MACHINE, D2_DESKS], regions: [SIDEBAR] },
+  { name: "desk-mac-mac", page: "index.html", query: "demo=mac-mac&still", hash: "#/desk", mockup: "V3-Desk", width: W, height: H, ignore: [NO_ADD_MACHINE, D2_DESKS], regions: [SIDEBAR] },
   ...TUNNELS,
   ...MONITORS,
   ...ARRANGEMENT,

@@ -214,6 +214,28 @@ describe("Network with the real agent (IPC)", () => {
     expect(act.mock.calls.length).toBe(n);
   });
 
+  it("T-356: the Desk asks for the network too and its link bar shows the agent's measurements, never a dash", async () => {
+    const { b, act, handlers } = bridge();
+    const store = await open(new LiveSource(b));
+    store.go({ screen: "settings" });
+    expect(act).toHaveBeenLastCalledWith({ kind: "watch_network", on: false });
+    store.go({ screen: "desk" });
+    expect(act).toHaveBeenLastCalledWith({ kind: "watch_network", on: true });
+    await tick();
+    // Nothing measured yet: zeros, not dashes, and the title says why.
+    const bar = () => document.querySelector<HTMLElement>(".card.link")!;
+    expect(bar().textContent).not.toMatch(/[–—]/);
+    expect(within(bar()).getByText("0 Gbps · 0 ms")).toBeInTheDocument();
+    expect(within(bar()).getByText("p99 0 ms")).toBeInTheDocument();
+    // The pings, the last bandwidth test and, in a second without input, the newest p99 of the history.
+    const w = wire();
+    w.paths[0] = { ...w.paths[0]!, input_p50_us: null, input_p99_us: null, history: [{ rtt_us: 300, input_p99_us: 2100 }, { rtt_us: 300, input_p99_us: null }] };
+    await flush(() => handlers.network?.(w));
+    expect(within(bar()).getByText("9.4 Gbps · 0.3 ms")).toBeInTheDocument();
+    expect(within(bar()).getByText("p99 2.1 ms")).toBeInTheDocument();
+    expect(bar().querySelector(".stats")?.getAttribute("title")).toBeNull();
+  });
+
   it("paints what the agent sends, every second, with the names and colors of each machine", async () => {
     const { b, handlers } = bridge();
     await open(new LiveSource(b));

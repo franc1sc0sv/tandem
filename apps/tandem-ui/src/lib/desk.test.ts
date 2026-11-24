@@ -137,3 +137,47 @@ describe("demo path (the `cur` keyframes)", () => {
     }
   });
 });
+
+describe("the real two-monitor desk (`desk=g5`, T-356)", () => {
+  const g5 = () => demoDesk(demoOptions("demo&desk=g5&still"));
+
+  it("draws the 34\" ultrawide and the 32\" G5 at their physical proportions, labelled by size", () => {
+    const d = g5();
+    const s = sceneOf(d.layout, { a: "Mac", b: "DESKTOP-7Q4K2M9" }, colors);
+    const [wide, std] = s.desks;
+    expect(s.desks.map((k) => k.label)).toEqual(['34" · Mac', '32" · Mac']);
+    // In canvas units: width over height, corrected by the canvas aspect (the mockup draws a
+    // monitor 0.5 % taller than its measurement).
+    const ratio = (k: { width: number; height: number }) => (k.width * s.aspect) / k.height;
+    expect(ratio(wide!)).toBeCloseTo(797 / 334 / 1.005, 2);
+    expect(ratio(std!)).toBeCloseTo(700 / 400 / 1.005, 2);
+    // The 34" is wider and lower than the 32".
+    expect(wide!.width).toBeGreaterThan(std!.width);
+    expect(wide!.height).toBeLessThan(std!.height);
+  });
+
+  it("each model stands on its own base, both on the same table", () => {
+    const s = sceneOf(g5().layout, { a: "Mac", b: "PC" }, colors);
+    const bases = s.feet.filter((f) => f.shape);
+    expect(bases.map((f) => f.shape)).toEqual(["v", "trapezoid"]);
+    expect(bases[0]!.top).toBeCloseTo(bases[1]!.top, 6);
+    // Each neck reaches from its panel to the table.
+    for (const k of s.desks) {
+      const neck = s.feet.find((f) => !f.shape && f.left > k.left && f.left < k.left + k.width);
+      expect(neck!.top).toBeCloseTo(k.top + k.height, 6);
+      expect(neck!.top + neck!.height).toBeCloseTo(bases[0]!.top, 6);
+    }
+    expect(Math.max(...s.feet.map((f) => f.top + f.height))).toBeLessThanOrEqual(100);
+  });
+
+  it("a monitor that is not a known model keeps the mockup's stand", () => {
+    const s = scene();
+    expect(s.feet.some((f) => f.shape)).toBe(false);
+  });
+
+  it("the scenes name the monitors by size, so long machine names still fit", () => {
+    const d = g5();
+    expect(d.scenes.map((x) => x.desc)).toEqual(['34" → DESKTOP-7Q4K2M9, 32" → Mac', '34" → DESKTOP-7Q4K2M9, 32" → DESKTOP-7Q4K2M9', '34" → Mac, 32" → Mac']);
+  });
+});
+

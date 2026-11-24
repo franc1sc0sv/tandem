@@ -124,6 +124,8 @@ export interface MonitorJson {
   report: { id: string; input: MonitorInput | null; power_on: boolean | null; signal: boolean | null; events: MonitorEventJson[] } | null;
   /** The derived link (T-349); absent from an older agent. */
   link?: LinkJson;
+  /** The picture's physical size in mm (width, height), from its EDID (T-356); `null` if it does not say. */
+  size_mm?: [number, number] | null;
 }
 
 export interface DeskState {

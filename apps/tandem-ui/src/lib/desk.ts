@@ -4,6 +4,7 @@
 
 import { draw, mainOf, wallOf, type Drawing, type LayoutScreen, type LayoutView } from "./arrangement";
 import type { CursorSample, Machine, Side } from "./model";
+import type { StandKind } from "./monitors";
 
 /** The mockup canvas measures ≈ 52.3 × 21.6 inches; the 34" (31.4") takes 60 % of the width. */
 const DESK_DRAW = { view: { w: 52.3, h: 21.63 }, gap: 1.15, below: 3.67 };
@@ -31,6 +32,8 @@ export interface Foot {
   height: number;
   /** Radius of the bottom corners, in px. */
   radius: number;
+  /** The outline of a model's base (T-356); a plain rectangle without it. */
+  shape?: "v" | "trapezoid";
 }
 
 export interface DeskScene {
@@ -52,6 +55,18 @@ const LAPTOP_OVER = 0.0655;
 const BASE_H = 2.6;
 const NECK = { w: 0.075, h: 9 };
 const STAND_W = 0.25;
+
+/**
+ * Each stand (T-356): neck width and base width as a fraction of the panel width, the shortest
+ * neck and the base height as a percentage of the canvas, and the base outline. The generic one
+ * is the mockup's. The 34" ultrawide G5 sits low on a wide V; the 32" G5 higher, on a narrow
+ * trapezoid.
+ */
+const STANDS: Record<StandKind, { neck: number; minNeck: number; base: number; baseH: number; radius: number; shape?: Foot["shape"] }> = {
+  generic: { neck: NECK.w, minNeck: NECK.h, base: STAND_W, baseH: BASE_H, radius: 3 },
+  "ultrawide-g5": { neck: 0.05, minNeck: 7, base: 0.44, baseH: 2.4, radius: 0, shape: "v" },
+  g5: { neck: 0.065, minNeck: 11, base: 0.34, baseH: 2.8, radius: 2, shape: "trapezoid" },
+};
 /** The mockup draws the laptop by hand 0.7 % lower and the monitor 0.5 % higher than their measurement. */
 const LAPTOP_H = 0.993;
 const EXTERNAL_H = 1.005;
@@ -62,10 +77,21 @@ export const DIM_WALL = "#16171b";
 
 export function sceneOf(layout: LayoutView, names: Record<Machine, string>, colors: Record<Machine, string>): DeskScene {
   const usable: LayoutView = { ...layout, screens: layout.screens.filter((s) => s.usable && s.machine !== null) };
-  const d: Drawing = draw(usable, DESK_DRAW);
+  // Monitors of different heights stand on the same table: room below for the longest neck.
+  const tall = usable.screens.filter(isExternal).map((s) => s.h);
+  const spread = tall.length > 1 ? Math.max(...tall) - Math.min(...tall) : 0;
+  const d: Drawing = draw(usable, { ...DESK_DRAW, below: DESK_DRAW.below + spread });
   const byId = new Map(usable.screens.map((s) => [s.id, s]));
   const desks: DeskBox[] = [];
   const feet: Foot[] = [];
+  // The table line of each monitor: under the lowest of the panels beside it (those whose heights
+  // overlap; one above another does not share its table), by at least each stand's shortest neck.
+  const standing = d.boxes.flatMap((b) => {
+    const s = byId.get(b.id);
+    return s?.machine && isExternal(s) ? [{ b, floor: b.top + b.height + STANDS[s.stand ?? "generic"].minNeck }] : [];
+  });
+  const tableOf = (b: (typeof d.boxes)[number]) =>
+    Math.max(...standing.filter((x) => x.b.top < b.top + b.height && b.top < x.b.top + x.b.height).map((x) => x.floor));
   for (const b of d.boxes) {
     const s = byId.get(b.id);
     if (!s?.machine) continue;
@@ -81,8 +107,11 @@ export function sceneOf(layout: LayoutView, names: Record<Machine, string>, colo
     const floor = b.top + b.height;
     const mid = b.left + b.width / 2;
     if (ext) {
-      feet.push({ left: mid - (b.width * NECK.w) / 2, top: floor, width: b.width * NECK.w, height: NECK.h, radius: 0 });
-      feet.push({ left: mid - (b.width * STAND_W) / 2, top: floor + NECK.h, width: b.width * STAND_W, height: BASE_H, radius: 3 });
+      const st = STANDS[s.stand ?? "generic"];
+      const table = tableOf(b);
+      const neck = table - floor;
+      feet.push({ left: mid - (b.width * st.neck) / 2, top: floor, width: b.width * st.neck, height: neck, radius: 0 });
+      feet.push({ left: mid - (b.width * st.base) / 2, top: table, width: b.width * st.base, height: st.baseH, radius: st.radius, ...(st.shape ? { shape: st.shape } : {}) });
     } else {
       feet.push({ left: b.left - b.width * LAPTOP_OVER, top: floor, width: b.width * (1 + 2 * LAPTOP_OVER), height: BASE_H, radius: 6 });
     }

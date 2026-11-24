@@ -10,6 +10,8 @@ import {
   describePath,
   formatMs,
   formatRate,
+  linkFigures,
+  linkSummary,
   formatSecs,
   gbpsOf,
   latencyBar,
@@ -232,3 +234,31 @@ describe("path with no reply (T-147)", () => {
     }
   });
 });
+
+describe("the Desk link summary (T-356)", () => {
+  const path = (over: Partial<PathView>): PathView => ({ kind: "usb4", state: "primary", rttMs: null, inputP50Ms: null, inputP99Ms: null, targetMs: 4, gbps: null, history: [], detail: null, ...over });
+  const net = (p: PathView): NetworkView => ({ ...EMPTY_NETWORK, paths: [p] });
+
+  it("takes the primary path's numbers, and the newest p99 of the history in a second without input", () => {
+    const n = net(path({ rttMs: 0.3, gbps: 9.4, history: [{ rttMs: 0.3, inputP99Ms: 1.4 }, { rttMs: 0.3, inputP99Ms: 2.2 }, { rttMs: null, inputP99Ms: null }] }));
+    expect(linkSummary("usb4", n)).toEqual({ kind: "usb4", gbps: 9.4, ms: 0.3, inputP99: 2.2 });
+    expect(linkSummary("usb4", net(path({ inputP99Ms: 1.9, history: [{ rttMs: 0.5, inputP99Ms: 3 }] })))).toEqual({ kind: "usb4", gbps: null, ms: 0.5, inputP99: 1.9 });
+  });
+
+  it("is empty for another path, a backup one or no link", () => {
+    const n = net(path({ rttMs: 0.3 }));
+    expect(linkSummary("wifi", n).ms).toBeNull();
+    expect(linkSummary("usb4", net(path({ state: "backup", rttMs: 0.3 }))).ms).toBeNull();
+    expect(linkSummary(null, n)).toEqual({ kind: null, gbps: null, ms: null, inputP99: null });
+  });
+
+  it("never writes a dash: what was not measured reads 0 and the title says what is missing", () => {
+    expect(linkFigures({ kind: "usb4", gbps: 9.4, ms: 0.3, inputP99: 1.9 })).toEqual({ rate: "9.4 Gbps · 0.3 ms", input: "p99 1.9 ms", title: "" });
+    const none = linkFigures({ kind: "usb4", gbps: null, ms: null, inputP99: null });
+    expect(none).toMatchObject({ rate: "0 Gbps · 0 ms", input: "p99 0 ms" });
+    expect(none.title).toMatch(/^Not measured yet: bandwidth .*latency, input latency$/);
+    expect(linkFigures({ kind: "wifi", gbps: 0.41, ms: 14.2, inputP99: null })).toMatchObject({ rate: "410 Mbps · 14 ms", input: "p99 0 ms" });
+    expect(Object.values(none).join("")).not.toMatch(/[–—]/);
+  });
+});
+
