@@ -1,4 +1,4 @@
-//! The Mac's built-in display mode (T-351) with two real agents: the mode is a desk setting, so
+//! The Mac's built-in display mode (T-353) with two real agents: the mode is a desk setting, so
 //! either machine's UI changes it, and the Mac (A, with a display double: its panel and the 34")
 //! applies it. At exit the panel goes back to how the agent found it.
 

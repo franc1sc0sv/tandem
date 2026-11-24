@@ -160,7 +160,7 @@ fn start_monitors(agent: &Arc<Agent>) {
                 tandem_monitor::local::system_wall(),
                 tandem_monitor::LocalConfig::default(),
             );
-            // Displays the DDC bus does not enumerate are still announced by their EDID (T-351).
+            // Displays the DDC bus does not enumerate are still announced by their EDID (T-353).
             if let Some(edids) = tandem_input::displays::system_edids() {
                 core = core.with_system_edids(Arc::new(edids));
             }

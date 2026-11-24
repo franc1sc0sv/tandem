@@ -27,7 +27,7 @@
   let leaving = $state(false);
   let forgetting = $state(false);
 
-  // What a Mac does with its built-in display while an external one is on (T-351).
+  // What a Mac does with its built-in display while an external one is on (T-353).
   const BUILTIN_OPTIONS: SegOption[] = [
     { value: "external-only", label: "External only", icon: "monitors" },
     { value: "mirror", label: "Mirror", icon: "copy" },

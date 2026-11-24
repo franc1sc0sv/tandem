@@ -405,7 +405,7 @@ pub struct Desk {
     /// (`[[cables]]`, T-111). A monitor without a declared cable is resolved with the EDID.
     #[serde(default)]
     pub cables: Vec<MonitorCable>,
-    /// What each machine does with its built-in display (`[builtin_display]`, T-351).
+    /// What each machine does with its built-in display (`[builtin_display]`, T-353).
     #[serde(default)]
     pub builtin_display: crate::desk::BuiltinDisplays,
 }

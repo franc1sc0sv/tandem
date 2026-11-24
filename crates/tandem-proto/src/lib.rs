@@ -153,7 +153,7 @@ mod tests {
     /// it was going to be v47, but T-350 landed earlier.
     /// `Step::MonitorPower` and `UiCommand::MonitorPower` (monitor standby and wake by command,
     /// protocol 3 firmware) bump to v49.
-    /// T-351 (`DeskPatch::BuiltinDisplay` and the desk's `builtin_display`, the Mac's built-in
+    /// T-353 (`DeskPatch::BuiltinDisplay` and the desk's `builtin_display`, the Mac's built-in
     /// display mode) bumps to v49.
     /// Terminal tunnels (`ExecSpec::pty`, `TunnelUp::Input`/`Resize`, `UiCommand::Input`/`Resize`/
     /// `WatchOutput`, `wait_ms` in `Output` and the pushed `AgentToUi::Output`) bump to v49.

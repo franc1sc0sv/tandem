@@ -62,7 +62,7 @@ impl Retry {
     }
 }
 
-/// What the built-in display was before this machine changed it for its mode (T-351), to put it
+/// What the built-in display was before this machine changed it for its mode (T-353), to put it
 /// back at exit and after a crash.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 struct SavedBuiltin {
@@ -102,9 +102,9 @@ struct Inner {
     unknown_since: BTreeMap<String, Instant>,
     /// Why each monitor that shows the other was left on, so it is logged once.
     skipped: BTreeMap<String, String>,
-    /// Displays that failed to come back: when to try again (T-351).
+    /// Displays that failed to come back: when to try again (T-353).
     retry: BTreeMap<String, Retry>,
-    /// The built-in display as it was before its mode changed it (T-351).
+    /// The built-in display as it was before its mode changed it (T-353).
     builtin: Option<SavedBuiltin>,
     /// The last state the built-in display was set to, and the next try after a failure.
     builtin_set: Option<BuiltinState>,
@@ -408,7 +408,7 @@ impl DisplayGuard {
         Ok(())
     }
 
-    /// The built-in display follows `mode` (T-351): off, mirroring the main external display or
+    /// The built-in display follows `mode` (T-353): off, mirroring the main external display or
     /// on its own while an external display is active; on and on its own when none is. In
     /// `Extended` mode only what this machine changed is undone: macOS's own settings stay.
     /// With the lid closed it is never touched.

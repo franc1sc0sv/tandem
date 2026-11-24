@@ -1,4 +1,4 @@
-//! What the IOKit registry says about the displays (T-351): whether the lid is closed, and the EDID
+//! What the IOKit registry says about the displays (T-353): whether the lid is closed, and the EDID
 //! of every external display, even one without a DDC/CI channel (a USB-C to HDMI adapter).
 //!
 //! Read-only: it only reads registry properties. Plain C calls of IOKit and CoreFoundation, which
@@ -153,7 +153,7 @@ mod tests {
     use crate::displays::DisplayPower;
     use crate::macos::display_power::MacDisplayPower;
 
-    /// Read-only, on a real Mac (T-351): every external display's EDID is listed, also one behind
+    /// Read-only, on a real Mac (T-353): every external display's EDID is listed, also one behind
     /// an adapter without DDC/CI, and CoreGraphics knows the built-in display at most once.
     /// `cargo test -p tandem-input -- --ignored --nocapture reads_the_real_displays`
     #[test]

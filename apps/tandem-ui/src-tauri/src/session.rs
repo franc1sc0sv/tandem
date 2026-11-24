@@ -905,7 +905,7 @@ pub enum Action {
         cmd_ctrl: bool,
         drag_files: bool,
     },
-    /// What the Mac `machine` does with its built-in display (`EditDesk { BuiltinDisplay }`, T-351).
+    /// What the Mac `machine` does with its built-in display (`EditDesk { BuiltinDisplay }`, T-353).
     SetBuiltinDisplay {
         machine: Machine,
         mode: BuiltinMode,

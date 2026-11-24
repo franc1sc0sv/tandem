@@ -1,6 +1,6 @@
 //! This machine's display of a monitor that shows the other, off (T-341, [`crate::displays`]):
 //! the loop that follows what each monitor shows, the wake before a switch to this machine's input
-//! ([`DisplayWake`]) and the restore at exit. The built-in display follows its mode (T-351) in the
+//! ([`DisplayWake`]) and the restore at exit. The built-in display follows its mode (T-353) in the
 //! same turn.
 
 use std::sync::{Arc, PoisonError, Weak};

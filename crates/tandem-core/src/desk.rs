@@ -110,7 +110,7 @@ impl Modules {
     }
 }
 
-/// What a Mac does with its built-in display while an external display is active (T-351).
+/// What a Mac does with its built-in display while an external display is active (T-353).
 /// Without any active external display the built-in display always stays on, whatever the mode.
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, PartialOrd, Ord,
@@ -146,7 +146,7 @@ impl BuiltinMode {
     }
 }
 
-/// The built-in display mode of each machine (`[builtin_display]`, T-351). A machine without one
+/// The built-in display mode of each machine (`[builtin_display]`, T-353). A machine without one
 /// has the default ([`BuiltinMode::ExternalOnly`]); a machine without a built-in display ignores it.
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, PartialOrd, Ord,
@@ -229,7 +229,7 @@ pub enum DeskPatch {
     },
     /// A monitor's cabling (replaces any it had; T-111).
     Cable(MonitorCable),
-    /// What `machine` does with its built-in display (T-351).
+    /// What `machine` does with its built-in display (T-353).
     BuiltinDisplay {
         machine: Machine,
         mode: BuiltinMode,

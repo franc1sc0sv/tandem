@@ -118,7 +118,7 @@ describe("Desk and machines", () => {
   });
 });
 
-describe("Built-in display (T-351)", () => {
+describe("Built-in display (T-353)", () => {
   it("only the Mac has it, external only by default, and a pick reaches the store", async () => {
     const store = await mount();
     const mac = (["a", "b"] as const).find((id) => store.desk.machines[id]?.os === "macos")!;

@@ -110,7 +110,7 @@ export interface MachineView {
   inputDevices?: { name: string; via?: string }[];
   /** Only on the other machine: the MAC with which this one wakes it (T-159); `mac: null` = cannot. */
   wake?: { mac: string | null } | null;
-  /** Only on a Mac: what it does with its built-in display while an external one is on (T-351). */
+  /** Only on a Mac: what it does with its built-in display while an external one is on (T-353). */
   builtinDisplay?: BuiltinMode;
 }
 
@@ -435,7 +435,7 @@ export interface Source {
   start(onDesk: (d: DeskView) => void, onChange?: (c: DeskChange) => void, onTransfer?: (t: TransferView) => void): Promise<void>;
   /** Shared keyboard and mouse: the whole pair is sent. */
   setPrefs(p: { cmdCtrl: boolean; dragFiles: boolean }): Promise<ActResult>;
-  /** What the Mac `machine` does with its built-in display (T-351). */
+  /** What the Mac `machine` does with its built-in display (T-353). */
   setBuiltinDisplay(machine: Machine, mode: BuiltinMode): Promise<ActResult>;
   /** The desk lock shortcut (empty = no shortcut). */
   setLockShortcut(lock: string[]): Promise<ActResult>;

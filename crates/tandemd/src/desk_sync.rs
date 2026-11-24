@@ -20,7 +20,7 @@ pub fn fingerprint(desk: &Desk) -> String {
     let mut json = serde_json::to_vec(desk).unwrap_or_default();
     // A section added later counts only once it is used: a file written by an earlier version keeps
     // its fingerprint and is not taken for a hand edit after an update. `builtin_display` is the
-    // last field of the desk (T-351).
+    // last field of the desk (T-353).
     let unused = br#","builtin_display":{"a":null,"b":null}}"#;
     if json.ends_with(unused) {
         json.truncate(json.len() - unused.len());

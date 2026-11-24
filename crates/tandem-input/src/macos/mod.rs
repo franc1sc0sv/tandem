@@ -8,7 +8,7 @@
 //! - [`emulate`]: injection with `CGEventPost` (T-023, docs/research/input-engine.md).
 //! - `display_power`: turning a display off and on (T-341).
 //! - `hotplug`: display changes (T-349).
-//! - `iokit`: the lid and the EDID of every external display (T-351).
+//! - `iokit`: the lid and the EDID of every external display (T-353).
 
 pub mod capture;
 #[cfg(target_os = "macos")]

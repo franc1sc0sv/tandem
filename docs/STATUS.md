@@ -9,7 +9,7 @@
 
 | | |
 |---|---|
-| Tasks | **194 done of 199** (`T-001`…`T-351`; open ones below) |
+| Tasks | **195 done of 200** (`T-001`…`T-354`; open ones below) |
 | Tests | **1784 Rust + 780 UI (vitest)**, 0 failures, 11 ignored (`#[ignore = "hardware"]` and latency benches) |
 | Quality | `fmt`, `clippy -D warnings`, `svelte-check` and `pnpm build` with no warnings |
 | CI per PR | Linux · Windows · macOS · UI x3 · coverage · `.dmg` · Windows installer |
@@ -39,7 +39,7 @@
 | T-340…T-346, T-348 | done | Real-hardware findings of 2026-11-19: the monitor recognized by its EDID without a DDC channel (T-340), no phantom display on the Mac (T-341), scenes applied in about 7 s (T-342), Local Network permission never requested (T-344), the Mac reads the monitor itself (T-346), one-click updates that keep the macOS permissions (T-348) |
 | T-347 | todo | The Mac keeps its DDC channel while the 34" shows the PC: the inactive HDMI answers, no firmware patch needed |
 | T-349 | done | Monitor link states: which machine each monitor shows, which cables are connected and whether it is on, acted on by the UI, scenes, selector and cursor; hot-plug rescans (protocol v48) |
-| T-351 | done | The Mac announces every external display by its EDID (also behind an adapter without DDC/CI) and its built-in display has a mode: external only (default), mirror or extended (protocol v49) |
+| T-353 | done | The Mac announces every external display by its EDID (also behind an adapter without DDC/CI) and its built-in display has a mode: external only (default), mirror or extended (protocol v49) |
 | T-140…T-165, T-190…T-300, T-310, T-322 | done | Failures from the acceptance and hardware runs, personal data out of the repo, CI time limits, English migration (T-200…T-208), one-way links (T-237), macOS and Windows input fixes (T-239, T-241), UI reply races (T-250, T-251), monitor report race after pairing (T-280), this file brought up to date (T-290), a rejection right after pairing no longer unpairs (T-291, supersedes T-190), a setting moved into the desk survives the other machine's simultaneous migration (T-322), path failover under 1 s (T-310) |
 
 ## Pending hardware verification

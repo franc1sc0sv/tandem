@@ -62,7 +62,7 @@ pub struct PowerDisplay {
     pub key: Option<DisplayKey>,
 }
 
-/// A display the system knows, whether it is on, off or mirroring another (T-351).
+/// A display the system knows, whether it is on, off or mirroring another (T-353).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SystemDisplay {
     pub id: u32,
@@ -77,7 +77,7 @@ pub struct SystemDisplay {
     pub main: bool,
 }
 
-/// What the built-in display does (T-351), set in one display configuration.
+/// What the built-in display does (T-353), set in one display configuration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BuiltinState {
     Off,
@@ -103,16 +103,16 @@ pub trait DisplayPower: Send + Sync + std::fmt::Debug {
     fn active(&self) -> Result<Vec<PowerDisplay>, DisplayPowerError>;
     /// Turns the display `id` on or off. A display already in that state is not an error.
     fn set_enabled(&self, id: u32, on: bool) -> Result<(), DisplayPowerError>;
-    /// Every display the system knows, on, off or mirroring (T-351). A system that cannot say
+    /// Every display the system knows, on, off or mirroring (T-353). A system that cannot say
     /// lists none, and then the built-in display is never touched.
     fn online(&self) -> Result<Vec<SystemDisplay>, DisplayPowerError> {
         Ok(Vec::new())
     }
-    /// The lid of the machine is closed: its built-in display is not to be turned on (T-351).
+    /// The lid of the machine is closed: its built-in display is not to be turned on (T-353).
     fn lid_closed(&self) -> bool {
         false
     }
-    /// Puts the built-in display `id` in `state` in one display configuration (T-351).
+    /// Puts the built-in display `id` in `state` in one display configuration (T-353).
     fn set_builtin(&self, _id: u32, _state: BuiltinState) -> Result<(), DisplayPowerError> {
         Err(DisplayPowerError::Unavailable(
             "this system does not control a built-in display".into(),
@@ -136,7 +136,7 @@ impl DisplayPower for NoDisplayPower {
     }
 }
 
-/// The EDID of every external display the system has, with or without a DDC/CI channel (T-351):
+/// The EDID of every external display the system has, with or without a DDC/CI channel (T-353):
 /// the IOKit registry on macOS; `None` where the DDC bus already lists every display.
 pub fn system_edids() -> Option<fn() -> Vec<Vec<u8>>> {
     #[cfg(target_os = "macos")]
@@ -175,7 +175,7 @@ struct FakeDisplays {
     all: Vec<(PowerDisplay, bool)>,
     calls: Vec<(u32, bool)>,
     fail: bool,
-    /// The built-in display's id, if this machine has one (T-351).
+    /// The built-in display's id, if this machine has one (T-353).
     builtin: Option<u32>,
     /// Which display mirrors which.
     mirrors: std::collections::BTreeMap<u32, u32>,
@@ -234,7 +234,7 @@ impl FakeDisplayPower {
         self.lock().fail = fail;
     }
 
-    /// The display `id` is the machine's built-in one (T-351).
+    /// The display `id` is the machine's built-in one (T-353).
     pub fn with_builtin(self, id: u32) -> Self {
         self.lock().builtin = Some(id);
         self

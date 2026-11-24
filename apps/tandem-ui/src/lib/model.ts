@@ -65,12 +65,12 @@ export interface Desk {
   modules?: Record<Machine, Record<string, boolean>>;
   /** Desk shortcuts (`[shortcuts]`): the lock one, with `KeyboardEvent.code` names. */
   shortcuts?: { lock: string[] };
-  /** What each machine does with its built-in display (`[builtin_display]`, T-351); `null` = the
+  /** What each machine does with its built-in display (`[builtin_display]`, T-353); `null` = the
    * default, external only. */
   builtin_display?: Record<Machine, BuiltinMode | null>;
 }
 
-/** `tandem_core::BuiltinMode` (T-351). */
+/** `tandem_core::BuiltinMode` (T-353). */
 export type BuiltinMode = "external-only" | "mirror" | "extended";
 
 /** `tandem_proto::MonitorCompat`: serde default (external tag). `NoChannel`: the machine has its
@@ -357,7 +357,7 @@ export type Action =
   | { kind: "set_wol"; mac: string | null }
   | { kind: "set_module"; machine: Machine; module: string; on: boolean }
   | { kind: "set_prefs"; cmd_ctrl: boolean; drag_files: boolean }
-  /** What a Mac does with its built-in display (`EditDesk { BuiltinDisplay }`, T-351). */
+  /** What a Mac does with its built-in display (`EditDesk { BuiltinDisplay }`, T-353). */
   | { kind: "set_builtin_display"; machine: Machine; mode: BuiltinMode }
   /** The desk lock shortcut (`EditDesk { Shortcuts }`); empty = no shortcut. */
   | { kind: "set_lock_shortcut"; lock: string[] }

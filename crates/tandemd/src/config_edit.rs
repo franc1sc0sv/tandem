@@ -392,7 +392,7 @@ fn fill_data(doc: &mut DocumentMut, data: &DataPrefs) -> Result<(), ConfigEditEr
     Ok(())
 }
 
-/// `[builtin_display]` (T-351): only the machines with a mode chosen; with none, without the table.
+/// `[builtin_display]` (T-353): only the machines with a mode chosen; with none, without the table.
 fn fill_builtin(
     doc: &mut DocumentMut,
     modes: tandem_core::BuiltinDisplays,

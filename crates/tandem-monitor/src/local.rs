@@ -42,7 +42,7 @@ pub const NOT_OWNER: &str = "this machine is not the owner of the monitor";
 pub type WallClock = Arc<dyn Fn() -> u64 + Send + Sync>;
 
 /// The EDID of every external display the system lists, with or without a DDC/CI channel
-/// (T-351): what the DDC bus does not enumerate (a USB-C to HDMI adapter without DDC/CI) is still
+/// (T-353): what the DDC bus does not enumerate (a USB-C to HDMI adapter without DDC/CI) is still
 /// announced, without a channel.
 pub type SystemEdids = Arc<dyn Fn() -> Vec<Vec<u8>> + Send + Sync>;
 
@@ -210,7 +210,7 @@ impl LocalMonitors {
     }
 
     /// Also announces, without a channel, every display in the system's EDID list that the bus
-    /// does not enumerate (T-351).
+    /// does not enumerate (T-353).
     pub fn with_system_edids(mut self, edids: SystemEdids) -> Self {
         self.edids = Some(edids);
         self
@@ -316,7 +316,7 @@ impl LocalMonitors {
     }
 
     /// The displays of the system's EDID list that the bus did not enumerate: present without a
-    /// channel, like a monitor that does not answer the probe (T-340, T-351).
+    /// channel, like a monitor that does not answer the probe (T-340, T-353).
     fn add_system_edids(&self, next: &mut BTreeMap<String, Entry>) {
         let Some(edids) = &self.edids else { return };
         for raw in edids() {
@@ -816,7 +816,7 @@ mod tests {
         assert!(sets(&r.bus, r.std).is_empty() && sets(&r.bus, r.factory).is_empty());
     }
 
-    /// T-351: the G5 behind a USB-C to HDMI adapter: the system lists its EDID but the DDC bus does
+    /// T-353: the G5 behind a USB-C to HDMI adapter: the system lists its EDID but the DDC bus does
     /// not enumerate it. It is announced without a channel, with the id the PC computes, and it is
     /// never opened; a monitor the bus already lists is not announced twice.
     #[test]
