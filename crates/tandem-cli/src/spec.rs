@@ -200,6 +200,29 @@ pub const TOOLS: &[Tool] = &[
                 false,
                 "Lets secret-looking `env` variables through for this call",
             ),
+            p(
+                "pty",
+                Ty::Bool,
+                false,
+                "Run it in a terminal (ConPTY on Windows): it sees a TTY, stdout and stderr come together, and it takes `input`",
+            ),
+            p("cols", Ty::Int, false, "Terminal width with `pty` (120)"),
+            p("rows", Ty::Int, false, "Terminal height with `pty` (32)"),
+        ],
+    },
+    Tool {
+        name: "input",
+        desc: "Types into a process started with `pty` (a shell, a REPL, a prompt). Delivered in order and exactly once,                also across link drops. Use `\\r` for Enter and `\\u0003` for Ctrl+C.",
+        params: &[TUNNEL, PROCESS, p("text", Ty::Str, true, "What to type")],
+    },
+    Tool {
+        name: "resize",
+        desc: "Resizes the terminal of a process started with `pty`.",
+        params: &[
+            TUNNEL,
+            PROCESS,
+            p("cols", Ty::Int, true, "Width in columns"),
+            p("rows", Ty::Int, true, "Height in rows"),
         ],
     },
     Tool {
@@ -354,6 +377,8 @@ mod tests {
             "tunnel_open",
             "tunnel_close",
             "exec",
+            "input",
+            "resize",
             "output",
             "kill",
             "files_put",

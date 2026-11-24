@@ -61,6 +61,7 @@ import type {
   Source,
   Topic,
   Trouble,
+  LiveChunk,
   OutputChunk,
   OutputCursor,
   ProcessRow,
@@ -1284,6 +1285,13 @@ export class DemoSource implements Source {
 
   async processes(tunnel: string): Promise<ProcessRow[]> {
     return demoProcesses(tunnel, this.now(), this.opts.tunnels);
+  }
+
+  async watchOutput(tunnel: string, process: number, from: OutputCursor, onChunk: (c: LiveChunk) => void): Promise<() => void> {
+    // The demo pushes its whole log once, as a piped process (bare line ends).
+    const bytes = new TextEncoder().encode(demoLog(tunnel, process, this.opts.tunnels));
+    if (from.stdout < bytes.length) onChunk({ bytes: bytes.slice(from.stdout), from, next: { stdout: bytes.length, stderr: from.stderr }, done: false, pty: false });
+    return () => {};
   }
 
   async output(tunnel: string, process: number, from: OutputCursor): Promise<OutputChunk> {

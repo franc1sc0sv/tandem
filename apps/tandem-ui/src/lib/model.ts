@@ -384,6 +384,10 @@ export type Action =
   | { kind: "processes"; tunnel: string }
   /** The output of a process from the given cursors (T-114). */
   | { kind: "output"; tunnel: string; process: number; stdout: number; stderr: number }
+  /** Push this process's output as it arrives (`agent-output` events), from the cursors. */
+  | { kind: "watch_output"; tunnel: string; process: number; stdout: number; stderr: number }
+  /** Stop pushing output. */
+  | { kind: "stop_output" }
   /** The tunnels open now (T-154): a window that opens or reloads does not wait for a change. */
   | { kind: "tunnels" };
 

@@ -9,7 +9,8 @@ use std::time::Duration;
 
 use tandem_core::Machine;
 use tandem_proto::{
-    Client, ClientKind, ExecSpec, OutputCursor, ProcessId, ProcessState, TunnelId, TunnelProcess,
+    Client, ClientKind, ExecSpec, OutputCursor, ProcessId, ProcessState, PtySize, TunnelId,
+    TunnelProcess,
 };
 use tandem_tunnel::mem::MemPath;
 use tandem_tunnel::{Changes, Host, HostOptions, OpenSpec, Origin, OriginOptions};
@@ -362,4 +363,54 @@ async fn closing_the_tunnel_kills_the_remaining_trees() {
             )
             .is_err()
     );
+}
+
+/// A real pseudo-terminal (openpty on Unix, ConPTY on Windows): the program sees a terminal,
+/// what is typed reaches it and its answers come back while it runs.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_terminal_process_sees_a_tty_and_answers_what_is_typed() {
+    let rig = rig(1 << 20).await;
+    let p = rig
+        .exec(ExecSpec {
+            cmd: probe(),
+            args: vec!["tty".into()],
+            pty: Some(PtySize {
+                cols: 100,
+                rows: 30,
+            }),
+            ..ExecSpec::default()
+        })
+        .await;
+    assert!(p.pty);
+    let text = |r: &Rig| {
+        let o = r
+            .origin
+            .output(r.tunnel, p.id, OutputCursor::default(), usize::MAX)
+            .expect("read the output");
+        String::from_utf8_lossy(&o.stdout).into_owned()
+    };
+    rig.until("it says it has a terminal", |r| {
+        text(r).contains("tty=true")
+    })
+    .await;
+    rig.origin
+        .resize(
+            rig.tunnel,
+            p.id,
+            PtySize {
+                cols: 132,
+                rows: 40,
+            },
+        )
+        .await
+        .expect("resize");
+    rig.origin
+        .input(rig.tunnel, p.id, b"hello\r")
+        .expect("type");
+    rig.until("it answers the line", |r| text(r).contains("got hello"))
+        .await;
+    rig.origin.input(rig.tunnel, p.id, b"quit\r").expect("type");
+    let (_, err, p) = rig.finished(p.id).await;
+    assert!(err.is_empty(), "a terminal has a single output");
+    assert_eq!(p.state, ProcessState::Exited { code: Some(0) });
 }

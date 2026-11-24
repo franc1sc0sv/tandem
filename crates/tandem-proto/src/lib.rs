@@ -36,9 +36,9 @@ pub use msg::{
     DragOutcome, DragStatus, FocusMsg, Hello, HubReport, InputCaps, InputLatency, InputPermission,
     InputStatus, KeyProbeMsg, KeyProbeStatus, Link, LocalNetwork, ModuleId, ModuleInfo,
     ModuleState, MonitorChannel, MonitorCompat, MonitorCursor, MonitorEvent, MonitorEventKind,
-    MonitorReport, MonitorView, PairingMsg, PairingStatus, Peer, PeerStatus, PowerCaps, PowerEvent,
-    ProcessInfo, Reply, ScreenRect, SetupInfo, StepOutcome, TxnEvent, UiCommand, UiRequest,
-    UpdateMsg, UpdateStatus,
+    MonitorReport, MonitorView, OutputWatch, PairingMsg, PairingStatus, Peer, PeerStatus,
+    PowerCaps, PowerEvent, ProcessInfo, Reply, ScreenRect, SetupInfo, StepOutcome, TxnEvent,
+    UiCommand, UiRequest, UpdateMsg, UpdateStatus,
 };
 pub use net::{
     Bandwidth, LatencySample, MeasureReport, NetworkNotice, NetworkStatus, PathMetrics, PathState,
@@ -46,7 +46,7 @@ pub use net::{
 };
 pub use tunnel::{
     Client, ClientKind, ExecSpec, FlowId, FlowInfo, OutputCursor, ProcessId, ProcessOutput,
-    ProcessState, Project, ProjectTunnels, Tunnel, TunnelDown, TunnelId, TunnelProcess,
+    ProcessState, Project, ProjectTunnels, PtySize, Tunnel, TunnelDown, TunnelId, TunnelProcess,
     TunnelState, TunnelUp, TunnelView, group_by_project,
 };
 pub use workspace::{BringBackReport, CommitInfo, WorkspaceDown, WorkspaceSpec, WorkspaceUp};
@@ -155,6 +155,8 @@ mod tests {
     /// protocol 3 firmware) bump to v49.
     /// T-351 (`DeskPatch::BuiltinDisplay` and the desk's `builtin_display`, the Mac's built-in
     /// display mode) bumps to v49.
+    /// Terminal tunnels (`ExecSpec::pty`, `TunnelUp::Input`/`Resize`, `UiCommand::Input`/`Resize`/
+    /// `WatchOutput`, `wait_ms` in `Output` and the pushed `AgentToUi::Output`) bump to v49.
     #[test]
     fn version_stays_above_the_one_from_t084() {
         assert_eq!(PROTOCOL_VERSION, 49);

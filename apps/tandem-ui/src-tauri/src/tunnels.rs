@@ -122,6 +122,59 @@ impl From<ProcessOutput> for OutputItem {
     }
 }
 
+/// New output of the watched process (`agent-output` event). `data` is the raw bytes in base64:
+/// the terminal view decodes UTF-8 and escape sequences itself, also when a character or a
+/// sequence is split between two pushes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct LiveOutputItem {
+    pub tunnel: String,
+    pub process: ProcessItem,
+    /// Whether it runs in a terminal (then stdout carries everything).
+    pub pty: bool,
+    pub from_stdout: u64,
+    pub from_stderr: u64,
+    pub next_stdout: u64,
+    pub next_stderr: u64,
+    /// stdout followed by stderr.
+    pub data: String,
+    pub done: bool,
+}
+
+impl From<ProcessOutput> for LiveOutputItem {
+    fn from(o: ProcessOutput) -> Self {
+        let mut bytes = o.stdout;
+        bytes.extend_from_slice(&o.stderr);
+        LiveOutputItem {
+            tunnel: o.process.tunnel.to_string(),
+            pty: o.process.pty,
+            process: o.process.into(),
+            from_stdout: o.from.stdout,
+            from_stderr: o.from.stderr,
+            next_stdout: o.next.stdout,
+            next_stderr: o.next.stderr,
+            data: base64(&bytes),
+            done: o.done,
+        }
+    }
+}
+
+/// Standard base64 with padding (what `atob` reads).
+pub fn base64(bytes: &[u8]) -> String {
+    const ABC: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for c in bytes.chunks(3) {
+        let n = (u32::from(c[0]) << 16)
+            | (u32::from(c.get(1).copied().unwrap_or(0)) << 8)
+            | u32::from(c.get(2).copied().unwrap_or(0));
+        let sym = |shift: u32| char::from(ABC[((n >> shift) & 63) as usize]);
+        out.push(sym(18));
+        out.push(sym(12));
+        out.push(if c.len() > 1 { sym(6) } else { '=' });
+        out.push(if c.len() > 2 { sym(0) } else { '=' });
+    }
+    out
+}
+
 /// The progress of a tunnel's file copy (`agent-transfer` event).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct TransferItem {
@@ -206,6 +259,7 @@ mod tests {
             started: 5,
             duration: None,
             state,
+            pty: false,
         }
     }
 
@@ -258,6 +312,37 @@ mod tests {
             item.process.state,
             ProcessStateView::Exited { code: Some(0) }
         );
+    }
+
+    #[test]
+    fn base64_matches_the_standard() {
+        assert_eq!(base64(b""), "");
+        assert_eq!(base64(b"f"), "Zg==");
+        assert_eq!(base64(b"fo"), "Zm8=");
+        assert_eq!(base64(b"foo"), "Zm9v");
+        assert_eq!(base64(&[0xe2, 0x82]), "4oI=");
+        assert_eq!(base64(&[0xff, 0xfe, 0xfd, 0x00]), "//79AA==");
+    }
+
+    /// Live output carries raw bytes: a UTF-8 character split between two pushes is not turned
+    /// into a replacement character (the terminal view joins them), and the cursors say exactly
+    /// where it goes.
+    #[test]
+    fn live_output_keeps_raw_bytes_and_its_cursors() {
+        let mut p = process(3, ProcessState::Running);
+        p.pty = true;
+        let item = LiveOutputItem::from(ProcessOutput {
+            process: p,
+            stdout: vec![b'a', 0xe2, 0x82],
+            stderr: Vec::new(),
+            from: cursor(10, 0),
+            next: cursor(13, 0),
+            done: false,
+        });
+        assert_eq!(item.data, base64(&[b'a', 0xe2, 0x82]));
+        assert_eq!((item.from_stdout, item.next_stdout), (10, 13));
+        assert!(item.pty && !item.done);
+        assert_eq!(item.tunnel, "0000000000000001");
     }
 
     #[test]

@@ -113,6 +113,7 @@ mod tests {
             started: 0,
             duration: None,
             state,
+            pty: false,
         }
     }
 

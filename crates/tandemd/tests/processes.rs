@@ -202,6 +202,7 @@ async fn read_all(
                     process,
                     from: cursor,
                     max: 16,
+                    wait_ms: 0,
                 })
                 .await
                 .unwrap();
@@ -264,6 +265,7 @@ async fn five_processes_between_two_agents_with_the_kill_of_one() {
         cwd: Some("/src/tandem".into()),
         env: vec![("N".into(), n.to_string())],
         allow_secret_env: false,
+        pty: None,
     };
     assert_eq!(
         request(
@@ -413,6 +415,170 @@ async fn five_processes_between_two_agents_with_the_kill_of_one() {
         Reply::Rejected(_)
     ));
 
+    a.stop().await;
+    b.stop().await;
+}
+
+/// The next output the UI's watch pushes, skipping the other notices.
+async fn next_output(ui: &mut IpcClient<DuplexStream>) -> tandem_proto::ProcessOutput {
+    within(async {
+        loop {
+            match ui.next_event().await.unwrap() {
+                Some(tandem_proto::AgentToUi::Output(o)) => return *o,
+                Some(_) => {}
+                None => panic!("the agent closed the connection"),
+            }
+        }
+    })
+    .await
+}
+
+/// A terminal on B driven from A: only a client types; A's UI is pushed the output as it
+/// arrives, each piece continuing the previous one; an `Output` with `wait_ms` answers the moment
+/// the echo exists instead of being polled.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_terminal_between_two_agents_types_and_pushes_its_output() {
+    let (a_id, b_id) = sides(Identity::from_seed([23; 32]), Identity::from_seed([24; 32]));
+    let (mut a, b) = tandemd::start_pair!(
+        |a_port, b_port| start(Machine::A, &a_id, a_port, (b_id.public_key(), b_port)),
+        start(Machine::B, &b_id, b_port, (a_id.public_key(), a_port))
+    );
+    let fake = FakeSpawner::new();
+    b.agent.tunnels().host.set_spawner(Arc::new(fake.clone()));
+    let open = UiCommand::OpenTunnel {
+        title: "terminal".into(),
+        project: None,
+        target: Machine::B,
+        session: "s".into(),
+        workspace: None,
+    };
+    let tunnel = within(async {
+        loop {
+            match a.client.request(open.clone()).await.unwrap() {
+                Reply::Tunnel { tunnel: t, .. } => return t.id,
+                _ => tokio::time::sleep(Duration::from_millis(50)).await,
+            }
+        }
+    })
+    .await;
+    let Reply::Process(p) = request(
+        &mut a.client,
+        UiCommand::Exec {
+            tunnel,
+            spec: ExecSpec {
+                cmd: "pwsh".into(),
+                pty: Some(tandem_proto::PtySize { cols: 80, rows: 24 }),
+                ..ExecSpec::default()
+            },
+        },
+    )
+    .await
+    else {
+        panic!("the process was expected");
+    };
+    assert!(p.pty);
+    let proc = fake.processes().pop().expect("launched on B");
+    proc.echo(true);
+
+    // The UI watches; it cannot type.
+    assert_eq!(
+        request(
+            &mut a.ui,
+            UiCommand::Input {
+                tunnel,
+                process: p.id,
+                bytes: b"x".to_vec(),
+            }
+        )
+        .await,
+        Reply::Rejected(CLIENTS_ONLY.into())
+    );
+    assert_eq!(
+        request(
+            &mut a.ui,
+            UiCommand::WatchOutput {
+                watch: Some(tandem_proto::OutputWatch {
+                    tunnel,
+                    process: p.id,
+                    from: OutputCursor::default(),
+                }),
+            }
+        )
+        .await,
+        Reply::Done
+    );
+    proc.stdout(b"PS> ");
+    let first = next_output(&mut a.ui).await;
+    assert_eq!(
+        (first.from.stdout, first.stdout.as_slice()),
+        (0, &b"PS> "[..])
+    );
+
+    // The client waits for the echo of what it types, in one request.
+    let asked = tokio::time::Instant::now();
+    let waiting = {
+        let mut c = a.client;
+        let process = p.id;
+        tokio::spawn(async move {
+            let r = c
+                .request(UiCommand::Output {
+                    tunnel,
+                    process,
+                    from: first.next,
+                    max: 4096,
+                    wait_ms: 20_000,
+                })
+                .await
+                .unwrap();
+            (c, r)
+        })
+    };
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    let mut typer = IpcClient::handshake_as(
+        {
+            let (listener, connector) = mem::pair();
+            let agent = a.agent.clone();
+            tokio::spawn(daemon::run(agent, listener, std::future::pending::<()>()));
+            connector.connect().unwrap()
+        },
+        Peer::Client(ClientKind::Cli),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        request(
+            &mut typer,
+            UiCommand::Input {
+                tunnel,
+                process: p.id,
+                bytes: b"dir\r".to_vec(),
+            }
+        )
+        .await,
+        Reply::Done
+    );
+    let (client, reply) = within(waiting).await.unwrap();
+    a.client = client;
+    let Reply::Output(echo) = reply else {
+        panic!("the output was expected: {reply:?}");
+    };
+    assert_eq!(echo.stdout, b"dir\r");
+    assert!(
+        asked.elapsed() < Duration::from_secs(10),
+        "answered by the echo, not by the wait running out"
+    );
+    assert_eq!(within(proc.wait_typed(4)).await, b"dir\r");
+
+    // The UI got the same, as the continuation of the first push.
+    let mut pushed = Vec::new();
+    let mut at = first.next.stdout;
+    while pushed.len() < 4 {
+        let o = next_output(&mut a.ui).await;
+        assert_eq!(o.from.stdout, at);
+        at = o.next.stdout;
+        pushed.extend_from_slice(&o.stdout);
+    }
+    assert_eq!(pushed, b"dir\r");
     a.stop().await;
     b.stop().await;
 }

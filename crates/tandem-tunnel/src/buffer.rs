@@ -96,9 +96,21 @@ impl OutputBuffer {
         // `from - start` < `data.len()`, which is a `usize`.
         let skip = usize::try_from(from - self.start).unwrap_or(usize::MAX);
         let n = max.min(self.data.len() - skip);
+        // Two slice copies instead of one push per byte: this is on the path of every
+        // output message.
+        let (a, b) = self.data.as_slices();
+        let mut bytes = Vec::with_capacity(n);
+        if skip < a.len() {
+            let take = n.min(a.len() - skip);
+            bytes.extend_from_slice(&a[skip..skip + take]);
+            bytes.extend_from_slice(&b[..n - take]);
+        } else {
+            let at = skip - a.len();
+            bytes.extend_from_slice(&b[at..at + n]);
+        }
         Read::Data {
             offset: from,
-            bytes: self.data.range(skip..skip + n).copied().collect(),
+            bytes,
         }
     }
 
@@ -209,6 +221,33 @@ mod tests {
                 Read::Data { bytes, .. } => prop_assert_eq!(bytes.as_slice(), tail),
                 Read::Pending => prop_assert!(tail.is_empty()),
                 Read::Lost { .. } => prop_assert!(false, "from start there is never a loss"),
+            }
+        }
+
+        /// Any window read gives exactly those bytes, also across the ring's wrap.
+        #[test]
+        fn any_window_reads_the_written_bytes(
+            cap in 1usize..64,
+            writes in prop::collection::vec(prop::collection::vec(any::<u8>(), 0..40), 0..20),
+            from in 0usize..400,
+            max in 0usize..80,
+        ) {
+            let mut b = OutputBuffer::new(cap);
+            let mut all = Vec::new();
+            for w in &writes {
+                b.push(w);
+                all.extend_from_slice(w);
+            }
+            let from = from as u64;
+            match b.read(from, max) {
+                Read::Data { offset, bytes } => {
+                    prop_assert_eq!(offset, from);
+                    let at = usize::try_from(from).unwrap();
+                    let n = max.min(all.len() - at);
+                    prop_assert_eq!(bytes.as_slice(), &all[at..at + n]);
+                }
+                Read::Lost { to, .. } => prop_assert_eq!(to, b.start()),
+                Read::Pending => prop_assert!(from >= b.end() || max == 0),
             }
         }
 

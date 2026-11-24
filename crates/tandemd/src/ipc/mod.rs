@@ -194,6 +194,8 @@ where
     let mut resources: Option<ResourceWatch> = None;
     // The live cursor, if this connection asked for it: without connections, the engine does not sample it.
     let mut cursor: Option<CursorWatch> = None;
+    // The output of the process this connection's terminal view shows, pushed as it arrives.
+    let mut output: Option<tandem_tunnel::OutputFollower> = None;
     let mut update = agent.subscribe_update();
     update.mark_unchanged();
     // The network once per second, if this connection asked for it (the Network screen visible).
@@ -218,6 +220,17 @@ where
                     }
                     UiCommand::WatchNetwork { on } => {
                         network = on.then(network_ticker);
+                        Reply::Done
+                    }
+                    UiCommand::WatchOutput { watch } => {
+                        output = watch.map(|w| {
+                            tandem_tunnel::OutputFollower::new(
+                                agent.tunnels().clone(),
+                                w.tunnel,
+                                w.process,
+                                w.from,
+                            )
+                        });
                         Reply::Done
                     }
                     UiCommand::WatchCursor { on } => {
@@ -270,6 +283,11 @@ where
                 measuring = None;
                 conn.send(&AgentToUi::Reply { id, reply }).await?;
             }
+            out = next_output(&mut output) => match out {
+                Some(out) => conn.send(&AgentToUi::Output(Box::new(out))).await?,
+                // Ended and all pushed (or no longer known): the view keeps what it has.
+                None => output = None,
+            },
             event = next_cursor(&mut cursor) => match event {
                 Some(CursorEvent::Sample(sample)) => conn.send(&AgentToUi::Cursor(sample)).await?,
                 Some(CursorEvent::Crossed { from, to, edge }) => {
@@ -439,6 +457,16 @@ async fn measured(m: &mut Option<(u64, Measurement)>) -> (u64, Reply) {
 async fn next_resources(
     watch: &mut Option<ResourceWatch>,
 ) -> Option<(Machine, tandem_proto::Resources)> {
+    match watch {
+        Some(w) => w.next().await,
+        None => std::future::pending().await,
+    }
+}
+
+/// The next piece of the watched output; it never ends if the connection watches none.
+async fn next_output(
+    watch: &mut Option<tandem_tunnel::OutputFollower>,
+) -> Option<tandem_proto::ProcessOutput> {
     match watch {
         Some(w) => w.next().await,
         None => std::future::pending().await,

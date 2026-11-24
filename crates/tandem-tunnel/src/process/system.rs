@@ -18,6 +18,9 @@ pub struct SystemSpawner;
 
 impl Spawner for SystemSpawner {
     fn spawn(&self, launch: &Launch) -> Result<Spawned, SpawnError> {
+        if let Some(size) = launch.pty {
+            return super::pty::spawn(launch, size);
+        }
         let fail = |e: &dyn std::fmt::Display| SpawnError(format!("{}: {e}", launch.program));
         let mut cmd = std::process::Command::new(&launch.program);
         cmd.args(&launch.args);
@@ -59,14 +62,16 @@ impl Spawner for SystemSpawner {
             pid,
             stdout: Box::new(stdout),
             stderr: Box::new(stderr),
+            stdin: None,
+            terminal: None,
             child: Arc::new(SystemChild { exit, tree }),
         })
     }
 }
 
-struct SystemChild {
-    exit: watch::Receiver<Option<Option<i32>>>,
-    tree: tree::Tree,
+pub(super) struct SystemChild {
+    pub(super) exit: watch::Receiver<Option<Option<i32>>>,
+    pub(super) tree: tree::Tree,
 }
 
 impl Child for SystemChild {
@@ -90,7 +95,7 @@ impl Child for SystemChild {
 }
 
 #[cfg(unix)]
-mod tree {
+pub(super) mod tree {
     use std::os::unix::process::CommandExt;
     use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -106,16 +111,18 @@ mod tree {
 
     impl Tree {
         pub fn attach(child: &tokio::process::Child) -> std::io::Result<Tree> {
+            Ok(Tree::of_leader(child.id()))
+        }
+
+        /// The group led by `pid` (its own, or its session's after `setsid`).
+        pub fn of_leader(pid: Option<u32>) -> Tree {
             // Without a pid (already reaped) there is no group to aim at: `killpg(0)` would be the
             // agent's own.
-            let pgid = child
-                .id()
-                .and_then(|p| i32::try_from(p).ok())
-                .filter(|p| *p > 1);
-            Ok(Tree {
+            let pgid = pid.and_then(|p| i32::try_from(p).ok()).filter(|p| *p > 1);
+            Tree {
                 pgid,
                 live: AtomicBool::new(true),
-            })
+            }
         }
 
         pub fn kill(&self) {
@@ -136,7 +143,7 @@ mod tree {
 }
 
 #[cfg(windows)]
-mod tree {
+pub(super) mod tree {
     use std::ffi::c_void;
     use std::os::windows::process::CommandExt;
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -223,18 +230,24 @@ mod tree {
             let process = child.raw_handle().ok_or_else(|| {
                 std::io::Error::other("the process already ended before being grouped")
             })?;
-            // SAFETY: no attributes or name; returns a new handle or an error.
-            let job = unsafe { CreateJobObjectW(None, PCWSTR::null()) }
-                .map_err(|e| std::io::Error::other(e.to_string()))?;
-            let job = Job(job);
-            // SAFETY: `process` is the child's handle, which `child` keeps open.
-            unsafe { AssignProcessToJobObject(job.0, HANDLE(process.cast::<c_void>())) }
-                .map_err(|e| std::io::Error::other(e.to_string()))?;
+            let tree = Tree::adopt(HANDLE(process.cast::<c_void>()))?;
             resume(
                 child
                     .id()
                     .ok_or_else(|| std::io::Error::other("the process already ended"))?,
             )?;
+            Ok(tree)
+        }
+
+        /// Puts a process born suspended in a new job object; whoever calls resumes it after.
+        pub fn adopt(process: HANDLE) -> std::io::Result<Tree> {
+            // SAFETY: no attributes or name; returns a new handle or an error.
+            let job = unsafe { CreateJobObjectW(None, PCWSTR::null()) }
+                .map_err(|e| std::io::Error::other(e.to_string()))?;
+            let job = Job(job);
+            // SAFETY: the caller keeps `process` open during the call.
+            unsafe { AssignProcessToJobObject(job.0, process) }
+                .map_err(|e| std::io::Error::other(e.to_string()))?;
             Ok(Tree {
                 job,
                 live: AtomicBool::new(true),

@@ -47,7 +47,8 @@ const SCREENS = {
   tunnels: {
     mock: mockup("V3-Compute"),
     // The sidebar dot pulse (`pl`) lives in `Sidebar`; that of the counters, in the screen.
-    files: [read("screens", "Tunnels.svelte"), read("shell", "Sidebar.svelte")],
+    // The output panel's caret (`bl`) lives in `TerminalView`.
+    files: [read("screens", "Tunnels.svelte"), read("screens", "TerminalView.svelte"), read("shell", "Sidebar.svelte")],
     keyframes: ["tu-up", "tu-dn", "tu-bar", "tu-sp", "tu-mv", "tu-fa", "tu-fb", "tu-halo", "tu-pl", "tu-bl"],
     // `nw` (the flash of a new event) is declared by the mockup for a list it does not draw; `pl` is
     // tested separately (the mockup's inline declaration cannot be read as CSS).
@@ -93,7 +94,8 @@ describe.each(Object.entries(SCREENS))("animations of %s", (_name, s) => {
 describe("Tunnels animations that the mockup declares inline", () => {
   it("the dot pulse lasts the same as in the mockup", () => {
     expect(SCREENS.tunnels.mock).toContain("animation:pl 1.8s infinite");
-    for (const f of SCREENS.tunnels.files) expect(f).toContain("1.8s infinite");
+    // The screen's counters and the sidebar dot (the output panel has no pulse).
+    for (const f of [SCREENS.tunnels.files[0], SCREENS.tunnels.files[2]]) expect(f).toContain("1.8s infinite");
   });
 
   it("the tube stops and turns off without motion when the tunnel is closed", () => {

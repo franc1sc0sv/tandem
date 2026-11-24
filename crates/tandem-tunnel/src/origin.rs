@@ -12,10 +12,10 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use tandem_core::Machine;
 use tandem_proto::{
-    Client, ExecSpec, FlowId, FlowInfo, OutputCursor, ProcessId, ProcessOutput, Project, Tunnel,
-    TunnelDown, TunnelId, TunnelProcess, TunnelState, TunnelUp, TunnelView,
+    Client, ExecSpec, FlowId, FlowInfo, OutputCursor, ProcessId, ProcessOutput, Project, PtySize,
+    Tunnel, TunnelDown, TunnelId, TunnelProcess, TunnelState, TunnelUp, TunnelView,
 };
-use tokio::sync::watch;
+use tokio::sync::{Notify, watch};
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
 
@@ -71,7 +71,12 @@ pub enum TunnelError {
     UnknownProcess(TunnelId, ProcessId),
     #[error("could not pick a random id: {0}")]
     Entropy(String),
+    #[error("process {1} of tunnel {0} does not run in a terminal: it takes no input")]
+    NoTerminal(TunnelId, ProcessId),
 }
+
+/// The most input that goes in one message: far below a frame's maximum.
+const INPUT_CHUNK: usize = 64 * 1024;
 
 /// What the client asks for when opening.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -121,6 +126,26 @@ struct Entry {
     follower: Option<JoinHandle<()>>,
     /// Since when it has been closed; after `linger` it is forgotten.
     closed_at: Option<Instant>,
+    /// What is typed into each terminal process, on its way to the destination.
+    stdin: BTreeMap<ProcessId, Arc<InputQueue>>,
+}
+
+/// A terminal process's input on the origin: bytes queue up here and one task sends them in
+/// order, each with its position, until the destination acknowledges them. A cut or a link change
+/// only delays them: the resend carries the same position and the destination drops what it
+/// already had.
+struct InputQueue {
+    state: Mutex<InputState>,
+    wake: Notify,
+}
+
+#[derive(Default)]
+struct InputState {
+    /// Position of `queued[0]` in the process's input.
+    base: u64,
+    queued: Vec<u8>,
+    /// No more will be sent (tunnel closed, process gone).
+    dead: bool,
 }
 
 struct Proc {
@@ -224,6 +249,7 @@ impl Origin {
                 processes: BTreeMap::new(),
                 follower: None,
                 closed_at: None,
+                stdin: BTreeMap::new(),
             },
         );
         let follower = tokio::spawn(follow(Arc::downgrade(&self.inner), opened.id));
@@ -325,6 +351,79 @@ impl Origin {
             .await?
         {
             TunnelDown::Killed(_) => Ok(()),
+            _ => Err(TunnelError::Unexpected),
+        }
+    }
+
+    /// Types `bytes` into a terminal process of the other machine. Returns once queued: the
+    /// bytes arrive in order and exactly once, over whichever link is active, also after cuts.
+    pub fn input(&self, id: TunnelId, process: ProcessId, bytes: &[u8]) -> Result<(), TunnelError> {
+        let queue = {
+            let mut tunnels = self.inner.tunnels();
+            let e = tunnels.get_mut(&id).ok_or(TunnelError::Unknown(id))?;
+            let p = e
+                .processes
+                .get(&process)
+                .ok_or(TunnelError::UnknownProcess(id, process))?;
+            if !p.info.pty {
+                return Err(TunnelError::NoTerminal(id, process));
+            }
+            if !p.info.is_running() {
+                // Like a terminal whose program ended: what is typed goes nowhere.
+                return Ok(());
+            }
+            match e.stdin.get(&process) {
+                Some(q) => q.clone(),
+                None => {
+                    let q = Arc::new(InputQueue {
+                        state: Mutex::new(InputState::default()),
+                        wake: Notify::new(),
+                    });
+                    e.stdin.insert(process, q.clone());
+                    tokio::spawn(send_input(
+                        Arc::downgrade(&self.inner),
+                        id,
+                        process,
+                        q.clone(),
+                    ));
+                    q
+                }
+            }
+        };
+        lock(&queue.state).queued.extend_from_slice(bytes);
+        queue.wake.notify_one();
+        Ok(())
+    }
+
+    /// Bytes typed into a terminal process that the other machine has not acknowledged yet.
+    pub fn input_pending(&self, id: TunnelId, process: ProcessId) -> usize {
+        self.inner
+            .tunnels()
+            .get(&id)
+            .and_then(|e| e.stdin.get(&process))
+            .map_or(0, |q| lock(&q.state).queued.len())
+    }
+
+    /// Changes the size of a terminal process's terminal.
+    pub async fn resize(
+        &self,
+        id: TunnelId,
+        process: ProcessId,
+        size: PtySize,
+    ) -> Result<(), TunnelError> {
+        if !self.inner.tunnels().contains_key(&id) {
+            return Err(TunnelError::Unknown(id));
+        }
+        match self
+            .inner
+            .request(TunnelUp::Resize {
+                tunnel: id,
+                process,
+                size,
+            })
+            .await?
+        {
+            TunnelDown::Resized(_) => Ok(()),
             _ => Err(TunnelError::Unexpected),
         }
     }
@@ -436,6 +535,7 @@ impl OriginInner {
         }
         e.info.state = TunnelState::Closed;
         e.closed_at = Some(Instant::now());
+        stop_input(e);
         drop(tunnels);
         self.changes.bump();
         self.output.send_modify(|n| *n = n.wrapping_add(1));
@@ -530,6 +630,11 @@ impl OriginInner {
             }
             TunnelDown::End { flow, total } => mirror(e, flow, capacity).ended = Some(total),
             TunnelDown::Process(p) => {
+                if !p.is_running()
+                    && let Some(q) = e.stdin.remove(&p.id)
+                {
+                    q.stop();
+                }
                 let changed = upsert_process(e, &p);
                 drop(tunnels);
                 if changed {
@@ -545,6 +650,7 @@ impl OriginInner {
                 e.info.state = TunnelState::Closed;
                 e.follower = None;
                 e.closed_at = Some(Instant::now());
+                stop_input(e);
                 drop(tunnels);
                 self.changes.bump();
                 self.output.send_modify(|n| *n = n.wrapping_add(1));
@@ -557,7 +663,9 @@ impl OriginInner {
             | TunnelDown::Port(_)
             | TunnelDown::Workspace(_)
             | TunnelDown::Started(_)
-            | TunnelDown::Killed(_) => {}
+            | TunnelDown::Killed(_)
+            | TunnelDown::InputAck { .. }
+            | TunnelDown::Resized(_) => {}
         }
         drop(tunnels);
         self.output.send_modify(|n| *n = n.wrapping_add(1));
@@ -598,9 +706,95 @@ fn forget_old_processes(e: &mut Entry, linger: Duration) {
         .map(|p| p.info.clone())
         .collect();
     for p in gone {
+        if let Some(q) = e.stdin.remove(&p.id) {
+            q.stop();
+        }
         e.processes.remove(&p.id);
         e.flows.remove(&p.stdout);
         e.flows.remove(&p.stderr);
+    }
+}
+
+impl InputQueue {
+    fn stop(&self) {
+        let mut s = lock(&self.state);
+        s.dead = true;
+        s.queued.clear();
+        drop(s);
+        self.wake.notify_one();
+    }
+}
+
+fn stop_input(e: &mut Entry) {
+    for q in std::mem::take(&mut e.stdin).into_values() {
+        q.stop();
+    }
+}
+
+/// Sends `queue` to the destination in order until it is stopped or nobody is left.
+async fn send_input(
+    origin: Weak<OriginInner>,
+    id: TunnelId,
+    process: ProcessId,
+    queue: Arc<InputQueue>,
+) {
+    let Some((mut links, retry)) = origin.upgrade().map(|o| (o.link.subscribe(), o.opts.retry))
+    else {
+        return;
+    };
+    loop {
+        let next = {
+            let s = lock(&queue.state);
+            if s.dead {
+                return;
+            }
+            (!s.queued.is_empty()).then(|| {
+                let n = s.queued.len().min(INPUT_CHUNK);
+                (s.base, s.queued[..n].to_vec())
+            })
+        };
+        let Some((offset, bytes)) = next else {
+            queue.wake.notified().await;
+            continue;
+        };
+        let Some(o) = origin.upgrade() else {
+            return;
+        };
+        let reply = o
+            .request(TunnelUp::Input {
+                tunnel: id,
+                process,
+                offset,
+                bytes,
+            })
+            .await;
+        drop(o);
+        match reply {
+            Ok(TunnelDown::InputAck { next, .. }) => {
+                let mut s = lock(&queue.state);
+                let done = usize::try_from(next.saturating_sub(s.base))
+                    .unwrap_or(usize::MAX)
+                    .min(s.queued.len());
+                s.queued.drain(..done);
+                s.base += done as u64;
+            }
+            Ok(_) | Err(TunnelError::Refused(_) | TunnelError::Unexpected) => {
+                // The process (or its terminal) is gone on the other machine: nothing will take it.
+                if let Err(e) = &reply {
+                    tracing::debug!(tunnel = %id, %process, "input not delivered: {e}");
+                }
+                queue.stop();
+                return;
+            }
+            Err(e) => {
+                tracing::debug!(tunnel = %id, %process, "input will be resent: {e}");
+                links.borrow_and_update();
+                tokio::select! {
+                    () = tokio::time::sleep(retry) => {}
+                    r = links.changed() => if r.is_err() { return },
+                }
+            }
+        }
     }
 }
 
