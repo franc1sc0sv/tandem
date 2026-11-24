@@ -28,6 +28,9 @@ struct PathInner {
     /// Cut when the destination answers a request: the request was served, the response
     /// is lost.
     cut_reply: AtomicBool,
+    /// The path's data pause (input over its latency target, T-101): streams switched to bulk
+    /// data ([`TargetWire::start_data`]) stop sending while it is on.
+    data_paused: watch::Sender<bool>,
 }
 
 impl MemPath {
@@ -38,6 +41,7 @@ impl MemPath {
                 cut: watch::Sender::new(false),
                 budget: Mutex::new(None),
                 cut_reply: AtomicBool::new(false),
+                data_paused: watch::Sender::new(false),
             }),
         }
     }
@@ -64,6 +68,11 @@ impl MemPath {
     /// did it, but the origin does not find out.
     pub fn cut_before_reply(&self) {
         self.inner.cut_reply.store(true, Ordering::SeqCst);
+    }
+
+    /// Pauses (or resumes) bulk data on this path, as the QoS does when input is late.
+    pub fn pause_data(&self, on: bool) {
+        self.inner.data_paused.send_replace(on);
     }
 
     pub fn is_cut(&self) -> bool {
@@ -116,6 +125,7 @@ impl Dialer for MemPath {
                 path: self.clone(),
                 rx: up_rx,
                 tx: down_tx,
+                bulk: false,
             };
             let host = self.inner.host.clone();
             tokio::spawn(async move {
@@ -175,6 +185,8 @@ struct MemTarget {
     path: MemPath,
     rx: mpsc::UnboundedReceiver<TunnelUp>,
     tx: mpsc::UnboundedSender<TunnelDown>,
+    /// Switched to bulk data: held back by the path's pause.
+    bulk: bool,
 }
 
 impl TargetWire for MemTarget {
@@ -182,7 +194,20 @@ impl TargetWire for MemTarget {
         recv_or_cut(&self.path, &mut self.rx).await
     }
 
+    fn start_data(&mut self) -> Result<(), WireError> {
+        self.bulk = true;
+        Ok(())
+    }
+
+    fn start_output(&mut self) -> Result<(), WireError> {
+        Ok(())
+    }
+
     async fn send(&mut self, msg: &TunnelDown) -> Result<(), WireError> {
+        if self.bulk {
+            let mut paused = self.path.inner.data_paused.subscribe();
+            let _ = paused.wait_for(|p| !*p).await;
+        }
         self.path.check()?;
         match msg {
             TunnelDown::Data { bytes, .. } => self.path.spend(bytes.len() as u64)?,
@@ -190,6 +215,7 @@ impl TargetWire for MemTarget {
             | TunnelDown::Closed(_)
             | TunnelDown::List(_)
             | TunnelDown::Refused(_)
+            | TunnelDown::InputAck { .. }
                 if self.path.inner.cut_reply.load(Ordering::SeqCst) =>
             {
                 self.path.cut();

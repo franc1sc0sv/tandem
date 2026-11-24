@@ -10,8 +10,10 @@
 //! - `tandem-tunnel-probe tree`: launches a grandchild that sleeps and sleeps itself too; both have the same
 //!   output open.
 //! - `tandem-tunnel-probe orphan`: launches that grandchild and ends right away.
+//! - `tandem-tunnel-probe tty`: says whether its stdin and stdout are a terminal, then answers
+//!   each line it reads with `got <line>` until `quit`.
 
-use std::io::Write;
+use std::io::{BufRead, IsTerminal, Write};
 use std::process::{Command, ExitCode, Stdio};
 use std::time::Duration;
 
@@ -64,6 +66,20 @@ fn run(args: &[String]) -> Option<ExitCode> {
             writeln!(out, "ready").ok()?;
             out.flush().ok()?;
             std::thread::sleep(Duration::from_secs(600));
+        }
+        Some("tty") => {
+            let tty = std::io::stdin().is_terminal() && out.is_terminal();
+            writeln!(out, "tty={tty}").ok()?;
+            out.flush().ok()?;
+            for line in std::io::stdin().lock().lines() {
+                let line = line.ok()?;
+                let line = line.trim_end_matches('\r');
+                if line == "quit" {
+                    break;
+                }
+                writeln!(out, "got {line}").ok()?;
+                out.flush().ok()?;
+            }
         }
         Some("orphan") => {
             grandchild()?;

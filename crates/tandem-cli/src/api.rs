@@ -8,7 +8,7 @@ use serde_json::{Value, json};
 use tandem_core::{LinkState, Machine, MonitorLink};
 use tandem_proto::files::Direction;
 use tandem_proto::{
-    ExecSpec, MonitorView, OutputCursor, ProcessId, Project, Reply, Tunnel, TunnelProcess,
+    ExecSpec, MonitorView, OutputCursor, ProcessId, Project, PtySize, Reply, Tunnel, TunnelProcess,
     UiCommand, WorkspaceSpec,
 };
 use tandemd::ipc::IpcClient;
@@ -308,6 +308,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Api<S> {
                         })
                         .collect::<Result<_, _>>()?,
                     allow_secret_env: a.flag("allow_secret_env"),
+                    pty: pty_size(&a)?,
                 };
                 match self
                     .ask(UiCommand::Exec {
@@ -331,6 +332,43 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Api<S> {
                 }
                 r => Err(unexpected(&r)),
             },
+            "input" => {
+                let (tunnel, process) = (a.tunnel()?, a.process()?);
+                let text = a.req("text")?;
+                match self
+                    .ask(UiCommand::Input {
+                        tunnel,
+                        process,
+                        bytes: text.as_bytes().to_vec(),
+                    })
+                    .await?
+                {
+                    Reply::Done | Reply::Accepted { .. } => {
+                        Ok(json!({"typed": text.len(), "process": process.0}))
+                    }
+                    r => Err(unexpected(&r)),
+                }
+            }
+            "resize" => {
+                let (tunnel, process) = (a.tunnel()?, a.process()?);
+                let size = PtySize {
+                    cols: cells(&a, "cols")?.unwrap_or_default(),
+                    rows: cells(&a, "rows")?.unwrap_or_default(),
+                };
+                match self
+                    .ask(UiCommand::Resize {
+                        tunnel,
+                        process,
+                        size,
+                    })
+                    .await?
+                {
+                    Reply::Done | Reply::Accepted { .. } => {
+                        Ok(json!({"cols": size.cols, "rows": size.rows}))
+                    }
+                    r => Err(unexpected(&r)),
+                }
+            }
             "output" => self.output(&a).await,
             "kill" => {
                 let (tunnel, process) = (a.tunnel()?, a.process()?);
@@ -552,18 +590,20 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Api<S> {
         let wait = Duration::from_millis(a.int("wait_ms").unwrap_or(0)).min(MAX_WAIT);
         let deadline = Instant::now() + wait;
         loop {
+            // The agent waits for the output itself and answers the moment a byte arrives.
+            let left = deadline.saturating_duration_since(Instant::now());
             let reply = self
                 .ask(UiCommand::Output {
                     tunnel,
                     process,
                     from,
                     max: budget,
+                    wait_ms: u32::try_from(left.as_millis()).unwrap_or(u32::MAX),
                 })
                 .await?;
             let Reply::Output(o) = reply else {
                 return Err(unexpected(&reply));
             };
-            // The agent does not wait: here we poll until there is something or `wait_ms` expires.
             let empty = o.stdout.is_empty() && o.stderr.is_empty();
             if !(empty && !o.done && Instant::now() < deadline) {
                 let (so, se) = page(&o.stdout, &o.stderr, budget as usize, budget as usize);
@@ -585,9 +625,32 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Api<S> {
                     "done": o.done && !more,
                 }));
             }
-            tokio::time::sleep(Duration::from_millis(25)).await;
         }
     }
+}
+
+/// A terminal cell count (`cols`, `rows`): 1..=u16::MAX.
+fn cells(a: &Args<'_>, k: &str) -> Result<Option<u16>, ToolError> {
+    a.int(k)
+        .map(|n| {
+            u16::try_from(n)
+                .ok()
+                .filter(|n| *n > 0)
+                .ok_or_else(|| ToolError::Args(format!("`{k}` must be between 1 and 65535")))
+        })
+        .transpose()
+}
+
+/// `exec`'s terminal: with `pty`, of `cols` × `rows` (default 120 × 32).
+fn pty_size(a: &Args<'_>) -> Result<Option<PtySize>, ToolError> {
+    if !a.flag("pty") {
+        return Ok(None);
+    }
+    let d = PtySize::default();
+    Ok(Some(PtySize {
+        cols: cells(a, "cols")?.unwrap_or(d.cols),
+        rows: cells(a, "rows")?.unwrap_or(d.rows),
+    }))
 }
 
 /// The plain words of a monitor's link ("Showing PC", "Mac cable unplugged"), as the UI says them.

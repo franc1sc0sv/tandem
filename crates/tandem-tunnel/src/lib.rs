@@ -24,16 +24,18 @@
 
 pub mod buffer;
 pub mod host;
+pub mod live;
 pub mod mem;
 pub mod origin;
 pub mod process;
 pub mod wire;
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use tandem_proto::{
-    OutputCursor, ProcessId, ProcessOutput, ProjectTunnels, TunnelId, TunnelProcess, TunnelState,
-    TunnelView, group_by_project,
+    OutputCursor, ProcessId, ProcessOutput, ProjectTunnels, PtySize, TunnelId, TunnelProcess,
+    TunnelState, TunnelView, group_by_project,
 };
 use tokio::sync::watch;
 
@@ -41,6 +43,7 @@ pub use buffer::{DEFAULT_CAPACITY, OutputBuffer, Read};
 pub use host::{
     FlowWriter, Host, HostOptions, HostTunnel, Resource, TunnelClosed, serve, serve_request,
 };
+pub use live::OutputFollower;
 pub use origin::{FlowStatus, Link, OpenSpec, Origin, OriginOptions, TunnelError};
 pub use process::{ExecError, Spawner};
 pub use wire::{BoxFuture, Dialer, OriginWire, TargetWire, WireError};
@@ -133,6 +136,68 @@ impl Tunnels {
         let t = self.host.get(tunnel).ok_or(TunnelError::Unknown(tunnel))?;
         t.output(process, from, max)
             .map_err(|_| TunnelError::UnknownProcess(tunnel, process))
+    }
+
+    /// Like [`Self::output`], but with nothing new from `from` it waits up to `wait` for output
+    /// or for the end of the process. It answers the moment a byte arrives: a terminal's echo
+    /// is not held back.
+    pub async fn wait_output(
+        &self,
+        tunnel: TunnelId,
+        process: ProcessId,
+        from: OutputCursor,
+        max: usize,
+        wait: Duration,
+    ) -> Result<ProcessOutput, TunnelError> {
+        let deadline = tokio::time::Instant::now() + wait;
+        let mut mirror = self.origin.subscribe_output();
+        let mut own = self.host.get(tunnel).map(|t| t.subscribe());
+        loop {
+            // Before reading: whatever arrives from here wakes the wait below.
+            mirror.borrow_and_update();
+            if let Some(own) = &mut own {
+                own.borrow_and_update();
+            }
+            let out = self.output(tunnel, process, from, max)?;
+            let fresh = !out.stdout.is_empty() || !out.stderr.is_empty();
+            if fresh || out.done || tokio::time::Instant::now() >= deadline {
+                return Ok(out);
+            }
+            let own_changed = async {
+                match &mut own {
+                    Some(rx) => {
+                        if rx.changed().await.is_err() {
+                            std::future::pending::<()>().await;
+                        }
+                    }
+                    None => std::future::pending::<()>().await,
+                }
+            };
+            tokio::select! {
+                r = mirror.changed() => if r.is_err() { return Ok(out) },
+                () = own_changed => {}
+                () = tokio::time::sleep_until(deadline) => {}
+            }
+        }
+    }
+
+    /// Types into a terminal process of a tunnel this machine opened ([`Origin::input`]).
+    pub fn input(
+        &self,
+        tunnel: TunnelId,
+        process: ProcessId,
+        bytes: &[u8],
+    ) -> Result<(), TunnelError> {
+        self.origin.input(tunnel, process, bytes)
+    }
+
+    pub async fn resize(
+        &self,
+        tunnel: TunnelId,
+        process: ProcessId,
+        size: PtySize,
+    ) -> Result<(), TunnelError> {
+        self.origin.resize(tunnel, process, size).await
     }
 
     /// Rises with each tunnel that opens or closes, here or on the other machine.

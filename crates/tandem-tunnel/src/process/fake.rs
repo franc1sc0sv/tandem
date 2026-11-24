@@ -6,10 +6,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::task::{Context, Poll};
 
-use tokio::io::{AsyncRead, ReadBuf};
+use tandem_proto::PtySize;
+use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::sync::{mpsc, watch};
 
-use super::{Child, Launch, SpawnError, Spawned, Spawner};
+use super::{Child, Launch, SpawnError, Spawned, Spawner, Terminal};
 use crate::wire::BoxFuture;
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -61,12 +62,18 @@ impl Spawner for FakeSpawner {
             exit: watch::Sender::new(None),
             killed: AtomicBool::new(false),
             released: AtomicBool::new(false),
+            stdin: watch::Sender::new(Vec::new()),
+            echo: AtomicBool::new(false),
+            sizes: Mutex::new(launch.pty.into_iter().collect()),
         });
         state.spawned.push(process.clone());
+        let pty = launch.pty.is_some();
         Ok(Spawned {
             pid: Some(pid),
             stdout: Box::new(Pipe::new(out_rx)),
             stderr: Box::new(Pipe::new(err_rx)),
+            stdin: pty.then(|| Box::new(FakeStdin(process.clone())) as _),
+            terminal: pty.then(|| Arc::new(FakeTerminal(process.clone())) as _),
             child: Arc::new(FakeChild(process)),
         })
     }
@@ -82,9 +89,38 @@ pub struct FakeProcess {
     exit: watch::Sender<Option<Option<i32>>>,
     killed: AtomicBool,
     released: AtomicBool,
+    /// Everything typed into its terminal.
+    stdin: watch::Sender<Vec<u8>>,
+    /// What is typed comes back on stdout, like a terminal's echo.
+    echo: AtomicBool,
+    /// The terminal sizes it had, the first one at launch.
+    sizes: Mutex<Vec<PtySize>>,
 }
 
 impl FakeProcess {
+    /// What was typed into its terminal so far.
+    pub fn typed(&self) -> Vec<u8> {
+        self.stdin.borrow().clone()
+    }
+
+    /// Waits until `n` bytes were typed in total.
+    pub async fn wait_typed(&self, n: usize) -> Vec<u8> {
+        let mut rx = self.stdin.subscribe();
+        match rx.wait_for(|t| t.len() >= n).await {
+            Ok(t) => t.clone(),
+            Err(_) => self.typed(),
+        }
+    }
+
+    /// From now on, what is typed is written back to its stdout.
+    pub fn echo(&self, on: bool) {
+        self.echo.store(on, Ordering::SeqCst);
+    }
+
+    pub fn sizes(&self) -> Vec<PtySize> {
+        lock(&self.sizes).clone()
+    }
+
     pub fn stdout(&self, bytes: &[u8]) {
         if let Some(tx) = &*lock(&self.stdout) {
             let _ = tx.send(bytes.to_vec());
@@ -162,6 +198,43 @@ impl Child for FakeChild {
 
     fn release(&self) {
         self.0.released.store(true, Ordering::SeqCst);
+    }
+}
+
+struct FakeStdin(Arc<FakeProcess>);
+
+impl AsyncWrite for FakeStdin {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<std::io::Result<usize>> {
+        let p = &self.0;
+        if p.has_exited() {
+            return Poll::Ready(Err(std::io::ErrorKind::BrokenPipe.into()));
+        }
+        p.stdin.send_modify(|t| t.extend_from_slice(buf));
+        if p.echo.load(Ordering::SeqCst) {
+            p.stdout(buf);
+        }
+        Poll::Ready(Ok(buf.len()))
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        Poll::Ready(Ok(()))
+    }
+}
+
+struct FakeTerminal(Arc<FakeProcess>);
+
+impl Terminal for FakeTerminal {
+    fn resize(&self, size: PtySize) -> Result<(), SpawnError> {
+        lock(&self.0.sizes).push(size);
+        Ok(())
     }
 }
 

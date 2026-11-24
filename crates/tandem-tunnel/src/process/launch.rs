@@ -32,6 +32,8 @@ pub struct Launch {
     pub cwd: Option<String>,
     /// Variables added to the process.
     pub env: Vec<(String, String)>,
+    /// In a pseudo-terminal of this size ([`ExecSpec::pty`]).
+    pub pty: Option<tandem_proto::PtySize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -82,6 +84,7 @@ pub fn plan(spec: &ExecSpec, os: Os) -> Result<Launch, LaunchError> {
     let base = Launch {
         cwd: spec.cwd.clone(),
         env: spec.env.clone(),
+        pty: spec.pty,
         ..Launch::default()
     };
     let Some(shell) = spec.shell.as_deref() else {
@@ -167,6 +170,7 @@ pub fn plan(spec: &ExecSpec, os: Os) -> Result<Launch, LaunchError> {
                     raw: None,
                     cwd: None,
                     env: Vec::new(),
+                    pty: spec.pty,
                 });
             }
             if shell == "docker" {
@@ -177,6 +181,10 @@ pub fn plan(spec: &ExecSpec, os: Os) -> Result<Launch, LaunchError> {
                     return Err(LaunchError::NoContainer);
                 }
                 let mut args = vec!["exec".into(), "-i".into()];
+                // A terminal outside is not one inside the container unless it is asked for.
+                if spec.pty.is_some() {
+                    args.push("-t".into());
+                }
                 if let Some(cwd) = &spec.cwd {
                     args.push("-w".into());
                     args.push(cwd.clone());
@@ -193,6 +201,7 @@ pub fn plan(spec: &ExecSpec, os: Os) -> Result<Launch, LaunchError> {
                     raw: None,
                     cwd: None,
                     env: Vec::new(),
+                    pty: spec.pty,
                 });
             }
             Err(LaunchError::UnknownShell(shell.into()))
@@ -287,6 +296,7 @@ mod tests {
             cwd: Some("/src/x".into()),
             allow_secret_env: false,
             env: vec![("RUST_LOG".into(), "debug".into())],
+            pty: None,
         }
     }
 

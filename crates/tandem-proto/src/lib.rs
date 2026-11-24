@@ -36,9 +36,9 @@ pub use msg::{
     DragOutcome, DragStatus, FocusMsg, Hello, HubReport, InputCaps, InputLatency, InputPermission,
     InputStatus, KeyProbeMsg, KeyProbeStatus, Link, LocalNetwork, ModuleId, ModuleInfo,
     ModuleState, MonitorChannel, MonitorCompat, MonitorCursor, MonitorEvent, MonitorEventKind,
-    MonitorReport, MonitorView, PairingMsg, PairingStatus, Peer, PeerStatus, PowerCaps, PowerEvent,
-    ProcessInfo, Reply, ScreenRect, SetupInfo, StepOutcome, TxnEvent, UiCommand, UiRequest,
-    UpdateMsg, UpdateStatus,
+    MonitorReport, MonitorView, OutputWatch, PairingMsg, PairingStatus, Peer, PeerStatus,
+    PowerCaps, PowerEvent, ProcessInfo, Reply, ScreenRect, SetupInfo, StepOutcome, TxnEvent,
+    UiCommand, UiRequest, UpdateMsg, UpdateStatus,
 };
 pub use net::{
     Bandwidth, LatencySample, MeasureReport, NetworkNotice, NetworkStatus, PathMetrics, PathState,
@@ -46,7 +46,7 @@ pub use net::{
 };
 pub use tunnel::{
     Client, ClientKind, ExecSpec, FlowId, FlowInfo, OutputCursor, ProcessId, ProcessOutput,
-    ProcessState, Project, ProjectTunnels, Tunnel, TunnelDown, TunnelId, TunnelProcess,
+    ProcessState, Project, ProjectTunnels, PtySize, Tunnel, TunnelDown, TunnelId, TunnelProcess,
     TunnelState, TunnelUp, TunnelView, group_by_project,
 };
 pub use workspace::{BringBackReport, CommitInfo, WorkspaceDown, WorkspaceSpec, WorkspaceUp};
@@ -54,7 +54,7 @@ pub use workspace::{BringBackReport, CommitInfo, WorkspaceDown, WorkspaceSpec, W
 /// Protocol version. Bumped on any incompatible change to the messages.
 ///
 /// Only the same version talks: the two agents and the UI ship together.
-pub const PROTOCOL_VERSION: u16 = 48;
+pub const PROTOCOL_VERSION: u16 = 49;
 
 /// Since this version each agent announces its capabilities on connecting (T-084): an
 /// older one does not send them and cannot be spoken to as a peer.
@@ -151,9 +151,11 @@ mod tests {
     /// macOS) bumps to v47.
     /// T-349 (`Capabilities::cables` and `MonitorView::link`, the monitor link states) bumps to v48:
     /// it was going to be v47, but T-350 landed earlier.
+    /// Terminal tunnels (`ExecSpec::pty`, `TunnelUp::Input`/`Resize`, `UiCommand::Input`/`Resize`/
+    /// `WatchOutput`, `wait_ms` in `Output` and the pushed `AgentToUi::Output`) bump to v49.
     #[test]
     fn version_stays_above_the_one_from_t084() {
-        assert_eq!(PROTOCOL_VERSION, 48);
+        assert_eq!(PROTOCOL_VERSION, 49);
         assert_eq!(super::CAPABILITIES_SINCE, 10);
         assert_eq!(super::SIDES_SINCE, 16);
     }

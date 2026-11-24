@@ -80,6 +80,16 @@ impl ControlStream {
         Ok((qos.data_stream(self.tx.send), self.rx))
     }
 
+    /// Like [`Self::into_data`] but held back only by the cap, not by the input pause: the
+    /// output of a tunnel's processes, which a person may be watching live.
+    pub fn into_live_data(
+        self,
+        qos: &Qos,
+    ) -> Result<(DataStream<quinn::SendStream>, ControlReceiver), TransportError> {
+        self.set_class(StreamClass::Data)?;
+        Ok((qos.live_stream(self.tx.send), self.rx))
+    }
+
     /// Sends the bandwidth test over this stream (already opened as
     /// [`Channel::Measure`](tandem_proto::Channel::Measure)) and waits for what the other
     /// side measured. It goes with the data priority but without the cap (measuring through the cap

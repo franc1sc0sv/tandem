@@ -21,8 +21,8 @@ use tandem_core::{
 use tandem_proto::{
     AgentToUi, Capabilities, CursorSample, DeskCapabilities, DragStatus, EnvKind, Environment,
     Hardware, InputPermission, InputStatus, KeyProbeStatus, Link, LocalNetwork, ModuleId,
-    ModuleInfo, ModuleState, MonitorView, NetworkStatus, PairingStatus, PathState, PeerStatus,
-    PowerEvent, Reply, Resources, ScreenRect, SetupInfo, TunnelId, TxnEvent, UiCommand,
+    ModuleInfo, ModuleState, MonitorView, NetworkStatus, OutputWatch, PairingStatus, PathState,
+    PeerStatus, PowerEvent, Reply, Resources, ScreenRect, SetupInfo, TunnelId, TxnEvent, UiCommand,
     UpdateStatus,
 };
 use tandemd::ipc::{IpcClient, IpcError};
@@ -30,7 +30,9 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{Notify, mpsc, oneshot, watch};
 
 use crate::status::{CLOSED, QUERY_TIMEOUT, explain};
-use crate::tunnels::{self, OUTPUT_CHUNK, OutputItem, ProcessItem, ProjectItem, TransferItem};
+use crate::tunnels::{
+    self, LiveOutputItem, OUTPUT_CHUNK, OutputItem, ProcessItem, ProjectItem, TransferItem,
+};
 
 /// How often to retry if there is no agent. Short: the window has to
 /// recover on its own as soon as `tandemd` starts.
@@ -879,6 +881,20 @@ pub enum Action {
         #[serde(default)]
         stderr: u64,
     },
+    /// Push this process's output as it arrives, from the cursors ([`Sink::output`]): the terminal
+    /// view only appends what comes. Replaces the previous watch; the session renews it on each
+    /// reconnection from where the last push ended.
+    WatchOutput {
+        #[serde(deserialize_with = "tunnels::tunnel_id")]
+        tunnel: TunnelId,
+        process: u32,
+        #[serde(default)]
+        stdout: u64,
+        #[serde(default)]
+        stderr: u64,
+    },
+    /// Stop pushing output.
+    StopOutput,
     /// Shared keyboard and mouse (`EditDesk { Prefs }`): the whole pair is sent.
     SetPrefs {
         cmd_ctrl: bool,
@@ -983,7 +999,21 @@ impl From<Action> for UiCommand {
                 process: tunnels::process_id(process),
                 from: tunnels::cursor(stdout, stderr),
                 max: OUTPUT_CHUNK,
+                wait_ms: 0,
             },
+            Action::WatchOutput {
+                tunnel,
+                process,
+                stdout,
+                stderr,
+            } => UiCommand::WatchOutput {
+                watch: Some(OutputWatch {
+                    tunnel,
+                    process: tunnels::process_id(process),
+                    from: tunnels::cursor(stdout, stderr),
+                }),
+            },
+            Action::StopOutput => UiCommand::WatchOutput { watch: None },
             Action::SetPrefs {
                 cmd_ctrl,
                 drag_files,
@@ -1125,6 +1155,12 @@ pub trait Sink: Send + Sync + 'static {
     /// Bring the main window to the front: Tandem was opened from the system while the agent
     /// held the app's place on macOS (T-350).
     fn show_window(&self) {}
+
+    /// New output of the watched process ([`Action::WatchOutput`]): exactly what follows the
+    /// previous push.
+    fn output(&self, output: &LiveOutputItem) {
+        let _ = output;
+    }
 }
 
 struct Pending {
@@ -1221,6 +1257,7 @@ where
         watchers: 0,
         cursor_watchers: 0,
         watch_network: false,
+        watch_output: std::sync::Mutex::new(None),
     };
     (handle, runner.run(connect))
 }
@@ -1241,6 +1278,9 @@ struct Runner {
     /// boolean and not a count: only the main window shows Network, and reloading it must not
     /// leave the request on forever.
     watch_network: bool,
+    /// The output the terminal view follows, with the cursor of the last push: each new
+    /// connection asks for it again from there, so a reconnection neither repeats nor loses output.
+    watch_output: std::sync::Mutex<Option<OutputWatch>>,
 }
 
 /// How long the response to `MeasureLink` is waited for: the test itself plus the usual.
@@ -1343,6 +1383,7 @@ impl Runner {
         let watching = self.watchers > 0;
         let watching_cursor = self.cursor_watchers > 0;
         let watching_network = self.watch_network;
+        let watching_output = *lock_watch(&self.watch_output);
         let opening = async {
             let mut client = connect.await?;
             if watching {
@@ -1388,6 +1429,11 @@ impl Runner {
             };
             if watching_network {
                 client.request(UiCommand::WatchNetwork { on: true }).await?;
+            }
+            if let Some(w) = watching_output {
+                client
+                    .request(UiCommand::WatchOutput { watch: Some(w) })
+                    .await?;
             }
             Ok(Opened {
                 client,
@@ -1437,6 +1483,9 @@ impl Runner {
                     }
                     if let UiCommand::WatchNetwork { on } = p.command {
                         self.watch_network = on;
+                    }
+                    if let UiCommand::WatchOutput { watch } = p.command {
+                        *lock_watch(&self.watch_output) = watch;
                     }
                     // The measurement lasts `MEASURE_SECS`: with the usual limit the connection would be considered
                     // lost midway through measuring.
@@ -1518,6 +1567,22 @@ impl Runner {
             }),
             AgentToUi::Resources { machine, resources } => {
                 self.sink.resources(machine, &resources);
+            }
+            AgentToUi::Output(o) => {
+                let tunnel = o.process.tunnel;
+                {
+                    let mut w = lock_watch(&self.watch_output);
+                    if let Some(watch) = w.as_mut()
+                        && watch.tunnel == tunnel
+                        && watch.process == o.process.id
+                    {
+                        watch.from = o.next;
+                        if o.done {
+                            *w = None;
+                        }
+                    }
+                }
+                self.sink.output(&LiveOutputItem::from(*o));
             }
             // The Tunnels screen (read-only, D9) and each tunnel's traffic (T-114).
             AgentToUi::Tunnels(groups) => self.sink.tunnels(&tunnels::projects_of(groups)),
@@ -1651,6 +1716,9 @@ impl Runner {
                         if let UiCommand::WatchNetwork { on } = p.command {
                             self.watch_network = on;
                         }
+                        if let UiCommand::WatchOutput { watch } = p.command {
+                            *lock_watch(&self.watch_output) = watch;
+                        }
                         p.answer(ActionResult::Unavailable { reason: reason.into() });
                     }
                     None => return false,
@@ -1658,6 +1726,12 @@ impl Runner {
             }
         }
     }
+}
+
+fn lock_watch(
+    m: &std::sync::Mutex<Option<OutputWatch>>,
+) -> std::sync::MutexGuard<'_, Option<OutputWatch>> {
+    m.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 fn timed_out() -> String {
@@ -2937,6 +3011,7 @@ mac = "aa:bb:cc:dd:ee:ff"
             watchers: 0,
             cursor_watchers: 0,
             watch_network: false,
+            watch_output: std::sync::Mutex::new(None),
         };
         runner.on_event(AgentToUi::Power(PowerEvent::PeerLost {
             machine: Machine::B,

@@ -116,7 +116,7 @@ Own external dependency: `monitor-ddc` (repo `monitor-firmware`, A5), pinned by 
 
 ### 4.5 Protocol versioning
 
-- **Current version: `PROTOCOL_VERSION = 48`** (`crates/tandem-proto/src/lib.rs`, last bumped by T-349, `Capabilities::cables` and `MonitorView::link`; v47 was T-350, `AgentToUi::ShowWindow`; v46 was T-341, `Step::DisplayOn`; v45 was T-346, `MonitorReport::cursor`; v44 was T-344, `Capabilities::local_network` and `UiCommand::CheckLocalNetwork`; v43 was T-345, `PairingStatus::Offered`).
+- **Current version: `PROTOCOL_VERSION = 49`** (`crates/tandem-proto/src/lib.rs`, last bumped by terminal tunnels: `ExecSpec::pty`, `TunnelUp::Input`/`Resize`, `UiCommand::Input`/`Resize`/`WatchOutput`, `wait_ms` in `UiCommand::Output` and the pushed `AgentToUi::Output`; v48 was T-349, `Capabilities::cables` and `MonitorView::link`; v47 was T-350, `AgentToUi::ShowWindow`; v46 was T-341, `Step::DisplayOn`; v45 was T-346, `MonitorReport::cursor`; v44 was T-344, `Capabilities::local_network` and `UiCommand::CheckLocalNetwork`; v43 was T-345, `PairingStatus::Offered`).
 - **Rule: only the same version talks.** The two agents and the UI ship together; an agent that sees another version refuses the link and says to install the same Tandem version on both machines. Bump `PROTOCOL_VERSION` on any incompatible change to the messages (almost every release does).
 - **Hints for older peers** (only to word the refusal; they do not make anything compatible): `CAPABILITIES_SINCE = 10` is the first version where each agent announces its capabilities on connecting (T-084); `SIDES_SINCE = 16` is the first where the two sides are `A`/`B` ordered by public key (T-097), instead of "Mac" and "PC".
 - **History:** the entries of [DECISIONS.md](DECISIONS.md) that say "Protocol vN" record what each bump changed (for example v18, v30, v33, v35, v39).
@@ -140,7 +140,7 @@ Own external dependency: `monitor-ddc` (repo `monitor-firmware`, A5), pinned by 
 | Direct Ethernet | 2 | ✅ | ✅ |
 | Wi-Fi (LAN) | 3 | ✅ | ✅ capped (A2) |
 
-- **Input rules:** keyboard and mouse go in datagrams and in a top-priority stream; data goes in low-priority streams. On Wi-Fi, data has a configurable bandwidth cap (by default 50 % of the measured one) and is paused if input latency exceeds its target.
+- **Input rules:** keyboard and mouse go in datagrams and in a top-priority stream; data goes in low-priority streams. On Wi-Fi, data has a configurable bandwidth cap (by default 50 % of the measured one) and is paused if input latency exceeds its target. The output of tunnel processes (what a terminal shows) goes at data priority and respects the cap, but is not paused: a pause froze terminals for up to 90 s while input was barely late.
 - **Health and path switching:** each backup path is pinged once per second and the active one every 200 ms; a ping waits in 200 ms windows and the path is down after 2 windows in a row without the Pong (a single late Pong does not switch), or at once on a connection error. With no healthy backup to move to, the active path's ping waits up to 1 s instead (a drop would gain nothing and cost a reconnect). A cut is noticed at most 600 ms after the path's last answer, and input moves to the next healthy path right then: under 1 s (T-310). Hysteresis when going back (T-065).
 - **One-way reachability (T-237):** a firewall (macOS stealth mode, for example) can drop what one side sends while the other can still dial in. Each side serves the streams of every authenticated connection with the paired peer, whoever opened it; for each path, a side first adopts the live connection the other agent opened over it and only dials when there is none. Simultaneous dials leave two connections, each side keeps the one its session already uses, and neither closes the other's.
 - **Per-path metrics** for the Network screen: latency p50/p99 (input) and RTT, bandwidth measured on demand, 60 s history, switch events ("moved to Wi-Fi in 0.6 s"). Mockup `V3-Network`.
@@ -173,16 +173,17 @@ Measurement always available (monotonic timestamps, offset estimated with the he
 
 - **Tunnel** = a session between the two machines opened by a client (Claude through MCP or a person through the CLI), with id, title (the Claude session's), project (repo/folder) and destination machine. Several tunnels at once; several processes per tunnel.
 - **Inside a tunnel:**
-  - `exec`: launch processes (shell chosen from the detected environments: zsh/bash, PowerShell, cmd, WSL, Docker), with cwd and variables; several at once.
-  - `output`: live output (stdout/stderr) with a circular buffer; `kill`; exit code.
+  - `exec`: launch processes (shell chosen from the detected environments: zsh/bash, PowerShell, cmd, WSL, Docker), with cwd and variables; several at once. With `pty` the process runs in a pseudo-terminal (openpty on Unix, ConPTY on Windows): it sees a TTY (colors, progress, line editing, line-buffered output) and stdout and stderr come together.
+  - `input` / `resize`: type into a terminal process and change its size. Each byte carries its position, so input arrives in order and exactly once, also when a reply is lost or the link moves.
+  - `output`: live output (stdout/stderr) with a circular buffer; `kill`; exit code. `output` can wait (`wait_ms`) and answers the moment a byte arrives; the UI is pushed the output of the process it shows (`WatchOutput`), each piece the exact continuation of the previous one.
   - `files_put` / `files_get`: copy files and folders (chunks with hash, resumable).
   - `port_forward`: a local port that reaches one on the other machine (or the reverse).
   - **Git workspace:** `tunnel_open` with `workspace` copies the repo (current branch + uncommitted changes, via `git bundle` + patch) to a working folder on the other machine; `bring_back` brings the commits made there back as a `tandem/<tunnel>` branch in the origin repo.
 - **They survive the link:** processes live in the destination agent; if the link drops, they keep running and the output is saved; when it returns, the client resumes from the last byte received.
 - **Privileges (A7):** the agent's (elevated on Windows; user on macOS).
 - **Environments and resources (`tandem-env`):** scan at startup and on demand: shells, WSL distros, Docker, git, toolchains (cargo, node, uv/python), GPU (model, VRAM, usage via `nvidia-smi` or Metal). Live resources: CPU, RAM, GPU, disk. Claude picks the machine using this data.
-- **MCP (`tandem mcp`):** tools `machines`, `resources`, `tunnel_open`, `tunnel_close`, `tunnels`, `exec`, `output`, `kill`, `files_put`, `files_get`, `port_forward`, `bring_back`. Mockup `F-ClaudeMCP`. The `tandem` CLI exposes the same.
-- **UI (read-only, D9):** grouped projects → tunnels (title, branch, path A→B) → running processes and their output. Mockup `V3-Compute`.
+- **MCP (`tandem mcp`):** tools `machines`, `resources`, `tunnel_open`, `tunnel_close`, `tunnels`, `exec`, `input`, `resize`, `output`, `kill`, `files_put`, `files_get`, `port_forward`, `bring_back`. Mockup `F-ClaudeMCP`. The `tandem` CLI exposes the same.
+- **UI (read-only, D9):** grouped projects → tunnels (title, branch, path A→B) → running processes and their output. Mockup `V3-Compute`. The output is a terminal screen (xterm.js) fed with the pushed bytes: it only appends, and desk updates or a link switch never clear it.
 
 ## 9. Files: dragging between machines
 

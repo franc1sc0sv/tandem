@@ -16,13 +16,15 @@
 pub mod fake;
 pub mod launch;
 pub mod output;
+mod pty;
 pub mod secrets;
 pub mod system;
 pub(crate) mod table;
 
 use std::sync::Arc;
 
-use tokio::io::{AsyncRead, AsyncReadExt};
+use tandem_proto::PtySize;
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite};
 
 use crate::host::{FlowWriter, HostTunnel};
 use crate::wire::BoxFuture;
@@ -42,13 +44,23 @@ pub trait Child: Send + Sync {
     fn release(&self) {}
 }
 
-/// A newly launched process with its outputs. Its stdin is closed: there is no interactive
-/// input.
+/// The pseudo-terminal a process runs in ([`Launch::pty`]).
+pub trait Terminal: Send + Sync {
+    fn resize(&self, size: PtySize) -> Result<(), SpawnError>;
+}
+
+/// A newly launched process with its outputs. Without a terminal its stdin is closed: there
+/// is no interactive input.
 pub struct Spawned {
     /// The system identifier, if it gave one.
     pub pid: Option<u32>,
+    /// With a terminal, everything the program writes (stdout and stderr together).
     pub stdout: Box<dyn AsyncRead + Send + Unpin>,
+    /// With a terminal, an empty reader.
     pub stderr: Box<dyn AsyncRead + Send + Unpin>,
+    /// Only with a terminal: what is typed into it.
+    pub stdin: Option<Box<dyn AsyncWrite + Send + Unpin>>,
+    pub terminal: Option<Arc<dyn Terminal>>,
     pub child: Arc<dyn Child>,
 }
 
@@ -73,12 +85,18 @@ pub enum ExecError {
     Launch(#[from] LaunchError),
     #[error("could not launch: {0}")]
     Spawn(#[from] SpawnError),
+    #[error("process {1} of tunnel {0} does not run in a terminal: it takes no input")]
+    NoTerminal(tandem_proto::TunnelId, tandem_proto::ProcessId),
+    #[error("input for process {1} of tunnel {0} skipped bytes: it has up to {2}")]
+    InputGap(tandem_proto::TunnelId, tandem_proto::ProcessId, u64),
 }
 
 /// Copies what comes out of `from` to the flow until it closes. On finishing it releases the flow,
 /// which ends up finished.
 async fn pump(mut from: Box<dyn AsyncRead + Send + Unpin>, to: FlowWriter) {
-    let mut buf = vec![0u8; 32 * 1024];
+    // Big reads: under a flood of output each read takes what accumulated, which already
+    // coalesces it; a keystroke's echo still goes out alone and at once.
+    let mut buf = vec![0u8; 64 * 1024];
     loop {
         match from.read(&mut buf).await {
             Ok(0) | Err(_) => break,
@@ -102,6 +120,7 @@ pub(crate) fn supervise(
         child,
         ..
     } = spawned;
+    // The stdin and the terminal were already taken by `HostTunnel::exec`.
     let pumps = (
         tokio::spawn(pump(stdout, out)),
         tokio::spawn(pump(stderr, err)),

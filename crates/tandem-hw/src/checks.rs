@@ -428,6 +428,7 @@ async fn exec(
         cwd: None,
         env: Vec::new(),
         allow_secret_env: false,
+        pty: None,
     };
     match req(c, UiCommand::Exec { tunnel, spec }).await? {
         Reply::Process(p) => Ok(*p),
@@ -455,6 +456,7 @@ async fn stdout_until_done(
                 process: p.id,
                 from,
                 max: 65536,
+                wait_ms: 0,
             },
         )
         .await?

@@ -17,8 +17,8 @@ use crate::env::{Environment, Hardware, Resources};
 use crate::files::{Direction, FilesReport, ForwardInfo, TransferProgress};
 use crate::net::NetworkStatus;
 use crate::tunnel::{
-    ClientKind, ExecSpec, OutputCursor, ProcessId, ProcessOutput, Project, ProjectTunnels, Tunnel,
-    TunnelId, TunnelProcess,
+    ClientKind, ExecSpec, OutputCursor, ProcessId, ProcessOutput, Project, ProjectTunnels, PtySize,
+    Tunnel, TunnelId, TunnelProcess,
 };
 use crate::workspace::{BringBackReport, WorkspaceSpec};
 use crate::{PROTOCOL_VERSION, ProtoError, wire};
@@ -852,6 +852,27 @@ pub enum UiCommand {
         process: ProcessId,
         from: OutputCursor,
         max: u32,
+        /// With nothing new from `from`, wait up to this long for output or the end of the
+        /// process before answering (0: answer right away).
+        wait_ms: u32,
+    },
+    /// Input for a terminal process ([`ExecSpec::pty`]): delivered in order and exactly once,
+    /// also across link drops. Only from a [`Peer::Client`]. Answers [`Reply::Done`] once queued.
+    Input {
+        tunnel: TunnelId,
+        process: ProcessId,
+        bytes: Vec<u8>,
+    },
+    /// New size for a terminal process. Only from a [`Peer::Client`].
+    Resize {
+        tunnel: TunnelId,
+        process: ProcessId,
+        size: PtySize,
+    },
+    /// Push this process's output to this connection as it arrives ([`AgentToUi::Output`]),
+    /// from `from`; `None` stops. One per connection: a new one replaces the previous.
+    WatchOutput {
+        watch: Option<OutputWatch>,
     },
     /// The processes of a tunnel, including the ones that finished recently
     /// ([`Reply::Processes`]).
@@ -952,6 +973,17 @@ pub enum AgentToUi {
     /// macOS LaunchServices takes the agent for the app's instance and the agent passes the
     /// request on. Only to UI connections; the UI brings its main window to the front.
     ShowWindow,
+    /// New output of the process the connection watches ([`UiCommand::WatchOutput`]): what follows
+    /// `from` exactly, so the window only appends.
+    Output(Box<ProcessOutput>),
+}
+
+/// What [`UiCommand::WatchOutput`] follows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OutputWatch {
+    pub tunnel: TunnelId,
+    pub process: ProcessId,
+    pub from: OutputCursor,
 }
 
 /// Pairing as seen from the UI.
@@ -1902,6 +1934,7 @@ pub(crate) mod samples {
                     cwd: Some("/src/tandem".into()),
                     env: vec![("RUST_LOG".into(), "info".into())],
                     allow_secret_env: true,
+                    pty: None,
                 },
             },
             UiCommand::Kill {
@@ -1916,6 +1949,27 @@ pub(crate) mod samples {
                     stderr: u64::MAX,
                 },
                 max: 65536,
+                wait_ms: 5000,
+            },
+            UiCommand::Input {
+                tunnel: crate::TunnelId(1),
+                process: ProcessId(2),
+                bytes: b"ls -la\r".to_vec(),
+            },
+            UiCommand::Resize {
+                tunnel: crate::TunnelId(1),
+                process: ProcessId(2),
+                size: crate::PtySize {
+                    cols: 100,
+                    rows: 40,
+                },
+            },
+            UiCommand::WatchOutput {
+                watch: Some(OutputWatch {
+                    tunnel: crate::TunnelId(1),
+                    process: ProcessId(2),
+                    from: OutputCursor::default(),
+                }),
             },
             UiCommand::GetProcesses {
                 tunnel: crate::TunnelId(1),
@@ -1990,6 +2044,9 @@ pub(crate) mod samples {
             UiCommand::SetWol { .. } => 44,
             UiCommand::SyntheticMotion { .. } => 45,
             UiCommand::CheckLocalNetwork => 46,
+            UiCommand::Input { .. } => 47,
+            UiCommand::Resize { .. } => 48,
+            UiCommand::WatchOutput { .. } => 49,
         }
     }
 
@@ -2133,6 +2190,17 @@ pub(crate) mod samples {
             AgentToUi::Drag(DragStatus::Cancelled),
             AgentToUi::Drag(DragStatus::Failed("no space".into())),
             AgentToUi::ShowWindow,
+            AgentToUi::Output(Box::new(ProcessOutput {
+                process: process_sample(),
+                stdout: b"\x1b[32mok\x1b[0m\r\n".to_vec(),
+                stderr: Vec::new(),
+                from: OutputCursor::default(),
+                next: OutputCursor {
+                    stdout: 13,
+                    stderr: 0,
+                },
+                done: false,
+            })),
         ]);
         v.push(AgentToUi::Reply {
             id: 7,
@@ -2388,6 +2456,7 @@ pub(crate) mod samples {
             AgentToUi::Transfer(_) => 18,
             AgentToUi::Drag(_) => 19,
             AgentToUi::ShowWindow => 20,
+            AgentToUi::Output(_) => 21,
         }
     }
 
@@ -2441,6 +2510,7 @@ pub(crate) mod samples {
             started: 1_763_400_000_000,
             duration: None,
             state: crate::ProcessState::Running,
+            pty: false,
         }
     }
 
@@ -2495,9 +2565,9 @@ mod tests {
         covers(&hellos(), |h| peer_arm(&h.peer), 4);
         covers(&control(), control_arm, 25);
         let cmds: Vec<_> = ui_requests().into_iter().map(|r| r.command).collect();
-        covers(&cmds, ui_command_arm, 47);
+        covers(&cmds, ui_command_arm, 50);
         covers(&modules(), |m| module_state_arm(&m.state), 3);
-        covers(&to_ui(), to_ui_arm, 21);
+        covers(&to_ui(), to_ui_arm, 22);
         covers(&monitor_event_kinds(), monitor_event_kind_arm, 10);
         let kinds: Vec<_> = capabilities()
             .iter()

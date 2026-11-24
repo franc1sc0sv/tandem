@@ -44,6 +44,8 @@ pub const NETWORK_EVENT: &str = "agent-network";
 pub const TUNNELS_EVENT: &str = "agent-tunnels";
 /// The progress of a tunnel's file copy (`TransferItem`).
 pub const TRANSFER_EVENT: &str = "agent-transfer";
+/// New output of the process the terminal view watches.
+pub const OUTPUT_EVENT: &str = "agent-output";
 pub const MESSAGE_EVENT: &str = "ui-message";
 pub const SHORTCUTS_EVENT: &str = "ui-shortcuts";
 
@@ -171,6 +173,10 @@ impl Sink for Windows {
 
     fn transfer(&self, transfer: &crate::tunnels::TransferItem) {
         let _ = self.0.emit(TRANSFER_EVENT, transfer);
+    }
+
+    fn output(&self, output: &crate::tunnels::LiveOutputItem) {
+        let _ = self.0.emit(OUTPUT_EVENT, output);
     }
 }
 
