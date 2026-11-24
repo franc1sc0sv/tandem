@@ -2,3 +2,9 @@
 *.ps1 text eol=crlf
 *.bat text eol=crlf
 *.cmd text eol=crlf
+
+# Estadísticas de lenguajes en GitHub (linguist): informes, mockups y su
+# renderizador son documentación, no código de la app.
+docs/** linguist-documentation
+mockups/** linguist-documentation
+tools/mockup-render/** linguist-documentation
