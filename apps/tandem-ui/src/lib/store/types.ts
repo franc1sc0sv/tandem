@@ -7,7 +7,7 @@
 
 import type { Arrangement, LayoutView } from "../arrangement";
 import type { CrossSample } from "../crossing";
-import type { AdminView, Bindings, Machine, MonitorInput, Notice, Os, PairingView, PeerView, Permission, SceneJson, SetupView, ShortcutsView, TxnView, DragStatus } from "../model";
+import type { AdminView, Bindings, BuiltinMode, CableStateJson, Machine, MonitorInput, Notice, Os, PairingView, PeerView, Permission, PowerStateJson, SceneJson, SetupView, ShortcutsView, TxnView, DragStatus } from "../model";
 import type { PermissionState } from "../permissions";
 import type { UpdateView } from "../updates";
 
@@ -110,6 +110,8 @@ export interface MachineView {
   inputDevices?: { name: string; via?: string }[];
   /** Only on the other machine: the MAC with which this one wakes it (T-159); `mac: null` = cannot. */
   wake?: { mac: string | null } | null;
+  /** Only on a Mac: what it does with its built-in display while an external one is on (T-353). */
+  builtinDisplay?: BuiltinMode;
 }
 
 export type LinkKind = "usb4" | "ethernet" | "wifi";
@@ -249,6 +251,17 @@ export interface OutputCursor {
   stderr: number;
 }
 
+/** A piece of pushed output: raw bytes that continue exactly where `from` says. */
+export interface LiveChunk {
+  bytes: Uint8Array;
+  from: OutputCursor;
+  next: OutputCursor;
+  /** The process ended and this was the last piece. */
+  done: boolean;
+  /** It runs in a terminal: the bytes carry escape sequences and their own line ends. */
+  pty: boolean;
+}
+
 /** What a process's output adds from a cursor. */
 export interface OutputChunk {
   text: string;
@@ -299,6 +312,17 @@ export interface MonitorUi {
   shows: Machine | null;
   /** From newest to oldest (up to 3). */
   events: MonitorEventView[];
+  /** Which machine it shows, its cables and its power, as the agent derived them (T-349). */
+  link?: LinkUi;
+}
+
+/** A monitor's link state for the UI (T-349). */
+export interface LinkUi {
+  kind: "shows" | "unplugged" | "standby" | "off" | "unknown";
+  /** The machine shown (`shows`) or whose cable is unplugged (`unplugged`). */
+  machine: Machine | null;
+  power: PowerStateJson;
+  cables: Record<Machine, CableStateJson>;
 }
 
 /** Pair with the other machine (what the agent sends). */
@@ -411,6 +435,8 @@ export interface Source {
   start(onDesk: (d: DeskView) => void, onChange?: (c: DeskChange) => void, onTransfer?: (t: TransferView) => void): Promise<void>;
   /** Shared keyboard and mouse: the whole pair is sent. */
   setPrefs(p: { cmdCtrl: boolean; dragFiles: boolean }): Promise<ActResult>;
+  /** What the Mac `machine` does with its built-in display (T-353). */
+  setBuiltinDisplay(machine: Machine, mode: BuiltinMode): Promise<ActResult>;
   /** The desk lock shortcut (empty = no shortcut). */
   setLockShortcut(lock: string[]): Promise<ActResult>;
   /** "Undo" the other machine's change: returns the desk to version `rev`. */
@@ -424,6 +450,8 @@ export interface Source {
   applyScene(id: string): Promise<ActResult>;
   /** Change the input of a compatible monitor: a transaction with the firmware verdict. */
   switchMonitor(monitor: string, input: MonitorInput): Promise<ActResult>;
+  /** Put a monitor in standby (`on` false) or wake it, by command; refused if its firmware cannot be woken. */
+  monitorPower(monitor: string, on: boolean): Promise<ActResult>;
   /** Create (`isNew`) or save a scene in the shared desk: it reaches the other machine. */
   saveScene(scene: SceneJson, isNew: boolean): Promise<ActResult>;
   /** Forget an incompatible monitor that is no longer there. */
@@ -508,6 +536,13 @@ export interface Source {
   processes(tunnel: string): Promise<ProcessRow[]>;
   /** The output of a process from `from` (T-104). */
   output(tunnel: string, process: number, from: OutputCursor): Promise<OutputChunk>;
+  /**
+   * The output of a process pushed as it arrives, from `from`, until the returned function is
+   * called. Without it the screen falls back to asking with `output`.
+   */
+  watchOutput?(tunnel: string, process: number, from: OutputCursor, onChunk: (c: LiveChunk) => void): Promise<() => void>;
+  /** Whether `watchOutput` works with this source right now (by default, if it exists). */
+  readonly pushesOutput?: boolean;
   /** What this source can do today (the real agent has no scenes or modules yet). */
   can(what: Capability): boolean;
   stop(): void;

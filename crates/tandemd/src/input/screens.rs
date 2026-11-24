@@ -3,12 +3,13 @@
 //!
 //! Per machine its `[[screens]]` declared in the desk apply; if undeclared, the ones it
 //! reads itself (the bounds injection uses). A machine that is off has no screens:
-//! the cursor does not cross to it. A monitor that shows the other machine ceases to be a
-//! screen of this one (DESIGN §7, T-111): its screen comes from the desk's `[[cables]]`.
+//! the cursor does not cross to it. A monitor that does not show this machine (it shows the
+//! other, or it is off, in standby or on an unplugged input) ceases to be a screen of this one
+//! (DESIGN §7, T-111, T-349): its screen comes from the desk's `[[cables]]`.
 
 use std::collections::BTreeMap;
 
-use tandem_core::{Config, DisplayKey, Machine, ScreenSpec, State};
+use tandem_core::{Config, DisplayKey, Machine, MonitorLink, ScreenSpec, State};
 use tandem_input::displays::Display;
 use tandem_input::geometry::{Arrangement, GeometryError, Layout, LayoutOptions, Rect, Screen};
 use tandem_proto::ScreenRect;
@@ -65,15 +66,16 @@ pub fn detected_keys(displays: &[Display]) -> Vec<(String, DisplayKey)> {
         .collect()
 }
 
-/// Which machine each compatible monitor shows, by id (`crate::monitors::shows`).
-pub type Shows = BTreeMap<String, Machine>;
+/// The derived link of each monitor, by id ([`crate::monitors::MonitorHub::links`]).
+pub type Links = BTreeMap<String, MonitorLink>;
 
-/// The screens of `machine` that are monitors showing the other: according to `shows` and the
-/// screen of each `[[cables]]`. A monitor without a declared screen cannot be removed.
-pub fn hidden(desk: &Config, machine: Machine, shows: &Shows) -> Vec<String> {
+/// The screens of `machine` whose monitor does not show it ([`MonitorLink::live_for`]):
+/// according to `links` and the screen of each `[[cables]]`. A monitor without a declared screen
+/// cannot be removed.
+pub fn hidden(desk: &Config, machine: Machine, links: &Links) -> Vec<String> {
     desk.cables
         .iter()
-        .filter(|c| shows.get(&c.monitor) == Some(&machine.other()))
+        .filter(|c| links.get(&c.monitor).is_some_and(|l| !l.live_for(machine)))
         .filter_map(|c| c.end(machine).screen.clone())
         .collect()
 }
@@ -89,7 +91,7 @@ pub fn arrangement(
     me: Machine,
     mine: &[Screen],
     theirs: &[Screen],
-    shows: &Shows,
+    links: &Links,
 ) -> Arrangement {
     let of = |machine: Machine| -> Vec<Screen> {
         if !state.is_on(machine) {
@@ -103,7 +105,7 @@ pub fn arrangement(
                 theirs.to_vec()
             };
         }
-        let hidden = hidden(desk, machine, shows);
+        let hidden = hidden(desk, machine, links);
         screens.retain(|s| !hidden.contains(&s.id.0));
         screens
     };
@@ -121,16 +123,16 @@ pub fn layout(
     state: &State,
     me: Machine,
     (mine, theirs): (&[Screen], &[Screen]),
-    shows: &Shows,
+    links: &Links,
     opts: LayoutOptions,
 ) -> Result<Layout, GeometryError> {
-    Layout::compute(&arrangement(desk, state, me, mine, theirs, shows), opts)
+    Layout::compute(&arrangement(desk, state, me, mine, theirs, links), opts)
 }
 
 #[cfg(test)]
 mod tests {
     use proptest::prelude::*;
-    use tandem_core::{Align, Powered, Scale, Side};
+    use tandem_core::{Align, LinkState, Powered, Scale, Side};
 
     use super::*;
 
@@ -187,7 +189,7 @@ mod tests {
         let mut state = State::initial(Machine::A);
         state.on.b = true;
         let opts = LayoutOptions::default();
-        let none = Shows::new();
+        let none = Links::new();
         let pc = layout(
             &desk,
             &state,
@@ -223,7 +225,7 @@ mod tests {
         });
         let mine = [mon("mac-1", 0, 1512)];
         let theirs = [mon("pc-1", 0, 1920)];
-        let arr = arrangement(&desk, &both_on(), Machine::A, &mine, &theirs, &Shows::new());
+        let arr = arrangement(&desk, &both_on(), Machine::A, &mine, &theirs, &Links::new());
         assert_eq!(arr.a, mine);
         assert_eq!(arr.b.len(), 1);
         assert_eq!(arr.b[0].id, "34".into());
@@ -236,7 +238,7 @@ mod tests {
             Machine::A,
             &mine,
             &theirs,
-            &Shows::new(),
+            &Links::new(),
         );
         assert_eq!((arr.a, arr.b), (mine.to_vec(), theirs.to_vec()));
         assert_eq!((arr.a_side, arr.align), (Side::Left, None));
@@ -252,7 +254,7 @@ mod tests {
             Machine::A,
             &mine,
             &theirs,
-            &Shows::new(),
+            &Links::new(),
         );
         assert!(arr.b.is_empty());
         assert_eq!(arr.a, mine);
@@ -269,7 +271,8 @@ mod tests {
         desk.cables.push(cable);
         let mine = [mon("mac-1", 0, 1512), mon("mac-2", 1512, 3440)];
         let theirs = [mon("pc-1", 0, 3440)];
-        let shows = |m: Machine| Shows::from([("m34".to_owned(), m)]);
+        let shows =
+            |m: Machine| Links::from([("m34".to_owned(), link(LinkState::ShowsMachine(m)))]);
         let arr = arrangement(
             &desk,
             &both_on(),
@@ -291,7 +294,7 @@ mod tests {
         assert_eq!(arr.a, mine[..1]);
         assert_eq!(arr.b, theirs);
         // Without knowing what it shows, or without a declared screen, all remain.
-        let arr = arrangement(&desk, &both_on(), Machine::A, &mine, &theirs, &Shows::new());
+        let arr = arrangement(&desk, &both_on(), Machine::A, &mine, &theirs, &Links::new());
         assert_eq!((arr.a.len(), arr.b.len()), (2, 1));
         desk.cables[0].a.screen = None;
         let arr = arrangement(
@@ -303,6 +306,39 @@ mod tests {
             &shows(Machine::B),
         );
         assert_eq!(arr.a, mine);
+    }
+
+    fn link(state: LinkState) -> MonitorLink {
+        MonitorLink {
+            state,
+            ..MonitorLink::default()
+        }
+    }
+
+    /// T-349: a monitor that goes to standby or off leaves the geometry of both machines; one
+    /// whose state is unknown stays.
+    #[test]
+    fn a_monitor_in_standby_or_off_leaves_the_geometry() {
+        let mut desk = Config::default();
+        let mut cable = tandem_core::MonitorCable::new("m34");
+        cable.a.screen = Some("mac-2".into());
+        cable.b.screen = Some("pc-1".into());
+        desk.cables.push(cable);
+        let mine = [mon("mac-1", 0, 1512), mon("mac-2", 1512, 3440)];
+        let theirs = [mon("pc-1", 0, 3440), mon("pc-2", 3440, 1920)];
+        for state in [
+            LinkState::Standby,
+            LinkState::Off,
+            LinkState::ActiveInputUnplugged(Machine::A),
+        ] {
+            let links = Links::from([("m34".to_owned(), link(state))]);
+            let arr = arrangement(&desk, &both_on(), Machine::A, &mine, &theirs, &links);
+            assert_eq!(arr.a, mine[..1], "{state:?}");
+            assert_eq!(arr.b, theirs[1..], "{state:?}");
+        }
+        let links = Links::from([("m34".to_owned(), link(LinkState::Unknown))]);
+        let arr = arrangement(&desk, &both_on(), Machine::A, &mine, &theirs, &links);
+        assert_eq!((arr.a.len(), arr.b.len()), (2, 2));
     }
 
     proptest! {

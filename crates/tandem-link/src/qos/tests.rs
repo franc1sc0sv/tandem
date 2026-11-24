@@ -204,6 +204,32 @@ async fn late_input_pauses_the_data_and_without_input_it_resumes() {
     ));
 }
 
+/// A terminal's output is not held by the input pause (a pause once lasted 90 s on the PC and
+/// froze the terminal view), but it still respects the cap.
+#[tokio::test(start_paused = true)]
+async fn live_data_ignores_the_pause_but_not_the_cap() {
+    let qos = Qos::default();
+    qos.set_link(Some(LinkKind::Wifi));
+    qos.set_measured(2_000_000);
+    let t0 = Instant::now();
+    while Instant::now() < t0 + ms(2100) {
+        qos.record_input_latency(ms(40));
+        tokio::time::sleep(ms(1)).await;
+    }
+    assert!(!qos.gate().is_open());
+    let rec = Recorder::default();
+    let mut live = qos.live_stream(rec.clone());
+    let t1 = Instant::now();
+    live.write_all(b"PS C:\\> ").await.unwrap();
+    assert_eq!(Instant::now(), t1, "it went out during the pause");
+    assert_eq!(rec.total(), 8);
+    // The cap (1 MB/s here) still holds it.
+    while Instant::now() < t1 + Duration::from_secs(2) {
+        live.write_all(&[0u8; 16 * 1024]).await.unwrap();
+    }
+    assert!(rec.total() <= 2_200_000, "{} bytes in 2 s", rec.total());
+}
+
 #[tokio::test(start_paused = true)]
 async fn changing_path_lifts_the_pause() {
     let qos = Qos::default();

@@ -1,5 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
-use std::net::{IpAddr, SocketAddr};
+use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 
 use super::Fingerprint;
 
@@ -131,6 +131,10 @@ impl PeerResolver {
     }
 }
 
+/// `fe80::1`: macOS gives it to its loopback (`lo0`) and mDNS announces it on every
+/// interface, where it is never the other machine.
+const MACOS_LOOPBACK_LINK_LOCAL: Ipv6Addr = Ipv6Addr::new(0xfe80, 0, 0, 0, 0, 0, 0, 1);
+
 /// Discards what is no use for connecting to another machine.
 fn usable(addrs: &[SocketAddr]) -> Vec<SocketAddr> {
     addrs
@@ -139,7 +143,10 @@ fn usable(addrs: &[SocketAddr]) -> Vec<SocketAddr> {
         .filter(|a| a.port() != 0)
         .filter(|a| {
             let ip = a.ip();
-            !(ip.is_loopback() || ip.is_unspecified() || ip.is_multicast())
+            !(ip.is_loopback()
+                || ip.is_unspecified()
+                || ip.is_multicast()
+                || ip == IpAddr::V6(MACOS_LOOPBACK_LINK_LOCAL))
         })
         .collect()
 }
@@ -286,7 +293,7 @@ mod tests {
             "pc",
             Some(fp(PEER).to_hex()),
             &[
-                "[fe80::1%2]:47770",
+                "[fe80::5%2]:47770",
                 "[2001:db8::5]:47770",
                 "127.0.0.1:47770",
                 "0.0.0.0:47770",
@@ -302,11 +309,39 @@ mod tests {
                 "192.168.1.20:47770",
                 "169.254.3.3:47770",
                 "[2001:db8::5]:47770",
-                "[fe80::1%2]:47770",
+                "[fe80::5%2]:47770",
             ]
         );
         assert_eq!(r.addrs_of(&fp(PEER)), r.addrs());
         assert!(r.addrs_of(&fp(STRANGER)).is_empty());
+    }
+
+    /// The Mac announces `fe80::1`, the link-local of its loopback (`lo0`), on every interface.
+    /// Taken as the peer on the cable it sorts first, so the PC dialled it over USB4 and never
+    /// got an answer (2026-11-24): the cable only came up when the Mac dialled the PC.
+    #[test]
+    fn the_macos_loopback_link_local_is_not_the_peer() {
+        let mut r = resolver();
+        r.apply(DiscoveryEvent::Resolved(ann(
+            "mac",
+            Some(fp(PEER).to_hex()),
+            &[
+                "192.0.2.10:52000",
+                "169.254.57.63:52000",
+                "[fe80::1%21]:52000",
+                "[fe80::c0c:1e4f:2370:bfc5%21]:52000",
+                "[fe80::1%7]:52000",
+            ],
+        )));
+        let got: Vec<String> = r.addrs().iter().map(ToString::to_string).collect();
+        assert_eq!(
+            got,
+            [
+                "192.0.2.10:52000",
+                "169.254.57.63:52000",
+                "[fe80::c0c:1e4f:2370:bfc5%21]:52000",
+            ]
+        );
     }
 
     proptest! {

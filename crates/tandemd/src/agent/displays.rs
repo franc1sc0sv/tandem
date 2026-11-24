@@ -1,6 +1,7 @@
 //! This machine's display of a monitor that shows the other, off (T-341, [`crate::displays`]):
 //! the loop that follows what each monitor shows, the wake before a switch to this machine's input
-//! ([`DisplayWake`]) and the restore at exit.
+//! ([`DisplayWake`]) and the restore at exit. The built-in display follows its mode (T-353) in the
+//! same turn.
 
 use std::sync::{Arc, PoisonError, Weak};
 use std::time::{Duration, Instant};
@@ -56,8 +57,19 @@ impl Agent {
 
     /// One turn: this machine's displays follow what each monitor shows.
     fn reconcile_displays(&self, guard: &DisplayGuard) {
-        let now = shows(&self.monitors(), &self.desk());
-        guard.reconcile(self.machine(), &now, &self.monitors.keys(), Instant::now());
+        let me = self.machine();
+        let mut now = shows(&self.monitors(), &self.desk());
+        // A monitor that is off is treated like one showing the other machine (T-349): nobody
+        // sees this machine's display of it, so it goes off with the same rules and limits.
+        for (id, link) in self.monitors.links() {
+            if link.state == tandem_core::LinkState::Off {
+                now.insert(id, me.other());
+            }
+        }
+        let t = Instant::now();
+        guard.reconcile(me, &now, &self.monitors.keys(), t);
+        // The built-in display after the external ones: what it does depends on which are on.
+        guard.reconcile_builtin(self.desk().builtin_display.of(me), t);
     }
 }
 

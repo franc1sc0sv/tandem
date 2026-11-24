@@ -39,6 +39,8 @@ export interface LayoutScreen {
   res: string;
   ratio: string;
   scale: string;
+  /** Its monitor is off, in standby or on an unplugged input (T-349): drawn dimmed, with this text. */
+  dim?: string;
   /** Takes part in the arrangement (connected and compatible). */
   usable: boolean;
   /** The line under the name in the panel ("PC-Desktop · scene Work", "Disconnected"). */

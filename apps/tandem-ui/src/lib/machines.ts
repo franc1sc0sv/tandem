@@ -57,6 +57,8 @@ export function stepLabel(s: Step, name: (m: Machine) => string): string {
       return `Power off ${name(s.machine)}`;
     case "switch_monitor":
       return `Monitor ${s.monitor} → ${s.input === "hdmi" ? "HDMI" : "DP"}`;
+    case "monitor_power":
+      return `Monitor ${s.monitor} → ${s.on ? "on" : "standby"}`;
     case "show_machine":
       return `Monitor ${s.monitor} → ${name(s.machine)}`;
     case "arrange":

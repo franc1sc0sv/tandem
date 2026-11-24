@@ -21,8 +21,9 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use monitor_ddc::{
-    Clock, DdcBus, DdcError, Event, EventCursor, EventKind, Incompatibility, Input, Link,
-    LinkConfig, MonitorHandle, Probe, StandardMonitor, VCP_INPUT, VCP_LIVE, Verdict,
+    CapabilityWord, Clock, DdcBus, DdcError, Edid, Event, EventCursor, EventKind, Incompatibility,
+    Input, InputCodes, Link, LinkConfig, MonitorHandle, MonitorInfo, PROFILES, Probe,
+    StandardMonitor, VCP_INPUT, VCP_LIVE, VCP_POWER, Verdict, host_input, profile_for,
 };
 use tandem_core::{DisplayKey, MonitorInput};
 use tandem_proto::{
@@ -39,6 +40,21 @@ pub const NOT_OWNER: &str = "this machine is not the owner of the monitor";
 
 /// The machine's time, in Unix milliseconds.
 pub type WallClock = Arc<dyn Fn() -> u64 + Send + Sync>;
+
+/// The EDID of every external display the system lists, with or without a DDC/CI channel
+/// (T-353): what the DDC bus does not enumerate (a USB-C to HDMI adapter without DDC/CI) is still
+/// announced, without a channel.
+pub type SystemEdids = Arc<dyn Fn() -> Vec<Vec<u8>> + Send + Sync>;
+
+/// The handle of a monitor known only from the system's EDID list: it has no channel, so it is
+/// never opened and never reaches the bus.
+const NO_HANDLE: MonitorHandle = MonitorHandle(u64::MAX);
+
+/// Which input of the monitor this machine's cable goes to: the E-EDID 1.4 interface type or, in
+/// an older EDID (both the 34" and the G5 give 1.3 on HDMI), the model's per-input product id.
+fn via(info: &MonitorInfo, edid: &Edid) -> Option<MonitorInput> {
+    edid_input(edid.raw()).or_else(|| host_input(info).map(crate::to_core))
+}
 
 /// The monitor input through which this EDID arrives, according to the E-EDID 1.4 interface
 /// type (byte 20: digital, bits 0–3: `2`/`3` HDMI, `5` DisplayPort). Each input has its own
@@ -116,8 +132,41 @@ struct Reader {
     events: VecDeque<MonitorEvent>,
 }
 
+/// How a patched monitor of a known model is spoken to: its `0x60` values (the G5 uses MCCS
+/// `0x0F`/`0x11`, the 34" Samsung `0x09`/`0x06`) and the capability bits its firmware announces
+/// but does not deliver (`monitor-ddc` profiles).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Model {
+    codes: InputCodes,
+    ignored_caps: u16,
+}
+
+impl Model {
+    fn of(info: &MonitorInfo) -> Self {
+        match profile_for(info, PROFILES) {
+            Some(p) => Model {
+                codes: InputCodes {
+                    dp: p.dp,
+                    hdmi: p.hdmi,
+                },
+                ignored_caps: p.patched_ignored_caps,
+            },
+            None => Model {
+                codes: InputCodes::SAMSUNG,
+                ignored_caps: 0,
+            },
+        }
+    }
+
+    fn apply(self, m: StandardMonitor) -> StandardMonitor {
+        m.with_input_codes(self.codes)
+            .with_ignored_caps(self.ignored_caps)
+    }
+}
+
 struct Entry {
     handle: MonitorHandle,
+    model: Model,
     key: Option<DisplayKey>,
     channel: MonitorChannel,
     reader: Option<Reader>,
@@ -131,6 +180,7 @@ pub struct LocalMonitors {
     entries: BTreeMap<String, Entry>,
     /// Cursors the previous owners reported, for the next [`LocalMonitors::set_owned`].
     handover: BTreeMap<String, MonitorCursor>,
+    edids: Option<SystemEdids>,
 }
 
 impl std::fmt::Debug for LocalMonitors {
@@ -155,7 +205,15 @@ impl LocalMonitors {
             cfg,
             entries: BTreeMap::new(),
             handover: BTreeMap::new(),
+            edids: None,
         }
+    }
+
+    /// Also announces, without a channel, every display in the system's EDID list that the bus
+    /// does not enumerate (T-353).
+    pub fn with_system_edids(mut self, edids: SystemEdids) -> Self {
+        self.edids = Some(edids);
+        self
     }
 
     fn link(&self, handle: MonitorHandle) -> Link {
@@ -221,7 +279,9 @@ impl LocalMonitors {
             let (latency_ms, reader) = match self.entries.remove(&id) {
                 Some(prev) if prev.channel.compat == compat => {
                     let reader = match prev.reader {
-                        Some(r) if prev.handle != info.handle => self.reconnect(r, &link),
+                        Some(r) if prev.handle != info.handle => {
+                            self.reconnect(r, &link, Model::of(&info))
+                        }
                         same => same,
                     };
                     (prev.channel.latency_ms, reader)
@@ -237,28 +297,73 @@ impl LocalMonitors {
                 id.clone(),
                 Entry {
                     handle: info.handle,
+                    model: Model::of(&info),
                     key: DisplayKey::from_edid(edid.raw()),
                     channel: MonitorChannel {
                         id,
                         name,
                         compat,
                         latency_ms,
-                        via: edid_input(edid.raw()),
+                        via: via(&info, edid),
                     },
                     reader,
                 },
             );
         }
+        self.add_system_edids(&mut next);
         self.entries = next;
         Ok(self.channels())
+    }
+
+    /// The displays of the system's EDID list that the bus did not enumerate: present without a
+    /// channel, like a monitor that does not answer the probe (T-340, T-353).
+    fn add_system_edids(&self, next: &mut BTreeMap<String, Entry>) {
+        let Some(edids) = &self.edids else { return };
+        for raw in edids() {
+            let Ok(edid) = Edid::parse(&raw) else {
+                continue;
+            };
+            let id = edid.monitor_id().to_string();
+            if next.contains_key(&id) {
+                continue;
+            }
+            let name = edid
+                .name()
+                .map_or_else(|| edid.manufacturer().to_owned(), str::to_owned);
+            tracing::debug!(monitor = %id, "seen only in the system's display list: no DDC channel");
+            let info = MonitorInfo {
+                handle: NO_HANDLE,
+                description: name.clone(),
+                edid: Some(edid.clone()),
+            };
+            next.insert(
+                id.clone(),
+                Entry {
+                    handle: NO_HANDLE,
+                    model: Model::of(&info),
+                    key: DisplayKey::from_edid(edid.raw()),
+                    channel: MonitorChannel {
+                        id,
+                        name,
+                        compat: MonitorCompat::NoChannel,
+                        latency_ms: 0,
+                        via: via(&info, &edid),
+                    },
+                    reader: None,
+                },
+            );
+        }
     }
 
     /// The same monitor with another number: it is opened again (another probe, reads only) and
     /// what was read is kept. If it can no longer be opened, it is dropped: the next `set_owned`
     /// retries it with a new cursor.
-    fn reconnect(&self, reader: Reader, link: &Link) -> Option<Reader> {
+    fn reconnect(&self, reader: Reader, link: &Link, model: Model) -> Option<Reader> {
         match link.clone().open_standard() {
-            Ok(monitor) => Some(Reader { monitor, ..reader }),
+            Ok(monitor) => Some(Reader {
+                monitor: model.apply(monitor),
+                ..reader
+            }),
             Err(e) => {
                 tracing::debug!("could not reopen the monitor: {e}");
                 None
@@ -296,7 +401,7 @@ impl LocalMonitors {
             }
             // It is only opened after another probe that confirms it: a monitor that stopped speaking
             // the standard never receives a Set.
-            match self.link(entry.handle).open_standard() {
+            match self.open(entry) {
                 Ok(monitor) => {
                     let reported = handover.remove(&id);
                     tracing::info!(
@@ -311,6 +416,7 @@ impl LocalMonitors {
                             cursor: reported.map(|c| EventCursor {
                                 last: c.last,
                                 clock_10ms: c.clock_10ms,
+                                host_at: None,
                             }),
                             reported,
                             read_at,
@@ -332,10 +438,18 @@ impl LocalMonitors {
                 let reader = entry.reader.as_mut()?;
                 read_events(reader, clock.as_ref(), wall(), kept);
                 let live = reader.monitor.live().ok();
+                // Protocol 3 soft standby: the panel is dark while the firmware keeps running and
+                // answering, so `0xEE` still says powered; `0xE8` says standby.
+                let soft_standby = reader
+                    .monitor
+                    .capability_word()
+                    .ok()
+                    .flatten()
+                    .is_some_and(|w| w.soft_standby());
                 Some(MonitorReport {
                     id: id.clone(),
                     input: live.and_then(|l| l.input()).map(to_core),
-                    power_on: live.map(|l| l.power_on()),
+                    power_on: live.map(|l| l.power_on() && !soft_standby),
                     signal: live.map(|l| l.signal),
                     events: reader.events.iter().cloned().collect(),
                     cursor: reader.reported,
@@ -375,7 +489,7 @@ impl LocalMonitors {
                         return None;
                     }
                 };
-                let Some(on_screen) = live_agrees(live, input, again) else {
+                let Some(on_screen) = live_agrees(live, input, again, entry.model.codes) else {
                     tracing::debug!(
                         monitor = %id,
                         live = ?live,
@@ -408,8 +522,7 @@ impl LocalMonitors {
             return Err(format!("{id}: this machine has no channel to the monitor"));
         }
         let monitor = self
-            .link(entry.handle)
-            .open_standard()
+            .open(entry)
             .map_err(|e| format!("{id}: could not open the monitor: {e}"))?;
         tracing::info!(monitor = %id, input = %input, "input switch without being the owner");
         self.verdict(&monitor, input)
@@ -426,6 +539,40 @@ impl LocalMonitors {
         };
         tracing::info!(monitor = %id, input = %input, "input switch");
         self.verdict(&reader.monitor, input)
+    }
+
+    /// Opens a monitor after another probe (reads only), spoken to as its model needs.
+    fn open(&self, entry: &Entry) -> Result<StandardMonitor, DdcError> {
+        self.link(entry.handle)
+            .open_standard()
+            .map(|m| entry.model.apply(m))
+    }
+
+    /// Puts a monitor of its own in standby (`on = false`, MCCS `0xD6 = 4`) or wakes it (`0xD6 = 1`).
+    /// Waking needs the firmware's power wake (protocol 3 soft standby: the panel goes dark and the
+    /// monitor keeps answering); without it the monitor may drop its link and only a video signal or
+    /// its button wakes it, so a wake is refused instead of sent.
+    pub fn power(&mut self, id: &str, on: bool) -> Result<(), String> {
+        let Some(entry) = self.entries.get(id) else {
+            return Err(format!("this machine does not see monitor {id}"));
+        };
+        let Some(reader) = &entry.reader else {
+            return Err(format!("{id}: {NOT_OWNER}"));
+        };
+        let wake = reader
+            .monitor
+            .caps()
+            .is_some_and(|c| c.has(CapabilityWord::POWER_WAKE));
+        if !wake {
+            return Err(format!(
+                "{id}: this monitor's firmware cannot be woken by command, so it is not put to sleep either"
+            ));
+        }
+        tracing::info!(monitor = %id, on, "monitor power by command");
+        reader
+            .monitor
+            .set_vcp(VCP_POWER, if on { 1 } else { 4 })
+            .map_err(|e| format!("{id}: could not send the power command: {e}"))
     }
 
     /// Set `0x60` and the firmware's verdict, as the text the orchestrator shows.
@@ -459,13 +606,14 @@ pub fn live_agrees(
     live: monitor_ddc::VcpReply,
     input: monitor_ddc::VcpReply,
     again: monitor_ddc::VcpReply,
+    codes: InputCodes,
 ) -> Option<Input> {
     const DDC_ENABLED: u8 = 0x40;
     if live != again || live.ch() & DDC_ENABLED == 0 || input.current > 0xFF {
         return None;
     }
     let on_screen = Input::from_port(live.mh())?;
-    (Input::from_vcp(input.current) == Some(on_screen)).then_some(on_screen)
+    (codes.input(input.current) == Some(on_screen)).then_some(on_screen)
 }
 
 /// Reads what is new in the ring. The first time it only takes the cursor: anything from before this
@@ -520,31 +668,35 @@ fn read_events(reader: &mut Reader, clock: &dyn Clock, wall_ms: u64, kept: usize
         });
     }
     for e in &batch.events {
-        reader.events.push_back(event(e, wall_ms, clock_10ms));
+        reader
+            .events
+            .push_back(event(e, wall_ms, clock_10ms, reader.monitor.input_codes()));
     }
     while reader.events.len() > kept {
         reader.events.pop_front();
     }
 }
 
-fn event(e: &Event, wall_ms: u64, clock_10ms: u32) -> MonitorEvent {
+fn event(e: &Event, wall_ms: u64, clock_10ms: u32, codes: InputCodes) -> MonitorEvent {
     let port = |p: u8| Input::from_port(p).map(to_core);
     let (kind, input) = match e.kind() {
         EventKind::Boot => (MonitorEventKind::Boot, None),
         EventKind::InputPort => (MonitorEventKind::Input, port(e.new)),
         EventKind::DdcSwitchRequest => (
             MonitorEventKind::SwitchRequested,
-            Input::from_vcp(u16::from(e.new)).map(to_core),
+            codes.input(u16::from(e.new)).map(to_core),
         ),
         EventKind::SwitchDone => (MonitorEventKind::SwitchDone, port(e.new)),
         // `old` is the requested input; `new`, the one that stayed.
         EventKind::SwitchFailed => (MonitorEventKind::SwitchFailed, port(e.old)),
-        EventKind::PowerFlags | EventKind::PowersaveFlags | EventKind::DdcPowerRequest => {
-            (MonitorEventKind::Power, None)
-        }
+        EventKind::PowerFlags
+        | EventKind::PowersaveFlags
+        | EventKind::DdcPowerRequest
+        | EventKind::PowerState => (MonitorEventKind::Power, None),
         EventKind::Signal | EventKind::SyncFlags => (MonitorEventKind::Signal, None),
         EventKind::SettingChanged => (MonitorEventKind::Setting, None),
-        EventKind::SourceSelect
+        EventKind::CableMask
+        | EventKind::SourceSelect
         | EventKind::SystemState
         | EventKind::WindowPort
         | EventKind::Unknown(_) => (MonitorEventKind::Other, None),
@@ -662,6 +814,70 @@ mod tests {
         );
         // The probe only reads.
         assert!(sets(&r.bus, r.std).is_empty() && sets(&r.bus, r.factory).is_empty());
+    }
+
+    /// T-353: the G5 behind a USB-C to HDMI adapter: the system lists its EDID but the DDC bus does
+    /// not enumerate it. It is announced without a channel, with the id the PC computes, and it is
+    /// never opened; a monitor the bus already lists is not announced twice.
+    #[test]
+    fn a_display_only_the_system_lists_is_announced_without_a_channel() {
+        let clock = FakeClock::new();
+        let bus = FakeBus::new(clock.clone());
+        bus.add(FakeMonitorConfig::new(Personality::Standard));
+        let lc34 = bus.monitors().unwrap()[0].edid.clone().unwrap();
+        let g5 = test_edid("SAM", 0x748A, "Odyssey G5", "FAKE0000009");
+        let listed = vec![lc34.raw().to_vec(), g5.clone(), vec![0; 10]];
+        let mut local = LocalMonitors::new(
+            Arc::new(bus.clone()),
+            Arc::new(clock.clone()),
+            Arc::new(|| 0),
+            LocalConfig::default(),
+        )
+        .with_system_edids(Arc::new(move || listed.clone()));
+        let chans = local.scan().unwrap();
+        assert_eq!(chans.len(), 2, "{chans:?}");
+        let id = Edid::parse(&g5).unwrap().monitor_id().to_string();
+        let only = chans.iter().find(|c| c.id == id).unwrap();
+        assert_eq!(only.compat, MonitorCompat::NoChannel);
+        assert_eq!(only.name, "Odyssey G5");
+        assert_eq!(
+            only.via,
+            Some(MonitorInput::Hdmi),
+            "from its HDMI product id"
+        );
+        assert!(local.keys().contains_key(&id), "it links to its screen");
+        let all: BTreeSet<String> = chans.iter().map(|c| c.id.clone()).collect();
+        local.set_owned(&all);
+        assert!(!local.reading().contains(&id));
+        assert!(local.switch(&id, MonitorInput::Hdmi).is_err());
+        assert!(local.switch_unowned(&id, MonitorInput::Hdmi).is_err());
+        assert!(local.read_direct(&all).iter().all(|r| r.id != id));
+        // The 34" stays the bus's, with its channel.
+        assert!(chans.iter().any(|c| c.compat.is_compatible()));
+    }
+
+    /// Both monitors give an EDID 1.3 on HDMI, which does not say the interface: the input comes
+    /// from the model's per-input product id (`monitor-ddc`'s `HOST_PORTS`).
+    #[test]
+    fn an_old_edid_gets_its_input_from_the_product_id() {
+        let clock = FakeClock::new();
+        let bus = FakeBus::new(clock.clone());
+        let mut silent = FakeMonitorConfig::new(Personality::Disconnected);
+        silent.edid = test_edid("SAM", 0x7119, "LC34G55T", "FAKE0000004");
+        bus.add(silent);
+        let mut unknown = FakeMonitorConfig::new(Personality::Disconnected);
+        unknown.edid = test_edid("ABC", 0x0001, "Other", "FAKE0000005");
+        bus.add(unknown);
+        let mut local = LocalMonitors::new(
+            Arc::new(bus),
+            Arc::new(clock),
+            Arc::new(|| 0),
+            LocalConfig::default(),
+        );
+        let chans = local.scan().unwrap();
+        let via = |name: &str| chans.iter().find(|c| c.name == name).unwrap().via;
+        assert_eq!(via("LC34G55T"), Some(MonitorInput::Hdmi));
+        assert_eq!(via("Other"), None);
     }
 
     /// T-340: the 34" only answers DDC on the input it shows. The machine on the other input
@@ -981,7 +1197,7 @@ mod tests {
         ) {
             let r = |b: [u8; 4]| monitor_ddc::VcpReply::from_bytes(b[0], b[1], b[2], b[3]);
             let (l, i, a) = (r(live), monitor_ddc::VcpReply { max: 0, current: input }, r(again));
-            if let Some(on_screen) = live_agrees(l, i, a) {
+            if let Some(on_screen) = live_agrees(l, i, a, InputCodes::SAMSUNG) {
                 proptest::prop_assert_eq!(l, a);
                 proptest::prop_assert_eq!(Input::from_port(l.mh()), Some(on_screen));
                 proptest::prop_assert_eq!(Input::from_vcp(input), Some(on_screen));
@@ -1281,5 +1497,74 @@ mod tests {
         let dp = monitor_ddc::Edid::parse(&test_edid("SAM", 0x7155, "LC34G55T", "X1")).unwrap();
         let hdmi = monitor_ddc::Edid::parse(&test_edid("SAM", 0x7156, "LC34G55T", "X1")).unwrap();
         assert_eq!(dp.monitor_id(), hdmi.monitor_id());
+    }
+
+    /// The 32" G5 with its production image (protocol 3, MCCS input values) and the 34" with v3.2:
+    /// both are compatible, switch with their own `0x60` values and go to standby and back by command.
+    #[test]
+    fn protocol_3_monitors_switch_and_sleep_with_their_own_values() {
+        let clock = FakeClock::new();
+        let bus = FakeBus::new(clock.clone());
+        let g5 = bus.add(FakeMonitorConfig::g5_p3());
+        let mut lc34 = FakeMonitorConfig::lc34_v32();
+        lc34.edid = test_edid("SAM", 0x711A, "LC34G55T", "FAKE0000001");
+        let lc34 = bus.add(lc34);
+        let wall_clock = clock.clone();
+        let mut local = LocalMonitors::new(
+            Arc::new(bus.clone()),
+            Arc::new(clock.clone()),
+            Arc::new(move || 1_700_000_000_000 + wall_clock.now().as_millis() as u64),
+            LocalConfig::default(),
+        );
+        let channels = local.scan().unwrap();
+        assert_eq!(channels.len(), 2);
+        assert!(
+            channels
+                .iter()
+                .all(|c| c.compat == MonitorCompat::Compatible { protocol: 3 })
+        );
+        let ids: BTreeSet<String> = channels.iter().map(|c| c.id.clone()).collect();
+        local.set_owned(&ids);
+        local.poll();
+        for c in &channels {
+            let id = &c.id;
+            let id_handle = if c.name.contains("Odyssey") { g5 } else { lc34 };
+            local.switch(id, MonitorInput::Hdmi).unwrap();
+            assert_eq!(bus.screen_input(id_handle), Some(Input::Hdmi), "{id}");
+            local.switch(id, MonitorInput::DisplayPort).unwrap();
+            assert_eq!(
+                bus.screen_input(id_handle),
+                Some(Input::DisplayPort),
+                "{id}"
+            );
+
+            local.power(id, false).unwrap();
+            assert!(bus.is_soft_standby(id_handle), "{id}");
+            let report = local.poll().into_iter().find(|r| &r.id == id).unwrap();
+            assert_eq!(report.power_on, Some(false), "{id}");
+            local.power(id, true).unwrap();
+            let report = local.poll().into_iter().find(|r| &r.id == id).unwrap();
+            assert_eq!(report.power_on, Some(true), "{id}");
+        }
+    }
+
+    /// A G5 direct reading (T-346) agrees with its MCCS `0x60` values, not with the 34"'s.
+    #[test]
+    fn direct_reading_uses_the_models_input_values() {
+        let codes = InputCodes {
+            dp: 0x0F,
+            hdmi: 0x11,
+        };
+        // 0xEE: MH = port 1 (HDMI), ML = 0, CH = power + DDC enabled, CL = signal.
+        let ee = monitor_ddc::VcpReply {
+            max: 0x0100,
+            current: 0x4101,
+        };
+        let g5_hdmi = monitor_ddc::VcpReply {
+            max: 0x0011,
+            current: 0x0011,
+        };
+        assert_eq!(live_agrees(ee, g5_hdmi, ee, codes), Some(Input::Hdmi));
+        assert_eq!(live_agrees(ee, g5_hdmi, ee, InputCodes::SAMSUNG), None);
     }
 }

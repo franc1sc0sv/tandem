@@ -18,8 +18,13 @@ pub enum WiredChange {
 ///
 /// Each cable type uses one interface, the lowest-index one that is up and for which
 /// `resolve` knows where the other agent is. Wi-Fi does not go through here: it is the LAN, which
-/// its own mDNS discovers. If the address or the interface of a type changes, a removal
-/// and an addition come out.
+/// its own mDNS discovers.
+///
+/// A link is only removed when its interface is gone or down, or another interface takes its
+/// type. While its interface stays, a `resolve` that loses the other agent for a moment (mDNS
+/// answers that come and go) changes nothing, and a new address comes out as an addition alone:
+/// the manager keeps a healthy link's connection and only dials the new address once that one
+/// drops.
 pub fn wired_changes(
     current: &mut BTreeMap<LinkKind, (u32, SocketAddr)>,
     interfaces: &[NetInterface],
@@ -36,13 +41,16 @@ pub fn wired_changes(
         if wanted.contains_key(&kind) {
             continue;
         }
+        let kept = current.get(&kind).filter(|(index, _)| *index == i.index);
         if let Some(addr) = resolve(i) {
             wanted.insert(kind, (i.index, addr));
+        } else if let Some(have) = kept {
+            wanted.insert(kind, *have);
         }
     }
     let mut changes = Vec::new();
-    for (kind, have) in current.iter() {
-        if wanted.get(kind) != Some(have) {
+    for (kind, (index, _)) in current.iter() {
+        if wanted.get(kind).is_none_or(|(i, _)| i != index) {
             changes.push(WiredChange::Remove(*kind));
         }
     }

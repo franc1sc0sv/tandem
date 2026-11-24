@@ -10,6 +10,7 @@
 pub mod displays;
 pub mod event;
 pub mod geometry;
+pub mod hotplug;
 pub mod macos;
 pub mod session;
 pub mod windows;

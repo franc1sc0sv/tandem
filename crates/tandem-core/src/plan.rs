@@ -55,6 +55,9 @@ pub enum Step {
     /// orchestrator asks for it right before a [`Step::SwitchMonitor`] to that machine's input,
     /// so the monitor does not land on a dark input.
     DisplayOn { monitor: String, machine: Machine },
+    /// Put monitor `monitor` in standby (`on = false`) or wake it, by command over DDC. Done
+    /// by the monitor's owner; only monitors whose firmware can be woken by command accept it.
+    MonitorPower { monitor: String, on: bool },
 }
 
 impl Step {
@@ -67,7 +70,7 @@ impl Step {
             Step::SwitchMonitor { .. } => {}
             // The active scene is recorded when the transaction ends, not step by step.
             Step::ShowMachine { .. } | Step::Arrange { .. } | Step::Geometry => {}
-            Step::DisplayOn { .. } => {}
+            Step::DisplayOn { .. } | Step::MonitorPower { .. } => {}
         }
     }
 
@@ -117,6 +120,16 @@ impl Plan {
             steps: vec![Step::SwitchMonitor {
                 monitor: monitor.into(),
                 input,
+            }],
+        }
+    }
+
+    /// Put `monitor` in standby (`on = false`) or wake it, by command.
+    pub fn monitor_power(monitor: impl Into<String>, on: bool) -> Plan {
+        Plan {
+            steps: vec![Step::MonitorPower {
+                monitor: monitor.into(),
+                on,
             }],
         }
     }

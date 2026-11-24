@@ -94,7 +94,7 @@ async fn desk_until(d: &Desk, m: Machine, what: &str, pred: impl Fn(&tandem_core
 fn geometry(d: &Desk, on: Machine) -> (Vec<String>, Vec<String>) {
     let agent = d.agent(on);
     let desk = agent.desk();
-    let shows = tandemd::monitors::shows(&agent.monitors(), &desk);
+    let shows = agent.monitor_hub().links();
     let (mine, theirs) = (read_screens(on), read_screens(on.other()));
     let arr = screens::arrangement(&desk, &agent.state(), on, &mine, &theirs, &shows);
     (

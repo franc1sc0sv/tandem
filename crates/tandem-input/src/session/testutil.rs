@@ -41,6 +41,18 @@ pub fn layout_pc_mac_small() -> Layout {
     )
 }
 
+/// Like [`layout_pc_mac`], with a second PC screen (1920×1080) left of the 34".
+pub fn layout_pc_two_mac() -> Layout {
+    layout(
+        vec![mon("m32", 3440, 1920, 1080, 1.0)],
+        vec![
+            mon("m24", -1920, 1920, 1080, 1.0),
+            mon("m34", 0, 3440, 1440, 1.0),
+        ],
+        Side::Right,
+    )
+}
+
 /// The same, but the Mac has no screens: there is nowhere to cross to.
 pub fn layout_pc_only() -> Layout {
     layout(vec![], vec![mon("m34", 0, 3440, 1440, 1.0)], Side::Right)

@@ -8,8 +8,8 @@
 
 use serde::{Deserialize, Serialize};
 use tandem_core::{
-    Config, DeskPatch, DeskVersion, HistoryEntry, Machine, MachineInfo, MonitorInput, Side, State,
-    Step,
+    CableState, Config, DeskPatch, DeskVersion, HistoryEntry, Machine, MachineInfo, MonitorInput,
+    MonitorLink, Side, State, Step,
 };
 
 use crate::cursor::CursorSample;
@@ -17,8 +17,8 @@ use crate::env::{Environment, Hardware, Resources};
 use crate::files::{Direction, FilesReport, ForwardInfo, TransferProgress};
 use crate::net::NetworkStatus;
 use crate::tunnel::{
-    ClientKind, ExecSpec, OutputCursor, ProcessId, ProcessOutput, Project, ProjectTunnels, Tunnel,
-    TunnelId, TunnelProcess,
+    ClientKind, ExecSpec, OutputCursor, ProcessId, ProcessOutput, Project, ProjectTunnels, PtySize,
+    Tunnel, TunnelId, TunnelProcess,
 };
 use crate::workspace::{BringBackReport, WorkspaceSpec};
 use crate::{PROTOCOL_VERSION, ProtoError, wire};
@@ -286,6 +286,16 @@ pub struct Capabilities {
     /// The macOS Local Network permission of the agent's process (T-344); `None` on a system
     /// without it.
     pub local_network: Option<LocalNetwork>,
+    /// This machine's end of each shared monitor's cable (T-349): every monitor it lists or the
+    /// desk's `[[cables]]` names, after its first scan. Empty until then.
+    pub cables: Vec<CableReport>,
+}
+
+/// One machine's end of a monitor cable, as that machine reports it (T-349).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CableReport {
+    pub monitor: String,
+    pub state: CableState,
 }
 
 /// Whether macOS lets the agent reach the local network (T-344). There is no API that reads it
@@ -486,6 +496,8 @@ pub struct MonitorView {
     pub owner: Option<Machine>,
     /// The latest the owner read; `None` while there is no reading.
     pub report: Option<MonitorReport>,
+    /// The derived link (T-349): which machine it shows, each end's cable and its power.
+    pub link: MonitorLink,
 }
 
 /// A machine's keyboard and mouse engine.
@@ -715,6 +727,12 @@ pub enum UiCommand {
         monitor: String,
         input: MonitorInput,
     },
+    /// Put a monitor in standby (`on = false`) or wake it, done by its owner (answered with
+    /// [`Reply::Accepted`]).
+    MonitorPower {
+        monitor: String,
+        on: bool,
+    },
     /// Rescan the environments of `machine`; what is found arrives in
     /// [`AgentToUi::Machines`] (T-105).
     Rescan {
@@ -840,6 +858,27 @@ pub enum UiCommand {
         process: ProcessId,
         from: OutputCursor,
         max: u32,
+        /// With nothing new from `from`, wait up to this long for output or the end of the
+        /// process before answering (0: answer right away).
+        wait_ms: u32,
+    },
+    /// Input for a terminal process ([`ExecSpec::pty`]): delivered in order and exactly once,
+    /// also across link drops. Only from a [`Peer::Client`]. Answers [`Reply::Done`] once queued.
+    Input {
+        tunnel: TunnelId,
+        process: ProcessId,
+        bytes: Vec<u8>,
+    },
+    /// New size for a terminal process. Only from a [`Peer::Client`].
+    Resize {
+        tunnel: TunnelId,
+        process: ProcessId,
+        size: PtySize,
+    },
+    /// Push this process's output to this connection as it arrives ([`AgentToUi::Output`]),
+    /// from `from`; `None` stops. One per connection: a new one replaces the previous.
+    WatchOutput {
+        watch: Option<OutputWatch>,
     },
     /// The processes of a tunnel, including the ones that finished recently
     /// ([`Reply::Processes`]).
@@ -940,6 +979,17 @@ pub enum AgentToUi {
     /// macOS LaunchServices takes the agent for the app's instance and the agent passes the
     /// request on. Only to UI connections; the UI brings its main window to the front.
     ShowWindow,
+    /// New output of the process the connection watches ([`UiCommand::WatchOutput`]): what follows
+    /// `from` exactly, so the window only appends.
+    Output(Box<ProcessOutput>),
+}
+
+/// What [`UiCommand::WatchOutput`] follows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OutputWatch {
+    pub tunnel: TunnelId,
+    pub process: ProcessId,
+    pub from: OutputCursor,
 }
 
 /// Pairing as seen from the UI.
@@ -1271,6 +1321,10 @@ pub(crate) mod samples {
                 monitor: "lc34g55t-0a1b2c3d".into(),
                 machine: Machine::B,
             },
+            Step::MonitorPower {
+                monitor: "lc34g55t-0a1b2c3d".into(),
+                on: false,
+            },
         ]
     }
 
@@ -1283,6 +1337,7 @@ pub(crate) mod samples {
             Step::Arrange { .. } => 4,
             Step::Geometry => 5,
             Step::DisplayOn { .. } => 6,
+            Step::MonitorPower { .. } => 7,
         }
     }
 
@@ -1324,6 +1379,14 @@ pub(crate) mod samples {
                 ],
                 owner: Some(Machine::B),
                 report: Some(monitor_report()),
+                link: MonitorLink {
+                    state: tandem_core::LinkState::ShowsMachine(Machine::B),
+                    power: tandem_core::PowerState::On,
+                    cables: tandem_core::Cables {
+                        a: CableState::Unknown,
+                        b: CableState::Connected,
+                    },
+                },
             },
             MonitorView {
                 id: "odyssey-0f0f0f0f".into(),
@@ -1335,6 +1398,7 @@ pub(crate) mod samples {
                 via: vec![],
                 owner: None,
                 report: None,
+                link: MonitorLink::default(),
             },
         ]
     }
@@ -1574,6 +1638,10 @@ pub(crate) mod samples {
                     },
                 ],
                 local_network: None,
+                cables: vec![CableReport {
+                    monitor: "lc34g55t-0a1b2c3d".into(),
+                    state: CableState::Disconnected,
+                }],
             },
             Capabilities {
                 machine: Machine::A,
@@ -1609,6 +1677,7 @@ pub(crate) mod samples {
                 hardware: Hardware::default(),
                 monitors: vec![],
                 local_network: Some(LocalNetwork::Denied),
+                cables: vec![],
             },
         ]
     }
@@ -1794,6 +1863,10 @@ pub(crate) mod samples {
                 monitor: "lc34g55t-0a1b2c3d".into(),
                 input: MonitorInput::DisplayPort,
             },
+            UiCommand::MonitorPower {
+                monitor: "lc34g55t-0a1b2c3d".into(),
+                on: true,
+            },
             UiCommand::Rescan {
                 machine: Machine::A,
             },
@@ -1876,6 +1949,7 @@ pub(crate) mod samples {
                     cwd: Some("/src/tandem".into()),
                     env: vec![("RUST_LOG".into(), "info".into())],
                     allow_secret_env: true,
+                    pty: None,
                 },
             },
             UiCommand::Kill {
@@ -1890,6 +1964,27 @@ pub(crate) mod samples {
                     stderr: u64::MAX,
                 },
                 max: 65536,
+                wait_ms: 5000,
+            },
+            UiCommand::Input {
+                tunnel: crate::TunnelId(1),
+                process: ProcessId(2),
+                bytes: b"ls -la\r".to_vec(),
+            },
+            UiCommand::Resize {
+                tunnel: crate::TunnelId(1),
+                process: ProcessId(2),
+                size: crate::PtySize {
+                    cols: 100,
+                    rows: 40,
+                },
+            },
+            UiCommand::WatchOutput {
+                watch: Some(OutputWatch {
+                    tunnel: crate::TunnelId(1),
+                    process: ProcessId(2),
+                    from: OutputCursor::default(),
+                }),
             },
             UiCommand::GetProcesses {
                 tunnel: crate::TunnelId(1),
@@ -1964,6 +2059,10 @@ pub(crate) mod samples {
             UiCommand::SetWol { .. } => 44,
             UiCommand::SyntheticMotion { .. } => 45,
             UiCommand::CheckLocalNetwork => 46,
+            UiCommand::MonitorPower { .. } => 47,
+            UiCommand::Input { .. } => 48,
+            UiCommand::Resize { .. } => 49,
+            UiCommand::WatchOutput { .. } => 50,
         }
     }
 
@@ -2107,6 +2206,17 @@ pub(crate) mod samples {
             AgentToUi::Drag(DragStatus::Cancelled),
             AgentToUi::Drag(DragStatus::Failed("no space".into())),
             AgentToUi::ShowWindow,
+            AgentToUi::Output(Box::new(ProcessOutput {
+                process: process_sample(),
+                stdout: b"\x1b[32mok\x1b[0m\r\n".to_vec(),
+                stderr: Vec::new(),
+                from: OutputCursor::default(),
+                next: OutputCursor {
+                    stdout: 13,
+                    stderr: 0,
+                },
+                done: false,
+            })),
         ]);
         v.push(AgentToUi::Reply {
             id: 7,
@@ -2362,6 +2472,7 @@ pub(crate) mod samples {
             AgentToUi::Transfer(_) => 18,
             AgentToUi::Drag(_) => 19,
             AgentToUi::ShowWindow => 20,
+            AgentToUi::Output(_) => 21,
         }
     }
 
@@ -2415,6 +2526,7 @@ pub(crate) mod samples {
             started: 1_763_400_000_000,
             duration: None,
             state: crate::ProcessState::Running,
+            pty: false,
         }
     }
 
@@ -2465,13 +2577,13 @@ mod tests {
 
     #[test]
     fn samples_cover_every_variant() {
-        covers(&steps(), step_arm, 7);
+        covers(&steps(), step_arm, 8);
         covers(&hellos(), |h| peer_arm(&h.peer), 4);
         covers(&control(), control_arm, 25);
         let cmds: Vec<_> = ui_requests().into_iter().map(|r| r.command).collect();
-        covers(&cmds, ui_command_arm, 47);
+        covers(&cmds, ui_command_arm, 51);
         covers(&modules(), |m| module_state_arm(&m.state), 3);
-        covers(&to_ui(), to_ui_arm, 21);
+        covers(&to_ui(), to_ui_arm, 22);
         covers(&monitor_event_kinds(), monitor_event_kind_arm, 10);
         let kinds: Vec<_> = capabilities()
             .iter()

@@ -511,9 +511,37 @@ impl Qos {
         }
     }
 
+    /// Like [`Self::acquire`] but only the cap holds it back, not the pause: for what a person is
+    /// watching live (a terminal's output), which is small next to bulk data and goes at data
+    /// priority anyway, so input is still sent first.
+    pub async fn acquire_capped(&self, want: usize) -> usize {
+        if want == 0 {
+            return 0;
+        }
+        loop {
+            let taken = {
+                let mut s = self.lock();
+                match s.limiter.as_mut() {
+                    Some(l) => l.take(Instant::now(), want),
+                    None => Ok(want),
+                }
+            };
+            match taken {
+                Ok(n) => return n,
+                Err(wait) => time::sleep(wait.min(RECHECK)).await,
+            }
+        }
+    }
+
     /// Wraps `writer` so that everything written respects the pause and the cap.
     pub fn data_stream<W>(&self, writer: W) -> DataStream<W> {
         DataStream::new(self.clone(), writer)
+    }
+
+    /// Wraps `writer` so that everything written respects the cap but not the pause
+    /// ([`Self::acquire_capped`]).
+    pub fn live_stream<W>(&self, writer: W) -> DataStream<W> {
+        DataStream::live(self.clone(), writer)
     }
 }
 

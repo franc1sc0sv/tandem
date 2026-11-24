@@ -222,9 +222,27 @@ pub fn link_screens(
         .collect()
 }
 
+/// Whether `screen` is an id the input engine reads (`screen-N`), not a name a person gave.
+pub fn is_engine_screen(screen: &str) -> bool {
+    screen
+        .strip_prefix("screen-")
+        .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+}
+
+/// Whether `machine`'s end of `cable` should take `learned` (the screen the EDID identity says
+/// the monitor is on now): it names none, or it names another engine screen. The engine numbers
+/// screens in the order the system lists them, so turning the Mac's built-in display off or
+/// mirroring it renumbers the others: an engine id learned before then names the wrong screen,
+/// which leaves a phantom screen in the geometry. A name a person gave is never replaced.
+pub fn screen_outdated(cable: &MonitorCable, machine: Machine, learned: &str) -> bool {
+    match cable.end(machine).screen.as_deref() {
+        None => true,
+        Some(s) => s != learned && is_engine_screen(s),
+    }
+}
+
 /// Writes into `machine`'s end of each cable the screen it learned (`links`: monitor →
-/// screen). An end that already names a screen is never touched: the user may have declared it
-/// by hand. `true` if something changed.
+/// screen), when [`screen_outdated`]. `true` if something changed.
 pub fn learn_screens(
     cables: &mut [MonitorCable],
     machine: Machine,
@@ -235,9 +253,8 @@ pub fn learn_screens(
         let Some(screen) = links.get(&cable.monitor) else {
             continue;
         };
-        let end = cable.end_mut(machine);
-        if end.screen.is_none() {
-            end.screen = Some(screen.clone());
+        if screen_outdated(cable, machine, screen) {
+            cable.end_mut(machine).screen = Some(screen.clone());
             changed = true;
         }
     }
@@ -417,6 +434,19 @@ mod tests {
         assert!(
             !learn_screens(&mut cables, Machine::B, &links),
             "already learned"
+        );
+        // The Mac turned its built-in display off: the monitor that was screen-2 is now screen-1.
+        let moved = BTreeMap::from([("lc34".to_owned(), "screen-1".to_owned())]);
+        let mut renumbered = cables.clone();
+        assert!(learn_screens(&mut renumbered, Machine::B, &moved));
+        assert_eq!(renumbered[0].b.screen.as_deref(), Some("screen-1"));
+        let by_hand = BTreeMap::from([("m27".to_owned(), "screen-1".to_owned())]);
+        assert!(!learn_screens(&mut renumbered, Machine::B, &by_hand));
+        assert_eq!(renumbered[1].b.screen.as_deref(), Some("by-hand"));
+        assert!(
+            is_engine_screen("screen-12")
+                && !is_engine_screen("screen-")
+                && !is_engine_screen("34")
         );
         let old = vec![MonitorCable::new("lc34"), cables[1].clone()];
         assert_eq!(without_learned_screens(&old, &cables), old);

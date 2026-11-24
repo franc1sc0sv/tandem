@@ -511,7 +511,12 @@ async fn geometry(sh: Arc<Shared>) {
     loop {
         let st = state.borrow_and_update().clone();
         let d = desk.borrow_and_update().clone();
-        let shows = crate::monitors::shows(&monitors.borrow_and_update(), &d);
+        // What each monitor shows, and whether it is on and plugged in (T-349).
+        let links: screens::Links = monitors
+            .borrow_and_update()
+            .iter()
+            .map(|v| (v.id.clone(), v.link))
+            .collect();
         let local = mine.borrow_and_update().clone();
         let remote: Vec<Screen> = theirs
             .borrow_and_update()
@@ -520,7 +525,7 @@ async fn geometry(sh: Arc<Shared>) {
             .iter()
             .map(screens::from_wire)
             .collect();
-        match screens::layout(&d, &st, sh.me, (&local, &remote), &shows, sh.opts.layout) {
+        match screens::layout(&d, &st, sh.me, (&local, &remote), &links, sh.opts.layout) {
             Ok(l) => {
                 set(&sh.visible, l.screens(sh.me).to_vec());
                 set(&sh.layout, l);

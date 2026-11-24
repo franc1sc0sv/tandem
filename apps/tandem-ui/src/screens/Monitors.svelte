@@ -3,7 +3,8 @@
   // controls it, the incompatible ones (D11) with their reason, and the scenes as cards.
   import { useStore } from "../lib/context";
   import { wallOf } from "../lib/arrangement";
-  import { INPUT_LABEL, KEEP_WALL, accentOf, formatClock, shortMonitor, whyNotSwitch } from "../lib/monitors";
+  import { DIM_WALL } from "../lib/desk";
+  import { INPUT_LABEL, KEEP_WALL, accentOf, formatClock, isDim, linkText, shortMonitor, whyNotSwitch } from "../lib/monitors";
   import { formatHash } from "../lib/routes";
   import type { Machine } from "../lib/model";
   import type { MonitorEventView, MonitorUi } from "../lib/store/types";
@@ -105,9 +106,10 @@
   {#if desk.monitors.length > 0}
     <div class="grid">
       {#each compatible as m, i (m.id)}
+        {@const state = linkText(m.link, nameOf)}
         <Card tag="article" delay={i * 0.08} class="mon" style="--card-pad:18px" label={m.name}>
           <div class="head">
-            <Thumb width={132} height={58} wall={wall(m.shows)} flashKey={m.shows ?? ""} />
+            <Thumb width={132} height={58} wall={isDim(m.link) ? DIM_WALL : wall(m.shows)} dim={isDim(m.link)} flashKey={m.shows ?? ""} label={state ?? undefined} />
             <div class="who">
               <b>{m.name}</b>
               <span class="chips">
@@ -120,8 +122,28 @@
                 {#if !m.connected}
                   <Chip dot={false} class="mut" style="padding:4px 10px 4px 8px"><Icon name="unplugged" size={13} stroke={2} />Disconnected</Chip>
                 {/if}
+                {#if isDim(m.link) && state}
+                  <Chip dot={false} class="link-state" style="padding:4px 10px 4px 8px"
+                    ><Icon name={m.link?.kind === "unplugged" ? "unplugged" : "power"} size={13} stroke={2} color={m.link?.kind === "unplugged" ? colorOf(m.link.machine) : "#d9a75a"} />{state}</Chip
+                  >
+                {/if}
               </span>
             </div>
+            {#if m.owner && m.link?.kind !== "off" && m.link?.kind !== "unplugged"}
+              {@const asleep = m.link?.kind === "standby"}
+              <Button
+                icon="power"
+                variant="ghost"
+                size="sm"
+                iconSize={16}
+                iconStroke={1.8}
+                iconOnly
+                class="power"
+                label={asleep ? `Wake the ${spoken(m.name)}` : `Put the ${spoken(m.name)} in standby`}
+                pressed={asleep}
+                onclick={() => store.monitorPower(m.id, asleep)}
+              />
+            {/if}
           </div>
           <Segmented size="lg" label="Which machine shows the {spoken(m.name)}" options={options(m)} value={selected(m)} onchange={(v) => pick(m, v)} />
           {#if m.events.length > 0}
@@ -220,6 +242,13 @@
     display: flex;
     align-items: center;
     gap: 14px;
+    position: relative;
+  }
+  /* Standby / wake: over the header's top-right corner, so the card keeps the mockup's layout. */
+  .head :global(.power) {
+    position: absolute;
+    top: -6px;
+    right: -6px;
   }
   .who {
     display: flex;

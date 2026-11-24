@@ -17,8 +17,8 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError, TryLockError, Weak};
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
-use tandem_core::{DisplayKey, Machine};
-use tandem_input::displays::{DisplayControl, DisplayPower};
+use tandem_core::{BuiltinMode, DisplayKey, Machine};
+use tandem_input::displays::{BuiltinState, DisplayControl, DisplayPower, SystemDisplay};
 
 /// How long a monitor's input can be unknown (the other agent left, the owner changes) before its
 /// display is turned back on: shorter would turn it on and off during a normal owner handover.
@@ -28,6 +28,51 @@ pub const UNKNOWN_GRACE: Duration = Duration::from_secs(15);
 /// yet: the switch's maximum time with room. If the switch failed, it goes off again after this.
 pub const WAKE_HOLD: Duration = Duration::from_secs(30);
 
+/// The first wait before trying again to turn a display back on after a failure; it doubles up to
+/// [`RETRY_MAX`]. macOS refuses (`CGCompleteDisplayConfiguration` 1001) while the display is not
+/// there to take the change, for example while the monitor's input is on the other machine or the
+/// id it had is gone, so retrying every turn only fills the log.
+pub const RETRY_FIRST: Duration = Duration::from_secs(1);
+pub const RETRY_MAX: Duration = Duration::from_secs(60);
+
+/// When the next try of a display that failed to come back is due, and how many failed.
+#[derive(Debug, Clone, Copy)]
+struct Retry {
+    at: Instant,
+    wait: Duration,
+    failures: u32,
+}
+
+impl Retry {
+    fn first(now: Instant) -> Self {
+        Retry {
+            at: now + RETRY_FIRST,
+            wait: RETRY_FIRST,
+            failures: 1,
+        }
+    }
+
+    fn next(self, now: Instant) -> Self {
+        let wait = (self.wait * 2).min(RETRY_MAX);
+        Retry {
+            at: now + wait,
+            wait,
+            failures: self.failures + 1,
+        }
+    }
+}
+
+/// What the built-in display was before this machine changed it for its mode (T-353), to put it
+/// back at exit and after a crash.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+struct SavedBuiltin {
+    id: u32,
+    /// It was on (a screen of its own or a mirror).
+    on: bool,
+    /// The display it mirrored.
+    mirror_of: Option<u32>,
+}
+
 /// A display this machine turned off: the monitor it is, its system id and its EDID identity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 struct OffDisplay {
@@ -35,6 +80,16 @@ struct OffDisplay {
     vendor: u16,
     product: u16,
     serial: u32,
+}
+
+impl OffDisplay {
+    fn key(self) -> DisplayKey {
+        DisplayKey {
+            vendor: self.vendor,
+            product: self.product,
+            serial: self.serial,
+        }
+    }
 }
 
 #[derive(Debug, Default)]
@@ -47,6 +102,13 @@ struct Inner {
     unknown_since: BTreeMap<String, Instant>,
     /// Why each monitor that shows the other was left on, so it is logged once.
     skipped: BTreeMap<String, String>,
+    /// Displays that failed to come back: when to try again (T-353).
+    retry: BTreeMap<String, Retry>,
+    /// The built-in display as it was before its mode changed it (T-353).
+    builtin: Option<SavedBuiltin>,
+    /// The last state the built-in display was set to, and the next try after a failure.
+    builtin_set: Option<BuiltinState>,
+    builtin_retry: Option<Retry>,
     /// The agent is exiting: nothing goes off any more.
     stopped: bool,
 }
@@ -84,6 +146,11 @@ impl DisplayGuard {
 
     /// Start-up: what a previous run left off (it crashed or was killed) is turned back on.
     pub fn restore_saved(&self) {
+        if let Some(b) = self.builtin_file().as_deref().and_then(load_builtin) {
+            tracing::info!("putting the built-in display back as a previous run found it");
+            lock(&self.inner).builtin = Some(b);
+            self.restore_builtin();
+        }
         let saved = self.file.as_deref().map(load).unwrap_or_default();
         if saved.is_empty() {
             return;
@@ -102,16 +169,40 @@ impl DisplayGuard {
         let mut inner = lock(&self.inner);
         let off = std::mem::take(&mut inner.off);
         for (monitor, d) in off {
-            if let Err(e) = self.power.set_enabled(d.id, true)
-                && !self.already_on(d)
-            {
+            if let Err(e) = self.enable(d) {
                 tracing::warn!("could not turn the display of {monitor} back on: {e}");
                 inner.off.insert(monitor, d);
             }
         }
         inner.holds.clear();
         inner.unknown_since.clear();
+        inner.retry.clear();
         self.save(&inner);
+        drop(inner);
+        self.restore_builtin();
+    }
+
+    /// Turns `d` back on: by the id it had or, if macOS refuses it, by the id the system now gives
+    /// a display with its EDID identity. `Ok` also when it is already on.
+    fn enable(&self, d: OffDisplay) -> Result<(), String> {
+        let first = match self.power.set_enabled(d.id, true) {
+            Ok(()) => return Ok(()),
+            Err(e) => e.to_string(),
+        };
+        if self.already_on(d) {
+            return Ok(());
+        }
+        let key = d.key();
+        let online = self.power.online().unwrap_or_default();
+        match online.iter().find(|s| s.key == Some(key)) {
+            Some(s) if s.id != d.id => self
+                .power
+                .set_enabled(s.id, true)
+                .map_err(|e| format!("{first}; with its new id {}: {e}", s.id)),
+            Some(_) => Err(first),
+            None if online.is_empty() => Err(first),
+            None => Err(format!("{first} (the system does not list it now)")),
+        }
     }
 
     /// From the panic hook: the panic may have happened with the lock held on this very thread,
@@ -130,6 +221,11 @@ impl DisplayGuard {
             Err(TryLockError::WouldBlock) => {
                 for d in self.file.as_deref().map(load).unwrap_or_default().values() {
                     let _ = self.power.set_enabled(d.id, true);
+                }
+                if let Some(b) = self.builtin_file().as_deref().and_then(load_builtin)
+                    && b.on
+                {
+                    let _ = self.power.set_builtin(b.id, BuiltinState::Own);
                 }
             }
         }
@@ -220,21 +316,44 @@ impl DisplayGuard {
                 }
             };
             if !back {
+                inner.retry.remove(&monitor);
                 continue;
             }
-            match self.power.set_enabled(d.id, true) {
+            let retry = inner.retry.get(&monitor).copied();
+            if retry.is_some_and(|r| now < r.at) {
+                continue;
+            }
+            match self.enable(d) {
                 Ok(()) => {
-                    tracing::info!(monitor, "display back on");
+                    match retry {
+                        Some(r) => tracing::info!(
+                            monitor,
+                            failures = r.failures,
+                            "display back on after failing"
+                        ),
+                        None => tracing::info!(monitor, "display back on"),
+                    }
                     inner.off.remove(&monitor);
                     inner.unknown_since.remove(&monitor);
+                    inner.retry.remove(&monitor);
                     changed = true;
                 }
-                Err(_) if self.already_on(d) => {
-                    inner.off.remove(&monitor);
-                    inner.unknown_since.remove(&monitor);
-                    changed = true;
+                Err(e) => {
+                    // Reported once; then tried again less and less often, without a word.
+                    let next = match retry {
+                        None => {
+                            tracing::warn!(
+                                "could not turn the display of {monitor} back on, trying again: {e}"
+                            );
+                            Retry::first(now)
+                        }
+                        Some(r) => {
+                            tracing::debug!(monitor, failures = r.failures + 1, "still off: {e}");
+                            r.next(now)
+                        }
+                    };
+                    inner.retry.insert(monitor, next);
                 }
-                Err(e) => tracing::warn!("could not turn the display of {monitor} back on: {e}"),
             }
         }
         if changed {
@@ -245,11 +364,7 @@ impl DisplayGuard {
     /// The system lists a screen with the identity of `d` again: it is on (the id it had may
     /// not exist after a restart of the session).
     fn already_on(&self, d: OffDisplay) -> bool {
-        let key = DisplayKey {
-            vendor: d.vendor,
-            product: d.product,
-            serial: d.serial,
-        };
+        let key = d.key();
         self.power
             .active()
             .is_ok_and(|a| a.iter().any(|s| s.key == Some(key)))
@@ -293,6 +408,133 @@ impl DisplayGuard {
         Ok(())
     }
 
+    /// The built-in display follows `mode` (T-353): off, mirroring the main external display or
+    /// on its own while an external display is active; on and on its own when none is. In
+    /// `Extended` mode only what this machine changed is undone: macOS's own settings stay.
+    /// With the lid closed it is never touched.
+    pub fn reconcile_builtin(&self, mode: BuiltinMode, now: Instant) {
+        let mut inner = lock(&self.inner);
+        if inner.stopped
+            || self.power.control() != DisplayControl::Available
+            || self.power.lid_closed()
+        {
+            return;
+        }
+        let Ok(online) = self.power.online() else {
+            return;
+        };
+        let Some(builtin) = online.iter().find(|d| d.builtin).copied() else {
+            return;
+        };
+        let Some(want) = builtin_target(mode, &builtin, &online, inner.builtin) else {
+            inner.builtin_retry = None;
+            return;
+        };
+        if current_state(&builtin) == want {
+            inner.builtin_set = Some(want);
+            inner.builtin_retry = None;
+            if inner.builtin.is_some_and(|b| restored(b, &builtin)) {
+                inner.builtin = None;
+                self.save_builtin(&inner);
+            }
+            return;
+        }
+        if inner.builtin_retry.is_some_and(|r| now < r.at) {
+            return;
+        }
+        if inner.builtin.is_none() {
+            // Saved first: a crash right after the change still puts it back at start-up.
+            inner.builtin = Some(SavedBuiltin {
+                id: builtin.id,
+                on: builtin.enabled,
+                mirror_of: builtin.mirror_of,
+            });
+            self.save_builtin(&inner);
+        }
+        match self.power.set_builtin(builtin.id, want) {
+            Ok(()) => {
+                if inner.builtin_set != Some(want) {
+                    tracing::info!(mode = mode.as_str(), state = ?want, "built-in display set");
+                }
+                inner.builtin_set = Some(want);
+                inner.builtin_retry = None;
+                let back = SystemDisplay {
+                    enabled: want != BuiltinState::Off,
+                    mirror_of: match want {
+                        BuiltinState::Mirror(of) => Some(of),
+                        _ => None,
+                    },
+                    ..builtin
+                };
+                if inner.builtin.is_some_and(|b| restored(b, &back)) {
+                    inner.builtin = None;
+                    self.save_builtin(&inner);
+                }
+            }
+            Err(e) => {
+                inner.builtin_retry = Some(match inner.builtin_retry {
+                    None => {
+                        tracing::warn!(
+                            "could not set the built-in display ({want:?}), trying again: {e}"
+                        );
+                        Retry::first(now)
+                    }
+                    Some(r) => r.next(now),
+                });
+            }
+        }
+    }
+
+    /// At exit and at start-up: the built-in display goes back to how this machine found it. One
+    /// that was off is left as it is: turning it off again could leave no display at all.
+    fn restore_builtin(&self) {
+        let mut inner = lock(&self.inner);
+        let Some(saved) = inner.builtin else { return };
+        let online = self.power.online().unwrap_or_default();
+        let now = online.iter().find(|d| d.builtin).copied();
+        let id = now.map_or(saved.id, |d| d.id);
+        if saved.on && now.is_none_or(|d| !restored(saved, &d)) {
+            let state = match saved.mirror_of {
+                Some(of) if online.iter().any(|d| d.id == of && d.enabled) => {
+                    BuiltinState::Mirror(of)
+                }
+                _ => BuiltinState::Own,
+            };
+            if let Err(e) = self.power.set_builtin(id, state) {
+                tracing::warn!("could not put the built-in display back: {e}");
+                return;
+            }
+        }
+        inner.builtin = None;
+        inner.builtin_set = None;
+        inner.builtin_retry = None;
+        self.save_builtin(&inner);
+    }
+
+    fn builtin_file(&self) -> Option<PathBuf> {
+        self.file
+            .as_ref()
+            .map(|f| f.with_file_name("builtin-display.json"))
+    }
+
+    fn save_builtin(&self, inner: &Inner) {
+        let Some(file) = self.builtin_file() else {
+            return;
+        };
+        let result = match inner.builtin {
+            Some(b) => serde_json::to_vec_pretty(&b)
+                .map_err(std::io::Error::other)
+                .and_then(|bytes| write_atomic(&file, &bytes)),
+            None => match std::fs::remove_file(&file) {
+                Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
+                _ => Ok(()),
+            },
+        };
+        if let Err(e) = result {
+            tracing::warn!("could not save the built-in display state: {e}");
+        }
+    }
+
     fn save(&self, inner: &Inner) {
         let Some(file) = &self.file else { return };
         if let Err(e) = save(file, &inner.off) {
@@ -328,6 +570,77 @@ pub fn restore_at_process_exit() {
     }
 }
 
+fn current_state(d: &SystemDisplay) -> BuiltinState {
+    match (d.enabled, d.mirror_of) {
+        (false, _) => BuiltinState::Off,
+        (true, Some(of)) => BuiltinState::Mirror(of),
+        (true, None) => BuiltinState::Own,
+    }
+}
+
+/// The built-in display is as it was saved.
+fn restored(saved: SavedBuiltin, now: &SystemDisplay) -> bool {
+    now.enabled == saved.on && (!saved.on || now.mirror_of == saved.mirror_of)
+}
+
+/// What the built-in display should be, or `None` to leave it as it is. Without an active external
+/// display it is always on: the user is never left without a screen.
+fn builtin_target(
+    mode: BuiltinMode,
+    builtin: &SystemDisplay,
+    online: &[SystemDisplay],
+    saved: Option<SavedBuiltin>,
+) -> Option<BuiltinState> {
+    let externals: Vec<&SystemDisplay> = online
+        .iter()
+        .filter(|d| !d.builtin && d.enabled && d.mirror_of.is_none())
+        .collect();
+    let Some(first) = externals.first() else {
+        return Some(match current_state(builtin) {
+            // A mirror of a display that is gone: on its own.
+            BuiltinState::Mirror(of) if !online.iter().any(|d| d.id == of && d.enabled) => {
+                BuiltinState::Own
+            }
+            BuiltinState::Off => BuiltinState::Own,
+            s => s,
+        });
+    };
+    match mode {
+        BuiltinMode::ExternalOnly => Some(BuiltinState::Off),
+        BuiltinMode::Mirror => {
+            let main = externals.iter().find(|d| d.main).unwrap_or(first);
+            Some(BuiltinState::Mirror(main.id))
+        }
+        BuiltinMode::Extended => saved.map(|s| match (s.on, s.mirror_of) {
+            (true, Some(of)) if externals.iter().any(|d| d.id == of) => BuiltinState::Mirror(of),
+            _ => BuiltinState::Own,
+        }),
+    }
+}
+
+fn load_builtin(file: &Path) -> Option<SavedBuiltin> {
+    let bytes = match std::fs::read(file) {
+        Ok(b) => b,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
+        Err(e) => {
+            tracing::warn!("could not read {}: {e}", file.display());
+            return None;
+        }
+    };
+    serde_json::from_slice(&bytes)
+        .map_err(|e| tracing::warn!("{} is unreadable, ignored: {e}", file.display()))
+        .ok()
+}
+
+fn write_atomic(file: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    if let Some(dir) = file.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    let tmp = file.with_extension("json.tmp");
+    std::fs::write(&tmp, bytes)?;
+    std::fs::rename(&tmp, file)
+}
+
 fn load(file: &Path) -> BTreeMap<String, OffDisplay> {
     match std::fs::read(file) {
         Ok(bytes) => serde_json::from_slice(&bytes).unwrap_or_else(|e| {
@@ -350,13 +663,8 @@ fn save(file: &Path, off: &BTreeMap<String, OffDisplay>) -> std::io::Result<()> 
             _ => Ok(()),
         };
     }
-    if let Some(dir) = file.parent() {
-        std::fs::create_dir_all(dir)?;
-    }
-    let tmp = file.with_extension("json.tmp");
     let bytes = serde_json::to_vec_pretty(off).map_err(std::io::Error::other)?;
-    std::fs::write(&tmp, bytes)?;
-    std::fs::rename(&tmp, file)
+    write_atomic(file, &bytes)
 }
 
 #[cfg(test)]
@@ -615,5 +923,210 @@ mod tests {
         let fake = mac();
         DisplayGuard::new(fake.clone(), Some(file)).restore_saved();
         assert!(fake.calls().is_empty());
+    }
+
+    /// The T-341 log: macOS refused to turn the display back on every second for minutes while the
+    /// monitor was on the other machine. It is reported once and tried less and less often.
+    #[test]
+    fn a_refused_display_is_tried_again_with_a_growing_wait() {
+        let fake = mac();
+        let g = DisplayGuard::new(fake.clone(), None);
+        let t = Instant::now();
+        g.reconcile(ME, &shows(Machine::A), &keys(), t);
+        fake.unplug(HDMI, true);
+        let tries = || fake.calls().iter().filter(|c| **c == (HDMI, true)).count();
+        let mut at = t;
+        for _ in 0..40 {
+            at += Duration::from_secs(1);
+            g.reconcile(ME, &shows(ME), &keys(), at);
+        }
+        assert_eq!(g.off(), [MONITOR], "still off: the display is not there");
+        assert_eq!(tries(), 0, "a refused change is not recorded by the double");
+        let retry = lock(&g.inner).retry.get(MONITOR).copied().unwrap();
+        assert!(retry.failures <= 6, "{} tries in 40 s", retry.failures);
+        assert!(retry.wait >= Duration::from_secs(16));
+        fake.unplug(HDMI, false);
+        g.reconcile(ME, &shows(ME), &keys(), retry.at);
+        assert!(fake.is_on(HDMI));
+        assert!(g.off().is_empty());
+        assert!(lock(&g.inner).retry.is_empty());
+    }
+
+    #[test]
+    fn the_wait_is_capped() {
+        let t = Instant::now();
+        let mut r = Retry::first(t);
+        for _ in 0..20 {
+            r = r.next(t);
+        }
+        assert_eq!(r.wait, RETRY_MAX);
+    }
+
+    /// The display came back with another id (a new session, a reconnection): it is found by its
+    /// EDID identity and turned on with the new one.
+    #[test]
+    fn a_display_with_a_new_id_is_turned_on_by_its_edid() {
+        let fake = mac();
+        let g = DisplayGuard::new(fake.clone(), None);
+        let t = Instant::now();
+        g.reconcile(ME, &shows(Machine::A), &keys(), t);
+        fake.renumber(HDMI, 9);
+        g.reconcile(ME, &shows(ME), &keys(), t);
+        assert!(fake.is_on(9));
+        assert!(g.off().is_empty());
+    }
+
+    const PANEL: u32 = 1;
+
+    fn panel_key() -> DisplayKey {
+        DisplayKey {
+            vendor: 0x0610,
+            product: 0xA061,
+            serial: 1,
+        }
+    }
+
+    /// The Mac with its panel, the G5 (main) and the 34".
+    fn macbook() -> Arc<FakeDisplayPower> {
+        Arc::new(
+            FakeDisplayPower::new([
+                PowerDisplay {
+                    id: 3,
+                    key: Some(DisplayKey {
+                        vendor: 0x4C2D,
+                        product: 0x748A,
+                        serial: 5,
+                    }),
+                },
+                PowerDisplay {
+                    id: PANEL,
+                    key: Some(panel_key()),
+                },
+                PowerDisplay {
+                    id: HDMI,
+                    key: Some(key()),
+                },
+            ])
+            .with_builtin(PANEL),
+        )
+    }
+
+    #[test]
+    fn external_only_turns_the_panel_off_while_an_external_display_is_on() {
+        let fake = macbook();
+        let g = DisplayGuard::new(fake.clone(), None);
+        let t = Instant::now();
+        g.reconcile_builtin(BuiltinMode::ExternalOnly, t);
+        assert!(!fake.is_on(PANEL));
+        g.reconcile_builtin(BuiltinMode::ExternalOnly, t);
+        assert_eq!(fake.builtin_calls(), [(PANEL, BuiltinState::Off)], "once");
+        // Both external displays unplugged: the panel comes back, never no screen at all.
+        fake.unplug(3, true);
+        fake.unplug(HDMI, true);
+        g.reconcile_builtin(BuiltinMode::ExternalOnly, t);
+        assert!(fake.is_on(PANEL));
+        assert_eq!(fake.active().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn mirror_mirrors_the_main_external_display() {
+        let fake = macbook();
+        let g = DisplayGuard::new(fake.clone(), None);
+        g.reconcile_builtin(BuiltinMode::Mirror, Instant::now());
+        assert_eq!(fake.mirror_of(PANEL), Some(3));
+        assert!(fake.is_on(PANEL));
+        // The main display leaves: it mirrors the other one.
+        fake.unplug(3, true);
+        g.reconcile_builtin(BuiltinMode::Mirror, Instant::now());
+        assert_eq!(fake.mirror_of(PANEL), Some(HDMI));
+    }
+
+    /// Extended undoes what Tandem did and leaves alone what macOS (or the user) set.
+    #[test]
+    fn extended_only_undoes_what_tandem_changed() {
+        let fake = macbook();
+        let g = DisplayGuard::new(fake.clone(), None);
+        let t = Instant::now();
+        g.reconcile_builtin(BuiltinMode::Extended, t);
+        assert!(fake.builtin_calls().is_empty());
+        g.reconcile_builtin(BuiltinMode::ExternalOnly, t);
+        g.reconcile_builtin(BuiltinMode::Extended, t);
+        assert!(fake.is_on(PANEL));
+        assert_eq!(fake.mirror_of(PANEL), None);
+        assert!(lock(&g.inner).builtin.is_none(), "nothing left to put back");
+    }
+
+    #[test]
+    fn with_the_lid_closed_the_panel_is_never_touched() {
+        let fake = macbook();
+        fake.set_lid_closed(true);
+        let g = DisplayGuard::new(fake.clone(), None);
+        g.reconcile_builtin(BuiltinMode::Mirror, Instant::now());
+        g.reconcile_builtin(BuiltinMode::ExternalOnly, Instant::now());
+        assert!(fake.builtin_calls().is_empty());
+    }
+
+    #[test]
+    fn the_panel_is_put_back_at_exit_and_after_a_crash() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("displays-off.json");
+        let fake = macbook();
+        let g = DisplayGuard::new(fake.clone(), Some(file.clone()));
+        g.reconcile_builtin(BuiltinMode::ExternalOnly, Instant::now());
+        assert!(dir.path().join("builtin-display.json").exists());
+        g.shut_down();
+        assert!(fake.is_on(PANEL));
+        assert!(!dir.path().join("builtin-display.json").exists());
+        g.reconcile_builtin(BuiltinMode::ExternalOnly, Instant::now());
+        assert!(fake.is_on(PANEL), "nothing changes after the exit");
+
+        let crashed = DisplayGuard::new(fake.clone(), Some(file.clone()));
+        crashed.reconcile_builtin(BuiltinMode::Mirror, Instant::now());
+        drop(crashed);
+        let next = DisplayGuard::new(fake.clone(), Some(file));
+        next.restore_saved();
+        assert_eq!(
+            fake.mirror_of(PANEL),
+            None,
+            "back as it was found: on its own"
+        );
+        assert!(fake.is_on(PANEL));
+    }
+
+    #[test]
+    fn a_failed_panel_change_waits_before_trying_again() {
+        let fake = macbook();
+        let g = DisplayGuard::new(fake.clone(), None);
+        let t = Instant::now();
+        fake.fail_next(1);
+        g.reconcile_builtin(BuiltinMode::ExternalOnly, t);
+        assert!(fake.is_on(PANEL));
+        g.reconcile_builtin(BuiltinMode::ExternalOnly, t + Duration::from_millis(500));
+        assert!(fake.is_on(PANEL), "too soon");
+        g.reconcile_builtin(BuiltinMode::ExternalOnly, t + RETRY_FIRST);
+        assert!(!fake.is_on(PANEL));
+    }
+
+    /// The panel off and T-341 together: the agent never leaves the Mac without a screen.
+    #[test]
+    fn external_only_and_the_phantom_display_rule_leave_a_screen() {
+        let fake = macbook();
+        let g = DisplayGuard::new(fake.clone(), None);
+        let t = Instant::now();
+        let g5 = DisplayKey {
+            vendor: 0x4C2D,
+            product: 0x748A,
+            serial: 5,
+        };
+        let keys = BTreeMap::from([(MONITOR.to_owned(), key()), ("odyssey-g5".to_owned(), g5)]);
+        let away = BTreeMap::from([
+            (MONITOR.to_owned(), Machine::A),
+            ("odyssey-g5".to_owned(), Machine::A),
+        ]);
+        for _ in 0..3 {
+            g.reconcile(ME, &away, &keys, t);
+            g.reconcile_builtin(BuiltinMode::ExternalOnly, t);
+        }
+        assert!(!fake.active().unwrap().is_empty());
     }
 }

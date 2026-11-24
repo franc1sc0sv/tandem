@@ -65,7 +65,13 @@ export interface Desk {
   modules?: Record<Machine, Record<string, boolean>>;
   /** Desk shortcuts (`[shortcuts]`): the lock one, with `KeyboardEvent.code` names. */
   shortcuts?: { lock: string[] };
+  /** What each machine does with its built-in display (`[builtin_display]`, T-353); `null` = the
+   * default, external only. */
+  builtin_display?: Record<Machine, BuiltinMode | null>;
 }
+
+/** `tandem_core::BuiltinMode` (T-353). */
+export type BuiltinMode = "external-only" | "mirror" | "extended";
 
 /** `tandem_proto::MonitorCompat`: serde default (external tag). `NoChannel`: the machine has its
  * EDID but no DDC channel (T-340). */
@@ -94,6 +100,19 @@ export interface MonitorEventJson {
   input: MonitorInput | null;
 }
 
+/** One machine's cable to a monitor (`tandem_core::CableState`, T-349). */
+export type CableStateJson = "connected" | "disconnected" | "unknown";
+/** Whether a monitor is on (`tandem_core::PowerState`). */
+export type PowerStateJson = "on" | "standby" | "off" | "unknown";
+/** The one state a monitor is in (`tandem_core::LinkState`). */
+export type LinkStateJson = { shows_machine: Machine } | { active_input_unplugged: Machine } | "standby" | "off" | "unknown";
+/** A monitor's derived link (`tandem_core::MonitorLink`). */
+export interface LinkJson {
+  state: LinkStateJson;
+  power: PowerStateJson;
+  cables: Record<Machine, CableStateJson>;
+}
+
 /** A monitor as the agent sends it (`tandem_proto::MonitorView`). */
 export interface MonitorJson {
   id: string;
@@ -103,6 +122,8 @@ export interface MonitorJson {
   via: [Machine, MonitorInput][];
   owner: Machine | null;
   report: { id: string; input: MonitorInput | null; power_on: boolean | null; signal: boolean | null; events: MonitorEventJson[] } | null;
+  /** The derived link (T-349); absent from an older agent. */
+  link?: LinkJson;
 }
 
 export interface DeskState {
@@ -258,6 +279,8 @@ export type Step =
   | { step: "power_on"; machine: Machine }
   | { step: "power_off"; machine: Machine }
   | { step: "switch_monitor"; monitor: string; input: "display_port" | "hdmi" }
+  /** Standby (`on` false) or wake of a monitor by command. */
+  | { step: "monitor_power"; monitor: string; on: boolean }
   /** Scene steps (T-100): which machine shows a monitor, the arrangement and the geometry. */
   | { step: "show_machine"; monitor: string; machine: Machine }
   | { step: "arrange"; layout: unknown }
@@ -334,6 +357,8 @@ export type Action =
   | { kind: "set_wol"; mac: string | null }
   | { kind: "set_module"; machine: Machine; module: string; on: boolean }
   | { kind: "set_prefs"; cmd_ctrl: boolean; drag_files: boolean }
+  /** What a Mac does with its built-in display (`EditDesk { BuiltinDisplay }`, T-353). */
+  | { kind: "set_builtin_display"; machine: Machine; mode: BuiltinMode }
   /** The desk lock shortcut (`EditDesk { Shortcuts }`); empty = no shortcut. */
   | { kind: "set_lock_shortcut"; lock: string[] }
   /** "Undo" of the change notice: returns the desk to version `to_rev` (D5). */
@@ -351,12 +376,18 @@ export type Action =
   | { kind: "apply_scene"; id: string }
   /** Change the input of a compatible monitor, with the firmware verdict (T-110). */
   | { kind: "switch_monitor"; monitor: string; input: MonitorInput }
+  /** Put a monitor in standby (`on` false) or wake it, by command. */
+  | { kind: "monitor_power"; monitor: string; on: boolean }
   | { kind: "add_scene"; scene: SceneJson }
   | { kind: "edit_scene"; scene: SceneJson }
   /** The processes of a tunnel, including those that ended recently (T-114); `tunnel` is the text id. */
   | { kind: "processes"; tunnel: string }
   /** The output of a process from the given cursors (T-114). */
   | { kind: "output"; tunnel: string; process: number; stdout: number; stderr: number }
+  /** Push this process's output as it arrives (`agent-output` events), from the cursors. */
+  | { kind: "watch_output"; tunnel: string; process: number; stdout: number; stderr: number }
+  /** Stop pushing output. */
+  | { kind: "stop_output" }
   /** The tunnels open now (T-154): a window that opens or reloads does not wait for a change. */
   | { kind: "tunnels" };
 

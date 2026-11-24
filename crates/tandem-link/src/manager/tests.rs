@@ -219,13 +219,14 @@ async fn a_flickering_usb4_does_not_move_the_link_and_returns_after_settling() {
         assert!(during.is_empty(), "offset {offset_ms} ms: {during:?}");
         assert_eq!(rig.manager.active().unwrap().kind, Ethernet);
 
-        // Still: it returns to USB4 at most after the next ping and 3 s of good
-        // pings. It may be sooner: a cut between two pings is not seen, so the
-        // streak may have started during the last cycles.
+        // Still: it returns to USB4 at most after a ping lost in the last cut has used up
+        // a backup's patience, the next ping and 3 s of good pings. It may be sooner: a
+        // cut between two pings is not seen, so the streak may have started during the
+        // last cycles.
         let took = rig.until_active(Some(Usb4)).await;
-        let settle = HealthConfig::default().settle;
+        let config = HealthConfig::default();
         assert!(
-            took <= settle + Duration::from_millis(1100),
+            took <= config.backup_patience + config.settle + Duration::from_millis(1100),
             "offset {offset_ms} ms: came back in {took:?}"
         );
     }
@@ -656,4 +657,111 @@ async fn removing_a_link_that_is_not_there_does_nothing() {
     time::sleep(Duration::from_secs(3)).await;
     assert_eq!(rig.manager.active().map(|a| a.kind), Some(LinkKind::Wifi));
     assert_eq!(rig.seen.len(), 1);
+}
+
+/// mDNS flickers and the cable's address with it (2026-11-24): each new address replaced the
+/// healthy link, which dropped its connection and the input and clipboard sessions over it.
+/// A healthy link keeps its connection; the new address is the one dialled once it drops.
+#[tokio::test(start_paused = true)]
+async fn a_new_address_for_a_healthy_link_keeps_its_connection() {
+    use LinkKind::*;
+    let mut rig = Rig::new(&[Usb4, Wifi], &[Usb4, Wifi]);
+    rig.until_active(Some(Usb4)).await;
+    time::sleep(Duration::from_secs(2)).await;
+    let before = rig.manager.active().unwrap();
+
+    let other = SocketAddr::from(([127, 0, 0, 2], 40001));
+    rig.net.set(other, Wire::Up);
+    let control = rig.manager.control();
+    for _ in 0..5 {
+        control
+            .add(LinkCandidate {
+                kind: Usb4,
+                addr: other,
+            })
+            .unwrap();
+        time::sleep(Duration::from_millis(500)).await;
+        control
+            .add(LinkCandidate {
+                kind: Usb4,
+                addr: addr(Usb4),
+            })
+            .unwrap();
+        time::sleep(Duration::from_millis(500)).await;
+    }
+    control
+        .add(LinkCandidate {
+            kind: Usb4,
+            addr: other,
+        })
+        .unwrap();
+    time::sleep(Duration::from_secs(3)).await;
+    assert!(drain(&mut rig).is_empty(), "{:?}", rig.seen);
+    assert_eq!(rig.manager.active(), Some(before));
+
+    // Once the old address stops answering, the link comes back over the new one.
+    rig.net.set(addr(Usb4), Wire::Cut);
+    rig.until_active(Some(Wifi)).await;
+    rig.until_active(Some(Usb4)).await;
+    assert_eq!(rig.manager.active().unwrap().addr, other);
+    assert_eq!(rig.manager.active().unwrap().handle.0, other);
+}
+
+/// A link that is down takes a new address at once.
+#[tokio::test(start_paused = true)]
+async fn a_new_address_for_a_link_that_is_down_is_dialled_at_once() {
+    use LinkKind::*;
+    let mut rig = Rig::new(&[Usb4, Wifi], &[Wifi]);
+    rig.until_active(Some(Wifi)).await;
+    let other = SocketAddr::from(([127, 0, 0, 2], 40001));
+    rig.net.set(other, Wire::Up);
+    rig.manager
+        .control()
+        .add(LinkCandidate {
+            kind: Usb4,
+            addr: other,
+        })
+        .unwrap();
+    let took = rig.until_active(Some(Usb4)).await;
+    assert!(took <= Duration::from_secs(1), "{took:?}");
+    assert_eq!(rig.manager.active().unwrap().addr, other);
+}
+
+/// Wi-Fi's round trip spikes to hundreds of milliseconds every few minutes (the Mac's radio:
+/// 241 ms in 90 s of pings on 2026-11-24, and the PC logged ~1000 Wi-Fi drops a day). A backup
+/// is not what carries input, so such a spike does not drop it nor reopen its connection.
+#[tokio::test(start_paused = true)]
+async fn a_backup_rides_out_latency_spikes_and_keeps_its_connection() {
+    use LinkKind::*;
+    let config = HealthConfig::default();
+    let mut rig = Rig::new(&[Usb4, Wifi], &[Usb4, Wifi]);
+    rig.until_active(Some(Usb4)).await;
+    time::sleep(Duration::from_secs(3)).await;
+    let connects = *rig.net.connects.lock().unwrap();
+    let spike = Duration::from_millis(900);
+    assert!(spike > config.ping_timeout * config.misses_to_drop);
+    for _ in 0..10 {
+        rig.net.slow_next_ping(addr(Wifi), spike);
+        for _ in 0..30 {
+            time::sleep(Duration::from_millis(100)).await;
+            let wifi = rig.manager.links().into_iter().find(|l| l.kind == Wifi);
+            assert!(wifi.is_some_and(|l| l.rtt.is_some()), "Wi-Fi went down");
+        }
+    }
+    assert_eq!(*rig.net.connects.lock().unwrap(), connects);
+    assert!(drain(&mut rig).is_empty(), "{:?}", rig.seen);
+
+    // A backup that is really cut is still seen down, within its patience.
+    rig.net.set(addr(Wifi), Wire::Cut);
+    let start = Instant::now();
+    let mut watch = rig.manager.watch();
+    watch
+        .wait_for(|s| s.links.iter().any(|l| l.kind == Wifi && l.rtt.is_none()))
+        .await
+        .unwrap();
+    let took = start.elapsed();
+    assert!(
+        took <= config.ping_interval + config.backup_patience + Duration::from_millis(10),
+        "{took:?}"
+    );
 }

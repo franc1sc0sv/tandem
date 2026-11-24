@@ -113,6 +113,28 @@ pub struct ExecSpec {
     /// rejected (T-130); `SSH_AUTH_SOCK` and the agents never pass.
     #[serde(default)]
     pub allow_secret_env: bool,
+    /// Run it in a terminal of this size (a pseudo-terminal: ConPTY on Windows): the program sees
+    /// a TTY (colors, progress, line editing, no block buffering), stdout and stderr come
+    /// together in the stdout flow, and it takes input ([`TunnelUp::Input`]). `None`: pipes, no
+    /// input.
+    #[serde(default)]
+    pub pty: Option<PtySize>,
+}
+
+/// A terminal's size in character cells.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct PtySize {
+    pub cols: u16,
+    pub rows: u16,
+}
+
+impl Default for PtySize {
+    fn default() -> Self {
+        PtySize {
+            cols: 120,
+            rows: 32,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -144,6 +166,9 @@ pub struct TunnelProcess {
     /// Milliseconds it ran, once finished.
     pub duration: Option<u64>,
     pub state: ProcessState,
+    /// It runs in a terminal and takes input ([`ExecSpec::pty`]).
+    #[serde(default)]
+    pub pty: bool,
 }
 
 impl TunnelProcess {
@@ -202,6 +227,21 @@ pub enum TunnelUp {
     },
     /// The tunnel's git workspace (T-107).
     Workspace(crate::WorkspaceUp),
+    /// Input for a terminal process: `bytes` go at position `offset` of its input. The
+    /// destination keeps only what it did not have yet, so a resend after a cut never types
+    /// twice. Answers [`TunnelDown::InputAck`].
+    Input {
+        tunnel: TunnelId,
+        process: ProcessId,
+        offset: u64,
+        bytes: Vec<u8>,
+    },
+    /// New size for a terminal process. Answers [`TunnelDown::Resized`].
+    Resize {
+        tunnel: TunnelId,
+        process: ProcessId,
+        size: PtySize,
+    },
 }
 
 /// From the destination to the source.
@@ -245,6 +285,12 @@ pub enum TunnelDown {
     Process(TunnelProcess),
     /// The tunnel's git workspace (T-107).
     Workspace(crate::WorkspaceDown),
+    /// The process's input now reaches byte `next`.
+    InputAck {
+        process: ProcessId,
+        next: u64,
+    },
+    Resized(ProcessId),
 }
 
 /// A tunnel in the UI, with the processes running in it (finished ones leave
@@ -377,9 +423,38 @@ mod tests {
                 cwd: Some("/src".into()),
                 env: vec![("RUST_LOG".into(), "debug".into())],
                 allow_secret_env: false,
+                pty: Some(PtySize { cols: 80, rows: 24 }),
             },
         };
         assert_eq!(decode::<TunnelUp>(&encode(&exec).unwrap()).unwrap(), exec);
+        let input = TunnelUp::Input {
+            tunnel: TunnelId(1),
+            process: ProcessId(2),
+            offset: 1 << 33,
+            bytes: b"ls\r\x1b[A".to_vec(),
+        };
+        assert_eq!(decode::<TunnelUp>(&encode(&input).unwrap()).unwrap(), input);
+        let resize = TunnelUp::Resize {
+            tunnel: TunnelId(1),
+            process: ProcessId(2),
+            size: PtySize {
+                cols: 300,
+                rows: 90,
+            },
+        };
+        assert_eq!(
+            decode::<TunnelUp>(&encode(&resize).unwrap()).unwrap(),
+            resize
+        );
+        for down in [
+            TunnelDown::InputAck {
+                process: ProcessId(2),
+                next: 77,
+            },
+            TunnelDown::Resized(ProcessId(2)),
+        ] {
+            assert_eq!(decode::<TunnelDown>(&encode(&down).unwrap()).unwrap(), down);
+        }
         let ws = TunnelUp::Workspace(crate::WorkspaceUp::Pack {
             tunnel: TunnelId(1),
             commit: Some("wip".into()),
@@ -417,6 +492,7 @@ mod tests {
             started: 1_763_400_000_000,
             duration: Some(1500),
             state: ProcessState::Exited { code: Some(101) },
+            pty: true,
         }
     }
 

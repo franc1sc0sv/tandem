@@ -257,6 +257,15 @@ impl Agent {
         let Some(scene) = desk.scenes.iter().find(|s| s.id == id).cloned() else {
             return Reply::Rejected(format!("scene `{id}` does not exist"));
         };
+        // Preflight (T-349): a monitor step to a machine whose cable is unplugged would leave a
+        // black screen. Refused before anything is done, so there is nothing to roll back.
+        if let Some(why) = scene
+            .monitors
+            .iter()
+            .find_map(|(m, machine)| self.unplugged(m, *machine))
+        {
+            return Reply::Rejected(format!("scene \"{}\" cannot be applied: {why}", scene.name));
+        }
         let abilities = self.abilities();
         let backend = self.scene_backend();
         let run = SceneRun {
@@ -288,23 +297,26 @@ impl Agent {
     /// What the monitors read changed (T-111): the new compatible ones are introduced and the
     /// active scene comes from each one's real input.
     pub(super) fn reconcile_monitors(&self) {
+        self.monitors.set_desk(&self.desk());
         self.introduce_monitors();
         self.learn_screens();
         self.recognize_scene();
     }
 
     /// This machine's end of each cable gets the screen the monitor is here (T-340), from the
-    /// EDID identity of the monitor (channel or not) and of each screen. An end that already
-    /// names a screen is kept: the user may have declared it. Not with `[[screens]]` declared
+    /// EDID identity of the monitor (channel or not) and of each screen. An engine id that no
+    /// longer matches (the screens were renumbered) is replaced; a name a person gave is kept. Not with `[[screens]]` declared
     /// for this machine: their ids are the user's, not the `screen-N` the engine reads.
     fn learn_screens(&self) {
         let me = self.machine();
         let links = self.monitors.screen_links();
         let pending = |d: &Config| {
             d.screens_of(me).next().is_none()
-                && d.cables
-                    .iter()
-                    .any(|c| c.end(me).screen.is_none() && links.contains_key(&c.monitor))
+                && d.cables.iter().any(|c| {
+                    links
+                        .get(&c.monitor)
+                        .is_some_and(|s| tandem_core::screen_outdated(c, me, s))
+                })
         };
         if links.is_empty() || !pending(&self.desk()) {
             return;

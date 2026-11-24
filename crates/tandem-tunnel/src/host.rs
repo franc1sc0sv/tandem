@@ -12,10 +12,11 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 use tandem_proto::{
-    ExecSpec, FlowId, FlowInfo, OutputCursor, ProcessId, ProcessOutput, Tunnel, TunnelDown,
-    TunnelId, TunnelProcess, TunnelState, TunnelUp, TunnelView,
+    ExecSpec, FlowId, FlowInfo, OutputCursor, ProcessId, ProcessOutput, PtySize, Tunnel,
+    TunnelDown, TunnelId, TunnelProcess, TunnelState, TunnelUp, TunnelView,
 };
-use tokio::sync::watch;
+use tokio::io::AsyncWriteExt;
+use tokio::sync::{mpsc, watch};
 use tokio::time::Instant;
 
 use crate::Changes;
@@ -23,7 +24,7 @@ use crate::buffer::{DEFAULT_CAPACITY, OutputBuffer, Read};
 use crate::process::output::{self, FlowRead};
 use crate::process::system::SystemSpawner;
 use crate::process::table::Table;
-use crate::process::{ExecError, Launch, Os, Spawner, launch};
+use crate::process::{ExecError, Launch, Os, Spawner, Terminal, launch};
 use crate::wire::{TargetWire, WireError};
 
 /// The most that goes in a data message: far below a frame's maximum, and
@@ -102,6 +103,21 @@ impl Host {
     /// Kills a process of the tunnel with its whole tree.
     pub fn kill(&self, id: TunnelId, process: ProcessId) -> Result<(), ExecError> {
         self.tunnel(id)?.kill(process)
+    }
+
+    /// Input for a terminal process ([`HostTunnel::input`]).
+    pub fn input(
+        &self,
+        id: TunnelId,
+        process: ProcessId,
+        offset: u64,
+        bytes: &[u8],
+    ) -> Result<u64, ExecError> {
+        self.tunnel(id)?.input(process, offset, bytes)
+    }
+
+    pub fn resize(&self, id: TunnelId, process: ProcessId, size: PtySize) -> Result<(), ExecError> {
+        self.tunnel(id)?.resize(process, size)
     }
 
     /// The open tunnels with their processes running, for the UI.
@@ -183,6 +199,8 @@ struct TunnelInner {
     next_flow: AtomicU32,
     opts: HostOptions,
     processes: Table,
+    /// The input of each terminal process.
+    stdin: Mutex<BTreeMap<ProcessId, Stdin>>,
     /// The close already finished (flows, resources and processes): what is sent afterwards is already the
     /// last.
     settled: AtomicBool,
@@ -190,6 +208,14 @@ struct TunnelInner {
     changes: watch::Sender<u64>,
     /// Changes of all the tunnels (the UI), which also rise with each process.
     agent_changes: Changes,
+}
+
+/// A terminal process's input: what was typed goes to a task that writes it in order.
+struct Stdin {
+    /// Bytes accepted so far: the position of the next one.
+    next: u64,
+    tx: mpsc::UnboundedSender<Vec<u8>>,
+    terminal: Arc<dyn Terminal>,
 }
 
 struct Flow {
@@ -221,6 +247,7 @@ impl HostTunnel {
                 next_flow: AtomicU32::new(1),
                 opts,
                 processes: Table::new(),
+                stdin: Mutex::new(BTreeMap::new()),
                 settled: AtomicBool::new(false),
                 changes: watch::Sender::new(0),
                 agent_changes,
@@ -321,6 +348,7 @@ impl HostTunnel {
         }
         // With the tunnel already closed: no new process enters (see `Table::insert`).
         self.inner.processes.kill_all();
+        lock(&self.inner.stdin).clear();
         self.inner.settled.store(true, Ordering::SeqCst);
         self.bump();
         true
@@ -351,7 +379,11 @@ impl HostTunnel {
         }
         self.purge_processes();
         let launch: Launch = launch::plan(&spec, Os::current())?;
-        let spawned = spawner.spawn(&launch)?;
+        let mut spawned = spawner.spawn(&launch)?;
+        let terminal = match (spawned.stdin.take(), spawned.terminal.take()) {
+            (Some(stdin), Some(terminal)) => Some((stdin, terminal)),
+            _ => None,
+        };
         let id = self.inner.processes.next_id();
         let command = launch::display(&spec);
         let flows = self
@@ -373,6 +405,7 @@ impl HostTunnel {
             started: now_millis(),
             duration: None,
             state: tandem_proto::ProcessState::Running,
+            pty: terminal.is_some(),
         };
         if !self
             .inner
@@ -382,7 +415,25 @@ impl HostTunnel {
             spawned.child.kill_tree();
             return Err(ExecError::Closed(tunnel));
         }
-        tracing::info!(%tunnel, process = %id, command = %info.command, "launched process");
+        if let Some((mut stdin, terminal)) = terminal {
+            let (tx, mut rx) = mpsc::unbounded_channel::<Vec<u8>>();
+            tokio::spawn(async move {
+                while let Some(bytes) = rx.recv().await {
+                    if stdin.write_all(&bytes).await.is_err() || stdin.flush().await.is_err() {
+                        break;
+                    }
+                }
+            });
+            lock(&self.inner.stdin).insert(
+                id,
+                Stdin {
+                    next: 0,
+                    tx,
+                    terminal,
+                },
+            );
+        }
+        tracing::info!(%tunnel, process = %id, command = %info.command, pty = info.pty, "launched process");
         crate::process::supervise(self.clone(), id, spawned, out, err);
         self.process_changed();
         Ok(info)
@@ -400,6 +451,49 @@ impl HostTunnel {
                 Ok(())
             }
         }
+    }
+
+    /// `bytes` go at position `offset` of the process's input; only what it did not have yet
+    /// is typed, so a resend never types twice. Returns the position of the next byte.
+    pub fn input(&self, process: ProcessId, offset: u64, bytes: &[u8]) -> Result<u64, ExecError> {
+        let mut all = lock(&self.inner.stdin);
+        let Some(s) = all.get_mut(&process) else {
+            return Err(self.no_terminal(process));
+        };
+        if offset > s.next {
+            return Err(ExecError::InputGap(self.id(), process, s.next));
+        }
+        let have = usize::try_from(s.next - offset).unwrap_or(usize::MAX);
+        let new = bytes.get(have..).unwrap_or_default();
+        if !new.is_empty() {
+            // If the process already ended its input is gone: what arrives is accepted and
+            // dropped, as a terminal would.
+            let _ = s.tx.send(new.to_vec());
+            s.next += new.len() as u64;
+        }
+        Ok(s.next)
+    }
+
+    pub fn resize(&self, process: ProcessId, size: PtySize) -> Result<(), ExecError> {
+        let terminal = lock(&self.inner.stdin)
+            .get(&process)
+            .map(|s| s.terminal.clone())
+            .ok_or_else(|| self.no_terminal(process))?;
+        terminal.resize(size)?;
+        Ok(())
+    }
+
+    fn no_terminal(&self, process: ProcessId) -> ExecError {
+        if self.inner.processes.get(process).is_some() {
+            ExecError::NoTerminal(self.id(), process)
+        } else {
+            ExecError::UnknownProcess(self.id(), process)
+        }
+    }
+
+    /// Rises with each byte written, new flow, process change or close.
+    pub fn subscribe(&self) -> watch::Receiver<u64> {
+        self.inner.changes.subscribe()
     }
 
     /// The process ended on its own (called by whoever watches it).
@@ -456,6 +550,7 @@ impl HostTunnel {
         if gone.is_empty() {
             return;
         }
+        lock(&self.inner.stdin).retain(|id, _| !gone.iter().any(|p| p.id == *id));
         lock(&self.inner.flows).retain(|f| {
             !gone
                 .iter()
@@ -566,11 +661,28 @@ pub async fn serve_request<W: TargetWire>(
             Ok(()) => TunnelDown::Killed(process),
             Err(e) => TunnelDown::Refused(e.to_string()),
         },
+        TunnelUp::Input {
+            tunnel,
+            process,
+            offset,
+            bytes,
+        } => match host.input(tunnel, process, offset, &bytes) {
+            Ok(next) => TunnelDown::InputAck { process, next },
+            Err(e) => TunnelDown::Refused(e.to_string()),
+        },
+        TunnelUp::Resize {
+            tunnel,
+            process,
+            size,
+        } => match host.resize(tunnel, process, size) {
+            Ok(()) => TunnelDown::Resized(process),
+            Err(e) => TunnelDown::Refused(e.to_string()),
+        },
         TunnelUp::Attach { tunnel, from } => {
             let Some(t) = host.get(tunnel) else {
                 return wire.send(&TunnelDown::Refused(unknown(tunnel))).await;
             };
-            wire.start_data()?;
+            wire.start_output()?;
             return stream(&t, from.into_iter().collect(), &mut wire).await;
         }
     };

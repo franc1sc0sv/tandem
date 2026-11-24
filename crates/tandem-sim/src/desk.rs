@@ -539,6 +539,20 @@ impl Desk {
         self.request(on, cmd).await
     }
 
+    /// Put a monitor in standby (`on = false`) or wake it from the UI of `from`, and wait for the outcome.
+    pub async fn monitor_power(
+        &self,
+        from: Machine,
+        monitor: &str,
+        on: bool,
+    ) -> Result<TxnRun, SimError> {
+        let cmd = UiCommand::MonitorPower {
+            monitor: monitor.to_owned(),
+            on,
+        };
+        self.request(from, cmd).await
+    }
+
     /// Waits for the monitors `machine` sees to satisfy `ok`; returns that view.
     pub async fn wait_monitors(
         &self,

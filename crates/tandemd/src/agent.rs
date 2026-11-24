@@ -1336,6 +1336,7 @@ impl Agent {
             UiCommand::SwitchMonitor { monitor, input } => {
                 self.start_switch_monitor(monitor, input)
             }
+            UiCommand::MonitorPower { monitor, on } => self.start_monitor_power(monitor, on),
             UiCommand::Rescan { machine } => self.rescan_machine(machine),
             // The subscription belongs to the connection: the IPC handles it ([`Agent::watch_resources`]).
             UiCommand::WatchResources { .. } => {
@@ -1354,6 +1355,8 @@ impl Agent {
             | UiCommand::StopForward { .. }
             | UiCommand::Exec { .. }
             | UiCommand::Kill { .. }
+            | UiCommand::Input { .. }
+            | UiCommand::Resize { .. }
             | UiCommand::BringBack { .. } => Reply::Rejected(crate::tunnels::CLIENTS_ONLY.into()),
             // Also the connection's: the subscription and the measurement, which takes a few seconds
             // ([`Agent::measure_link`]).
@@ -1363,6 +1366,9 @@ impl Agent {
             // The subscription belongs to the connection ([`Agent::watch_cursor`]).
             UiCommand::WatchCursor { .. } => {
                 Reply::Rejected("the cursor is requested over an IPC connection".into())
+            }
+            UiCommand::WatchOutput { .. } => {
+                Reply::Rejected("live output is requested over an IPC connection".into())
             }
             // Read only: what already reached this machine (D9).
             UiCommand::GetProcesses { tunnel } => match self.tunnels.processes(tunnel) {
@@ -1374,6 +1380,7 @@ impl Agent {
                 process,
                 from,
                 max,
+                ..
             } => match self.tunnels.output(
                 tunnel,
                 process,

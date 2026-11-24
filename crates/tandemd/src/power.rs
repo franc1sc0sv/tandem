@@ -109,7 +109,8 @@ impl LocalSteps for PowerSteps {
             | Step::ShowMachine { .. }
             | Step::Arrange { .. }
             | Step::Geometry
-            | Step::DisplayOn { .. } => {
+            | Step::DisplayOn { .. }
+            | Step::MonitorPower { .. } => {
                 Box::pin(async move { Err(format!("{}: {STEP_NOT_IMPLEMENTED}", describe(step))) })
             }
         }

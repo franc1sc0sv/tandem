@@ -118,6 +118,23 @@ describe("Desk and machines", () => {
   });
 });
 
+describe("Built-in display (T-353)", () => {
+  it("only the Mac has it, external only by default, and a pick reaches the store", async () => {
+    const store = await mount();
+    const mac = (["a", "b"] as const).find((id) => store.desk.machines[id]?.os === "macos")!;
+    const pc = mac === "a" ? "b" : "a";
+    expect(screen.queryByTestId(`builtin-${pc}`)).toBeNull();
+    const group = screen.getByRole("radiogroup", { name: /Built-in display of/ });
+    expect(within(group).getByRole("radio", { name: /External only/ })).toHaveAttribute("aria-checked", "true");
+    const set = vi.spyOn(store, "setBuiltinDisplay");
+    await userEvent.click(within(group).getByRole("radio", { name: /Mirror/ }));
+    expect(set).toHaveBeenLastCalledWith(mac, "mirror");
+    await tick();
+    expect(store.desk.machines[mac]?.builtinDisplay).toBe("mirror");
+    expect(within(screen.getByRole("radiogroup", { name: /Built-in display of/ })).getByRole("radio", { name: /Mirror/ })).toHaveAttribute("aria-checked", "true");
+  });
+});
+
 describe("Forget this pair and pair again (T-345)", () => {
   it("it is there even when the other machine is off, and asks before forgetting", async () => {
     const store = await mount("demo&still&trouble=peer-off");

@@ -872,11 +872,11 @@ fn kind_of_remote(statics: &[LinkCandidate], remote: SocketAddr) -> LinkKind {
 }
 
 /// Builds the link manager with the candidates of each moment and follows its active
-/// link. If what is discovered on the LAN changes the links the manager should follow, it
-/// is rebuilt: the manager does not admit new links while running, and the fixed links'
-/// connections are reopened in one ping. A discovery change that leaves the same links does
-/// not rebuild it: that would cut healthy connections for nothing, which the other side sees
-/// as "closed by peer" over and over (T-237).
+/// link. Once it runs, what is discovered on the LAN only hands it new links or new
+/// addresses ([`links_to_add`]); it is never rebuilt for a discovery change: that cut every
+/// healthy connection and the input and clipboard sessions over them, and mDNS on the PC
+/// flickers every few seconds (T-237, 2026-11-24). It is only built again when there was
+/// none (no links yet).
 #[allow(clippy::too_many_arguments)]
 async fn supervise(
     agent: Arc<Agent>,
@@ -1081,14 +1081,23 @@ async fn supervise(
                         let want =
                             plan_links(&candidates, &extra, &interfaces.list(), &new_resolver())
                                 .links;
-                        if let Some(m) = &managed
-                            && same_links(&want, &m.links.links())
-                        {
+                        let Some(m) = &managed else {
+                            tracing::info!(next = ?want, "the links with the peer changed");
+                            break;
+                        };
+                        // A running manager is never rebuilt for this: it would cut every
+                        // healthy connection and the sessions over them. It is handed what it
+                        // does not follow yet and keeps a healthy link's connection.
+                        let add = links_to_add(&want, &m.links.links());
+                        if add.is_empty() {
                             tracing::debug!(?want, "discovery changed, the links did not");
                             continue;
                         }
-                        tracing::info!(next = ?want, "the links with the peer changed");
-                        break;
+                        tracing::info!(?add, "new links with the peer");
+                        let control = m.links.control();
+                        for c in add {
+                            let _ = control.add(c);
+                        }
                     }
                 }
             }
@@ -1146,13 +1155,14 @@ fn plan_links(
     }
 }
 
-/// The manager already follows exactly `want` (same kinds, same addresses).
-fn same_links(want: &[LinkCandidate], have: &[LinkStatus]) -> bool {
-    let mut want: Vec<(LinkKind, SocketAddr)> = want.iter().map(|c| (c.kind, c.addr)).collect();
-    let mut have: Vec<(LinkKind, SocketAddr)> = have.iter().map(|l| (l.kind, l.addr)).collect();
-    want.sort();
-    have.sort();
-    want == have
+/// What of `want` the manager does not follow yet: a new kind, or a kind on another address
+/// (the manager keeps a healthy link's connection and dials that address once it drops).
+/// Nothing is ever removed this way: a cable leaves when its interface does.
+fn links_to_add(want: &[LinkCandidate], have: &[LinkStatus]) -> Vec<LinkCandidate> {
+    want.iter()
+        .filter(|c| !have.iter().any(|l| l.kind == c.kind && l.addr == c.addr))
+        .copied()
+        .collect()
 }
 
 /// The discovered link-locals (one per cable): when they change, resolve again.
@@ -1658,31 +1668,32 @@ mod tests {
         }
     }
 
-    /// A discovery change that leaves the same links keeps the manager and its
-    /// connections; any other rebuilds it (T-237).
+    /// A discovery change never rebuilds a running manager (which cut every connection and
+    /// the input and clipboard sessions over them, ~680 times a day on 2026-11-23): only the
+    /// links it does not follow yet, or follows on another address, are handed to it, and it
+    /// keeps a healthy link's connection. Nothing is removed for a discovery change: a cable
+    /// leaves when its interface does, and an empty mDNS answer removes nothing.
     #[test]
-    fn the_manager_is_rebuilt_only_when_its_links_change() {
+    fn a_discovery_change_only_adds_what_the_manager_does_not_follow() {
         let have = [
-            status(LinkKind::Usb4, "169.254.93.252:47871"),
-            status(LinkKind::Wifi, "192.168.1.20:47871"),
+            status(LinkKind::Usb4, "[fe80::c0c:1e4f:2370:bfc5%21]:52000"),
+            status(LinkKind::Wifi, "192.0.2.10:52000"),
         ];
         let same = [
-            link(LinkKind::Wifi, "192.168.1.20:47871"),
-            link(LinkKind::Usb4, "169.254.93.252:47871"),
+            link(LinkKind::Wifi, "192.0.2.10:52000"),
+            link(LinkKind::Usb4, "[fe80::c0c:1e4f:2370:bfc5%21]:52000"),
         ];
-        assert!(same_links(&same, &have));
-        let moved = [
-            link(LinkKind::Usb4, "169.254.93.252:47871"),
-            link(LinkKind::Wifi, "192.168.1.21:47871"),
-        ];
-        assert!(!same_links(&moved, &have));
-        assert!(!same_links(&same[..1], &have));
-        let more = [
-            link(LinkKind::Usb4, "169.254.93.252:47871"),
-            link(LinkKind::Ethernet, "10.0.0.2:47871"),
-            link(LinkKind::Wifi, "192.168.1.20:47871"),
-        ];
-        assert!(!same_links(&more, &have));
+        assert!(links_to_add(&same, &have).is_empty());
+        // Fewer links (an mDNS answer without the cable, or none at all): nothing to do.
+        assert!(links_to_add(&same[..1], &have).is_empty());
+        assert!(links_to_add(&[], &have).is_empty());
+        // Another address for a followed link and a new link: both go to the manager.
+        let moved = link(LinkKind::Usb4, "[fe80::1c46:56e:2a49:fb65%21]:52000");
+        let eth = link(LinkKind::Ethernet, "10.0.0.2:52000");
+        assert_eq!(
+            links_to_add(&[moved, same[0], eth], &have),
+            vec![moved, eth]
+        );
     }
 
     struct Anyone;

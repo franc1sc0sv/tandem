@@ -49,4 +49,11 @@ pub trait TargetWire: Send {
     fn start_data(&mut self) -> Result<(), WireError> {
         Ok(())
     }
+    /// From here the stream carries process output (the data channel of `Attach`): data
+    /// priority, so input always goes first, but not held back by the input pause. Terminal
+    /// output is what a person is watching; pausing it for seconds is what made terminals feel
+    /// frozen. By default, the same as [`Self::start_data`].
+    fn start_output(&mut self) -> Result<(), WireError> {
+        self.start_data()
+    }
 }

@@ -23,9 +23,10 @@
 import { exitSide, isVertical, type Arrangement, type LayoutScreen, type LayoutView } from "../arrangement";
 import { perUserAdminNote, isSwitchable } from "../capabilities";
 import type { CrossSample } from "../crossing";
-import type { AdminView, Bindings, MonitorInput, PairingView, Permission, SceneJson, SetupView, ShortcutsView, Step, TxnView } from "../model";
+import type { AdminView, Bindings, BuiltinMode, MonitorInput, PairingView, Permission, SceneJson, SetupView, ShortcutsView, Step, TxnView } from "../model";
 import { measuredText } from "../network";
 import { sceneView } from "../scenes";
+import { isDim, linkText } from "../monitors";
 import { DEFAULT_BINDINGS } from "../shortcuts";
 import { checkName } from "../machine";
 import { reducedMotion } from "../motion";
@@ -44,6 +45,7 @@ import type {
   HardwareView,
   LatencyPoint,
   LinkKind,
+  LinkUi,
   LiveView,
   Machine,
   MachineView,
@@ -59,6 +61,7 @@ import type {
   Source,
   Topic,
   Trouble,
+  LiveChunk,
   OutputChunk,
   OutputCursor,
   ProcessRow,
@@ -99,6 +102,8 @@ export interface DemoOptions {
   pcOnly?: boolean;
   /** The progress screen of a scene at this point. */
   txn?: "run" | "ok" | "fail";
+  /** The compatible monitor's link state (T-349): off, in standby, or on the input of an unplugged cable. */
+  monitor?: "off" | "standby" | "unplugged";
   /** Applying this scene fails on its monitor and is undone. */
   failScene?: string;
   /** The demo tunnels: those of `V3-Compute`, none or one with 12 processes. */
@@ -139,6 +144,7 @@ export function demoOptions(query: string): DemoOptions {
     update: (["available", "fail", "admin", "updated"] as const).find((u) => u === p.get("update")),
     pcOnly: p.has("pconly") || p.has("palette") || p.has("tray"),
     cross: p.get("cross") === "ok" ? "ok" : p.get("cross") === "wrong" ? "wrong" : p.get("cross") === "timeout" ? "timeout" : undefined,
+    monitor: (["off", "standby", "unplugged"] as const).find((m) => m === p.get("monitor")),
   };
 }
 
@@ -610,9 +616,11 @@ export function demoDesk(o: DemoOptions): DeskView {
       live: power === "on" ? s.live : null,
       wake: here ? null : { mac: "aa:bb:cc:dd:ee:ff" },
       ...(s.inputDevices ? { inputDevices: s.inputDevices } : {}),
+      ...(s.os === "macos" ? { builtinDisplay: "external-only" as const } : {}),
     };
   };
-  const monitors = demoMonitors(sa, sb).map((m) => (o.txn === "fail" && m.compat.ok ? { ...m, input: "hdmi" as const, shows: "a" as const, owner: "b" as const } : m));
+  const base = demoMonitors(sa, sb).map((m) => (o.txn === "fail" && m.compat.ok ? { ...m, input: "hdmi" as const, shows: "a" as const, owner: "b" as const } : m));
+  const monitors = o.monitor ? base.map((m) => (m.compat.ok ? demoLink(m, o.monitor as NonNullable<DemoOptions["monitor"]>) : m)) : base;
   const scenes = demoScenes(sa.name, sb.name, monitors, (o.here === "a" ? sa : sb).os === "macos", o.pcOnly, o.palette);
   const linkUp = o.trouble !== "peer-off" && o.trouble !== "link-down" && o.trouble !== "no-agent";
   return {
@@ -636,8 +644,33 @@ export function demoDesk(o: DemoOptions): DeskView {
       pairing: o.pairing === "code" ? { kind: "comparing", code: DEMO_CODE, peer: peerSpec.name, confirmed: false } : o.offer && !o.unpaired ? { kind: "offered" } : { kind: "idle" },
     },
     permissions: permissionsFor((o.here === "a" ? sa : sb).os, o.trouble === "permissions" || o.perms === "missing", o.perms === "missing", o.net),
-    layout: demoLayout(sa, sb, scenes, "work"),
+    layout: dimDemoLayout(demoLayout(sa, sb, scenes, "work"), monitors, (m) => (m === "a" ? sa.name : sb.name)),
   };
+}
+
+/** The demo monitor in a link state that shows neither machine (`?demo&monitor=`, T-349). */
+function demoLink(m: MonitorUi, state: NonNullable<DemoOptions["monitor"]>): MonitorUi {
+  const owner = m.owner ?? "b";
+  const plugged = { a: "connected" as const, b: "connected" as const };
+  const link: LinkUi =
+    state === "unplugged"
+      ? { kind: "unplugged", machine: owner, power: "standby", cables: { ...plugged, [owner]: "disconnected" } }
+      : { kind: state, machine: null, power: state, cables: plugged };
+  return { ...m, shows: null, link };
+}
+
+/** The external screen of a monitor that shows neither machine is drawn dimmed, with its state. */
+function dimDemoLayout(layout: LayoutView, monitors: MonitorUi[], name: (m: Machine) => string): LayoutView {
+  const dark = monitors.find((m) => isDim(m.link));
+  if (!dark?.owner) return layout;
+  const text = linkText(dark.link, name) ?? "";
+  let done = false;
+  const screens = layout.screens.map((s) => {
+    if (done || s.machine !== dark.owner || !s.external) return s;
+    done = true;
+    return { ...s, dim: text };
+  });
+  return { ...layout, screens };
 }
 
 /** How long the simulated crossing takes when nobody said how it ends. */
@@ -717,6 +750,14 @@ export class DemoSource implements Source {
   async setLockShortcut(lock: string[]): Promise<ActResult> {
     this.set({ ...this.desk, lockShortcut: lock });
     return { ok: true, text: "Lock shortcut saved" };
+  }
+
+  async setBuiltinDisplay(machine: Machine, mode: BuiltinMode): Promise<ActResult> {
+    const m = this.desk.machines[machine];
+    if (!m || m.os !== "macos") return { ok: false, reason: "That machine has no built-in display" };
+    this.bump();
+    this.set({ ...this.desk, machines: { ...this.desk.machines, [machine]: { ...m, builtinDisplay: mode } } });
+    return { ok: true };
   }
 
   async setPrefs(p: { cmdCtrl: boolean; dragFiles: boolean }): Promise<ActResult> {
@@ -890,6 +931,22 @@ export class DemoSource implements Source {
     this.runTxn(
       [{ step: "switch_monitor", monitor: id, input }],
       () => this.setMonitor(id, input, to),
+      () => {},
+    );
+    return { ok: true };
+  }
+
+  async monitorPower(id: string, on: boolean): Promise<ActResult> {
+    const m = this.desk.monitors.find((x) => x.id === id);
+    if (!m) return { ok: false, reason: "That monitor is not known" };
+    if (!m.compat.ok) return { ok: false, reason: `${m.name} is not supported: nothing is written to it` };
+    this.runTxn(
+      [{ step: "monitor_power", monitor: id, on }],
+      () =>
+        this.set({
+          ...this.desk,
+          monitors: this.desk.monitors.map((x) => (x.id === id ? { ...x, link: on ? undefined : { kind: "standby", machine: null, power: "standby", cables: x.link?.cables ?? { a: "unknown", b: "unknown" } } } : x)),
+        } as DeskView),
       () => {},
     );
     return { ok: true };
@@ -1228,6 +1285,13 @@ export class DemoSource implements Source {
 
   async processes(tunnel: string): Promise<ProcessRow[]> {
     return demoProcesses(tunnel, this.now(), this.opts.tunnels);
+  }
+
+  async watchOutput(tunnel: string, process: number, from: OutputCursor, onChunk: (c: LiveChunk) => void): Promise<() => void> {
+    // The demo pushes its whole log once, as a piped process (bare line ends).
+    const bytes = new TextEncoder().encode(demoLog(tunnel, process, this.opts.tunnels));
+    if (from.stdout < bytes.length) onChunk({ bytes: bytes.slice(from.stdout), from, next: { stdout: bytes.length, stderr: from.stderr }, done: false, pty: false });
+    return () => {};
   }
 
   async output(tunnel: string, process: number, from: OutputCursor): Promise<OutputChunk> {

@@ -240,7 +240,7 @@ describe("Tunnels with the real agent (IPC)", () => {
     });
     // The second query continues where the first left off.
     expect(act).toHaveBeenCalledWith({ kind: "output", tunnel: ID, process: 1, stdout: 4, stderr: 0 });
-    expect(document.querySelector(".pbody")?.textContent).toContain("one\ntwo\n");
+    expect(screen.getByTestId("terminal").textContent).toContain("one\ntwo\n");
   });
 
   it("the error output is shown next to the normal one", async () => {
@@ -248,7 +248,7 @@ describe("Tunnels with the real agent (IPC)", () => {
     await open(new LiveSource(b));
     await flush(async () => handlers.tunnels?.(wire([proc(1, "cargo test", 0)])));
     expect(await screen.findByText(/fine/)).toBeInTheDocument();
-    expect(document.querySelector(".pbody")?.textContent).toContain("careful");
+    expect(screen.getByTestId("terminal").textContent).toContain("careful");
   });
 
   it("a tunnel that stops being in the list becomes \"closed\" and keeps its title", async () => {

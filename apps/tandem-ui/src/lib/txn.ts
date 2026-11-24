@@ -101,6 +101,7 @@ export function titleOf(steps: Step[], names: Names): string {
   if (first.step === "power_on") return `Powering on ${names.machine(first.machine)}`;
   if (first.step === "power_off") return `Powering off ${names.machine(first.machine)}`;
   if (first.step === "switch_monitor") return `Changing the input of ${monitorName(first.monitor, names)}`;
+  if (first.step === "monitor_power") return `${first.on ? "Waking" : "Putting to sleep"} ${monitorName(first.monitor, names)}`;
   return "Change in progress";
 }
 
@@ -113,6 +114,8 @@ function label(s: Step, steps: Step[], names: Names): string {
       return `Power off ${m(s.machine)}`;
     case "switch_monitor":
       return `${monitorName(s.monitor, names)} → ${INPUT_LABEL[s.input]}`;
+    case "monitor_power":
+      return `${monitorName(s.monitor, names)} → ${s.on ? "on" : "standby"}`;
     case "show_machine": {
       const port = names.monitors.find((x) => x.id === s.monitor)?.ports[s.machine];
       return `${monitorName(s.monitor, names)} → ${m(s.machine)}${port ? ` (${INPUT_LABEL[port]})` : ""}`;

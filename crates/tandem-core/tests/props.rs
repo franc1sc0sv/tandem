@@ -71,7 +71,9 @@ impl Executor for Sim {
                     Ok(())
                 }
                 // Power and scene plans do not change inputs.
-                Step::SwitchMonitor { .. } => Err("no monitors".to_owned()),
+                Step::SwitchMonitor { .. } | Step::MonitorPower { .. } => {
+                    Err("no monitors".to_owned())
+                }
                 Step::ShowMachine { monitor, .. } => {
                     // The test's monitors start out showing A.
                     let was = self.shows.get(monitor).copied().unwrap_or(Machine::A);

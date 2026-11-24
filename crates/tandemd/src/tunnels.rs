@@ -10,10 +10,12 @@
 //!   done by a client
 //!   ([`Peer::Client`](tandem_proto::Peer::Client): `tandem mcp` or the CLI), which runs as
 //!   the user and comes in through the local IPC, which only accepts that user (DESIGN §11). The
-//!   UI only watches (D9): it can read the process list and their output.
+//!   UI only watches (D9): it can read the process list and their output, also pushed as it
+//!   arrives ([`UiCommand::WatchOutput`], served by the IPC connection).
 
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Duration;
 
 use tandem_core::Machine;
 use tandem_files::ForwardSpec;
@@ -112,9 +114,24 @@ const GONE: &str = "tunnel stream unusable";
 impl Mode {
     /// Switches to data (minimum priority, with the pause and cap of `qos`); if it already is, nothing.
     fn switch_to_data(&mut self, qos: &Qos) -> Result<(), WireError> {
+        self.switch(qos, false)
+    }
+
+    /// Switches to live data: minimum priority and the cap, but not the input pause (process
+    /// output that a person watches).
+    fn switch_to_live(&mut self, qos: &Qos) -> Result<(), WireError> {
+        self.switch(qos, true)
+    }
+
+    fn switch(&mut self, qos: &Qos, live: bool) -> Result<(), WireError> {
         match std::mem::replace(self, Mode::Gone) {
             Mode::Control(s) => {
-                let (tx, rx) = s.into_data(qos).map_err(WireError::new)?;
+                let (tx, rx) = if live {
+                    s.into_live_data(qos)
+                } else {
+                    s.into_data(qos)
+                }
+                .map_err(WireError::new)?;
                 *self = Mode::Data(tx, rx);
                 Ok(())
             }
@@ -147,6 +164,10 @@ impl TargetWire for QuicTarget {
 
     fn start_data(&mut self) -> Result<(), WireError> {
         self.mode.switch_to_data(&self.qos)
+    }
+
+    fn start_output(&mut self) -> Result<(), WireError> {
+        self.mode.switch_to_live(&self.qos)
     }
 }
 
@@ -302,6 +323,51 @@ pub async fn handle(agent: &Arc<Agent>, client: Option<ClientKind>, cmd: UiComma
                 Err(e) => Reply::Rejected(e.to_string()),
             }
         }
+        UiCommand::Input {
+            tunnel,
+            process,
+            bytes,
+        } => {
+            if client.is_none() {
+                return Reply::Rejected(CLIENTS_ONLY.into());
+            }
+            match agent.tunnels().input(tunnel, process, &bytes) {
+                Ok(()) => Reply::Done,
+                Err(e) => Reply::Rejected(e.to_string()),
+            }
+        }
+        UiCommand::Resize {
+            tunnel,
+            process,
+            size,
+        } => {
+            if client.is_none() {
+                return Reply::Rejected(CLIENTS_ONLY.into());
+            }
+            match agent.tunnels().resize(tunnel, process, size).await {
+                Ok(()) => Reply::Done,
+                Err(e) => Reply::Rejected(e.to_string()),
+            }
+        }
+        // Read only (D9): what already reached this machine, waiting for more if asked.
+        UiCommand::Output {
+            tunnel,
+            process,
+            from,
+            max,
+            wait_ms,
+        } if wait_ms > 0 => {
+            let wait = Duration::from_millis(u64::from(wait_ms)).min(MAX_OUTPUT_WAIT);
+            let max = usize::try_from(max).unwrap_or(usize::MAX);
+            match agent
+                .tunnels()
+                .wait_output(tunnel, process, from, max, wait)
+                .await
+            {
+                Ok(out) => Reply::Output(Box::new(out)),
+                Err(e) => Reply::Rejected(e.to_string()),
+            }
+        }
         other => agent.handle(other),
     }
 }
@@ -361,8 +427,11 @@ async fn files_and_ports(agent: &Arc<Agent>, cmd: UiCommand) -> Reply {
     }
 }
 
-/// The requests that take a while (file copies): the IPC runs them in its own task so as not to
-/// stall the connection meanwhile.
+/// The longest an `Output` waits for new output.
+pub const MAX_OUTPUT_WAIT: Duration = Duration::from_secs(60);
+
+/// The requests that take a while (file copies, waiting for output): the IPC runs them in its own
+/// task so as not to stall the connection meanwhile.
 pub fn is_slow(cmd: &UiCommand) -> bool {
     matches!(
         cmd,
@@ -373,5 +442,5 @@ pub fn is_slow(cmd: &UiCommand) -> bool {
                 workspace: Some(_),
                 ..
             }
-    )
+    ) || matches!(cmd, UiCommand::Output { wait_ms, .. } if *wait_ms > 0)
 }

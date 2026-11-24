@@ -5,6 +5,7 @@
   import { useStore } from "../lib/context";
   import { wallOf } from "../lib/arrangement";
   import { cursorPoint, flowSeconds, RateMeter, sceneOf, type Point } from "../lib/desk";
+  import { isDim, linkText, shortMonitor } from "../lib/monitors";
   import Button from "../ui/Button.svelte";
   import type { Machine } from "../lib/model";
   import { LINK_NAME } from "../lib/machines";
@@ -84,6 +85,15 @@
       rate = 0;
     };
   });
+
+  // Each monitor's link in plain words (T-349): all of them for the accessible description, and
+  // those that show neither machine as a line on the card.
+  const nameOf = (m: Machine) => desk.machines[m]?.name ?? m.toUpperCase();
+  const monitorStates = $derived(desk.monitors.flatMap((m) => {
+    const text = linkText(m.link, nameOf);
+    return text ? [{ id: m.id, size: shortMonitor(m.name), text, dim: isDim(m.link) }] : [];
+  }));
+  const spokenStates = $derived(monitorStates.map((x) => ` ${x.size}: ${x.text}.`).join(""));
 
   // `V3-Desk` writes "34" shows PC-Desktop"; `V3-Monitors` (and `scenes.ts`) use "→".
   const sceneLine = (desc: string) => desc.replaceAll(" → ", " shows ");
@@ -186,12 +196,12 @@
 
   <section class="bottom">
     <Card delay={0.2} class="desks">
-      <div class="ch"><h2 class="h3">Live desktops</h2><span class="fill"></span><a href="#/arrangement" class="ib" aria-label="Edit arrangement" title="Edit arrangement"><Icon name="edit" /></a></div>
+      <div class="ch"><h2 class="h3">Live desktops</h2><span class="fill"></span>{#each monitorStates.filter((x) => x.dim) as x (x.id)}<span class="mstate" role="status"><Icon name="power" size={13} stroke={2} />{x.size} · {x.text}</span>{/each}<a href="#/arrangement" class="ib" aria-label="Edit arrangement" title="Edit arrangement"><Icon name="edit" /></a></div>
       <div class="canvas">
         {#if scene && a && b}
-          <div role="img" aria-label="To scale: {scene.desks.map((k) => k.label).join(' and ')}. The cursor moves between the two." class="scale" style="aspect-ratio:{scene.aspect}">
+          <div role="img" aria-label="To scale: {scene.desks.map((k) => k.label).join(' and ')}. The cursor moves between the two.{spokenStates}" class="scale" style="aspect-ratio:{scene.aspect}">
             {#each scene.desks as k (k.id)}
-              <div class="desk" style="left:{k.left}%;top:{k.top}%;width:{k.width}%;height:{k.height}%"><div class="w" style="background:{k.wall}">{k.label}</div></div>
+              <div class="desk" class:dim={k.dim} style="left:{k.left}%;top:{k.top}%;width:{k.width}%;height:{k.height}%"><div class="w" style="background:{k.wall}">{k.label}</div></div>
             {/each}
             {#each scene.feet as f, i (i)}
               <div class="foot" style="left:{f.left}%;top:{f.top}%;width:{f.width}%;height:{f.height}%;border-radius:0 0 {f.radius}px {f.radius}px"></div>
@@ -443,6 +453,18 @@
     padding: 5px;
     background: #0b0c0e;
     border: 1px solid #2f3239;
+  }
+  .desk.dim {
+    border-style: dashed;
+    opacity: 0.6;
+  }
+  .mstate {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-right: 8px;
+    font-size: 12px;
+    color: #d9a75a;
   }
   .desk .w {
     width: 100%;

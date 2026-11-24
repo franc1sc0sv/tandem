@@ -176,7 +176,8 @@ impl Directory {
         }
     }
 
-    fn channel_of(&self, machine: Machine, id: &str) -> Option<&MonitorChannel> {
+    /// What `machine` announced for monitor `id`, if it sees it.
+    pub fn channel_of(&self, machine: Machine, id: &str) -> Option<&MonitorChannel> {
         let list = if machine == self.me {
             Some(&self.local)
         } else {
@@ -281,6 +282,8 @@ impl Directory {
                         .collect(),
                     owner: self.owner(id),
                     report: self.report(id),
+                    // Derived by the agent with the desk's cables and both ends' (T-349).
+                    link: tandem_core::MonitorLink::default(),
                 })
             })
             .collect()

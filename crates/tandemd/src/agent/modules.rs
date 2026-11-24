@@ -48,6 +48,7 @@ impl Agent {
         );
         caps.power = self.power_caps(caps.info.os);
         caps.monitors = self.monitors.local_channels();
+        caps.cables = self.monitors.own_cables();
         caps.local_network = self.local_network();
         self.add_environments(&mut caps);
         caps

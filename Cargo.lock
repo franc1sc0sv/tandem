@@ -2461,7 +2461,7 @@ dependencies = [
 [[package]]
 name = "monitor-ddc"
 version = "0.1.0"
-source = "git+https://github.com/franc1sc0sv/monitor-firmware?rev=e850a2d4a63c26c100aa846970f8673afed39229#e850a2d4a63c26c100aa846970f8673afed39229"
+source = "git+https://github.com/franc1sc0sv/monitor-firmware?rev=364005d72b199f8e3106b3e966ce9d478c69da58#364005d72b199f8e3106b3e966ce9d478c69da58"
 dependencies = [
  "libc",
  "sha2 0.11.1",

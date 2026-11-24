@@ -7,6 +7,8 @@
   import { SETTINGS_TABS, nextTab, type SettingsTab } from "../lib/settings";
   import { WIZARD_PAIR } from "../lib/store/store.svelte";
   import type { FilesView } from "../lib/store/types";
+  import type { BuiltinMode } from "../lib/model";
+  import Segmented, { type SegOption } from "../ui/Segmented.svelte";
   import PageHeader from "../shell/PageHeader.svelte";
   import Button from "../ui/Button.svelte";
   import Icon from "../ui/Icon.svelte";
@@ -24,6 +26,14 @@
   let draft = $state("");
   let leaving = $state(false);
   let forgetting = $state(false);
+
+  // What a Mac does with its built-in display while an external one is on (T-353).
+  const BUILTIN_OPTIONS: SegOption[] = [
+    { value: "external-only", label: "External only", icon: "monitors" },
+    { value: "mirror", label: "Mirror", icon: "copy" },
+    { value: "extended", label: "Extended", icon: "laptop" },
+  ];
+  const macs = $derived(machines.filter((m) => m.builtinDisplay !== undefined));
 
   // The buttons of the settings mockups measure 34 px (12.5 px text, 15 icon).
   const B34 = "--btn-h:34px;--btn-px:13px;--btn-gap:7px";
@@ -169,6 +179,14 @@
                 <Button icon="refresh" size="sm" style={B34} onclick={forgetAndPair}>{forgetting ? "Confirm" : "Forget and pair"}</Button>
               </div>
             {/if}
+            {#each macs as m (m.id)}
+              <div class="row" data-testid="builtin-{m.id}">
+                <span class="fill col"
+                  >Built-in display of {m.name}<span class="mut sub">With an external monitor on. Without one, the built-in display always stays on.</span></span
+                >
+                <Segmented label="Built-in display of {m.name}" options={BUILTIN_OPTIONS} value={m.builtinDisplay ?? "external-only"} onchange={(v) => store.setBuiltinDisplay(m.id, v as BuiltinMode)} />
+              </div>
+            {/each}
           {:else if tab === "shortcuts"}
             <Shortcuts />
           {:else if tab === "keyboard"}

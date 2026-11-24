@@ -62,6 +62,31 @@ pub struct PowerDisplay {
     pub key: Option<DisplayKey>,
 }
 
+/// A display the system knows, whether it is on, off or mirroring another (T-353).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SystemDisplay {
+    pub id: u32,
+    pub key: Option<DisplayKey>,
+    /// The machine's own panel (a MacBook's).
+    pub builtin: bool,
+    /// It shows something: a screen of its own or a mirror of another.
+    pub enabled: bool,
+    /// The display it mirrors, if it is a mirror.
+    pub mirror_of: Option<u32>,
+    /// The main display (the one with the menu bar).
+    pub main: bool,
+}
+
+/// What the built-in display does (T-353), set in one display configuration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BuiltinState {
+    Off,
+    /// It mirrors the display with this id.
+    Mirror(u32),
+    /// A screen of its own.
+    Own,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum DisplayPowerError {
     #[error("display control is not available: {0}")]
@@ -78,6 +103,21 @@ pub trait DisplayPower: Send + Sync + std::fmt::Debug {
     fn active(&self) -> Result<Vec<PowerDisplay>, DisplayPowerError>;
     /// Turns the display `id` on or off. A display already in that state is not an error.
     fn set_enabled(&self, id: u32, on: bool) -> Result<(), DisplayPowerError>;
+    /// Every display the system knows, on, off or mirroring (T-353). A system that cannot say
+    /// lists none, and then the built-in display is never touched.
+    fn online(&self) -> Result<Vec<SystemDisplay>, DisplayPowerError> {
+        Ok(Vec::new())
+    }
+    /// The lid of the machine is closed: its built-in display is not to be turned on (T-353).
+    fn lid_closed(&self) -> bool {
+        false
+    }
+    /// Puts the built-in display `id` in `state` in one display configuration (T-353).
+    fn set_builtin(&self, _id: u32, _state: BuiltinState) -> Result<(), DisplayPowerError> {
+        Err(DisplayPowerError::Unavailable(
+            "this system does not control a built-in display".into(),
+        ))
+    }
 }
 
 /// A system that does not turn displays off: Windows, and the ones without an engine.
@@ -93,6 +133,19 @@ impl DisplayPower for NoDisplayPower {
     }
     fn set_enabled(&self, _id: u32, _on: bool) -> Result<(), DisplayPowerError> {
         Ok(())
+    }
+}
+
+/// The EDID of every external display the system has, with or without a DDC/CI channel (T-353):
+/// the IOKit registry on macOS; `None` where the DDC bus already lists every display.
+pub fn system_edids() -> Option<fn() -> Vec<Vec<u8>>> {
+    #[cfg(target_os = "macos")]
+    {
+        Some(crate::macos::iokit::external_edids)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        None
     }
 }
 
@@ -122,6 +175,16 @@ struct FakeDisplays {
     all: Vec<(PowerDisplay, bool)>,
     calls: Vec<(u32, bool)>,
     fail: bool,
+    /// The built-in display's id, if this machine has one (T-353).
+    builtin: Option<u32>,
+    /// Which display mirrors which.
+    mirrors: std::collections::BTreeMap<u32, u32>,
+    /// Displays that are unplugged: not listed at all, and turning them on fails.
+    gone: std::collections::BTreeSet<u32>,
+    builtin_calls: Vec<(u32, BuiltinState)>,
+    /// How many of the next changes fail before they work again.
+    fail_next: u32,
+    lid_closed: bool,
 }
 
 impl FakeDisplayPower {
@@ -133,6 +196,12 @@ impl FakeDisplayPower {
                 all: displays.into_iter().map(|d| (d, true)).collect(),
                 calls: Vec::new(),
                 fail: false,
+                builtin: None,
+                mirrors: std::collections::BTreeMap::new(),
+                gone: std::collections::BTreeSet::new(),
+                builtin_calls: Vec::new(),
+                fail_next: 0,
+                lid_closed: false,
             }),
         }
     }
@@ -165,6 +234,53 @@ impl FakeDisplayPower {
         self.lock().fail = fail;
     }
 
+    /// The display `id` is the machine's built-in one (T-353).
+    pub fn with_builtin(self, id: u32) -> Self {
+        self.lock().builtin = Some(id);
+        self
+    }
+
+    /// Every `set_builtin` that went through, in order.
+    pub fn builtin_calls(&self) -> Vec<(u32, BuiltinState)> {
+        self.lock().builtin_calls.clone()
+    }
+
+    /// The display `id` mirrors this one, if any.
+    pub fn mirror_of(&self, id: u32) -> Option<u32> {
+        self.lock().mirrors.get(&id).copied()
+    }
+
+    /// The display `id` is unplugged (`true`) or plugged back in, in the state it had.
+    pub fn unplug(&self, id: u32, gone: bool) {
+        let mut s = self.lock();
+        if gone {
+            s.gone.insert(id);
+        } else {
+            s.gone.remove(&id);
+        }
+    }
+
+    /// The display `id` comes back with another id (macOS may give a new one after a
+    /// reconnection or a new session).
+    pub fn renumber(&self, id: u32, new: u32) {
+        let mut s = self.lock();
+        for (d, _) in &mut s.all {
+            if d.id == id {
+                d.id = new;
+            }
+        }
+    }
+
+    /// The lid is closed (`true`) or open.
+    pub fn set_lid_closed(&self, closed: bool) {
+        self.lock().lid_closed = closed;
+    }
+
+    /// The next `n` changes fail, then they work again.
+    pub fn fail_next(&self, n: u32) {
+        self.lock().fail_next = n;
+    }
+
     /// Turns a display off behind the agent's back (a previous run that crashed).
     pub fn force(&self, id: u32, on: bool) {
         for (d, state) in &mut self.lock().all {
@@ -180,29 +296,101 @@ impl DisplayPower for FakeDisplayPower {
         self.lock().control.clone()
     }
 
+    /// As on macOS, a mirror is not an active display (`CGGetActiveDisplayList`).
     fn active(&self) -> Result<Vec<PowerDisplay>, DisplayPowerError> {
-        Ok(self
-            .lock()
-            .all
+        let s = self.lock();
+        Ok(s.all
             .iter()
-            .filter(|(_, on)| *on)
+            .filter(|(d, on)| *on && !s.gone.contains(&d.id) && !s.mirrors.contains_key(&d.id))
             .map(|(d, _)| *d)
             .collect())
     }
 
     fn set_enabled(&self, id: u32, on: bool) -> Result<(), DisplayPowerError> {
         let mut s = self.lock();
-        if let DisplayControl::Unavailable(why) = &s.control {
-            return Err(DisplayPowerError::Unavailable(why.clone()));
-        }
-        if s.fail {
-            return Err(DisplayPowerError::Platform("failing on purpose".into()));
+        s.check()?;
+        if s.gone.contains(&id) {
+            return Err(DisplayPowerError::Platform(
+                "CGCompleteDisplayConfiguration failed: 1001".into(),
+            ));
         }
         let Some((_, state)) = s.all.iter_mut().find(|(d, _)| d.id == id) else {
-            return Err(DisplayPowerError::Platform(format!("no display {id}")));
+            return Err(DisplayPowerError::Platform(
+                "CGCompleteDisplayConfiguration failed: 1001".into(),
+            ));
         };
         *state = on;
+        if !on {
+            s.mirrors.remove(&id);
+        }
         s.calls.push((id, on));
+        Ok(())
+    }
+
+    fn online(&self) -> Result<Vec<SystemDisplay>, DisplayPowerError> {
+        let s = self.lock();
+        let main = s
+            .all
+            .iter()
+            .find(|(d, on)| *on && !s.gone.contains(&d.id) && !s.mirrors.contains_key(&d.id))
+            .map(|(d, _)| d.id);
+        Ok(s.all
+            .iter()
+            .filter(|(d, _)| !s.gone.contains(&d.id))
+            .map(|(d, on)| SystemDisplay {
+                id: d.id,
+                key: d.key,
+                builtin: s.builtin == Some(d.id),
+                enabled: *on,
+                mirror_of: s.mirrors.get(&d.id).copied(),
+                main: main == Some(d.id),
+            })
+            .collect())
+    }
+
+    fn lid_closed(&self) -> bool {
+        self.lock().lid_closed
+    }
+
+    fn set_builtin(&self, id: u32, state: BuiltinState) -> Result<(), DisplayPowerError> {
+        let mut s = self.lock();
+        s.check()?;
+        if s.builtin != Some(id) {
+            return Err(DisplayPowerError::Platform(format!(
+                "{id} is not the built-in display"
+            )));
+        }
+        let on = state != BuiltinState::Off;
+        if let Some((_, state)) = s.all.iter_mut().find(|(d, _)| d.id == id) {
+            *state = on;
+        }
+        match state {
+            BuiltinState::Mirror(of) => {
+                s.mirrors.insert(id, of);
+            }
+            BuiltinState::Off | BuiltinState::Own => {
+                s.mirrors.remove(&id);
+            }
+        }
+        s.builtin_calls.push((id, state));
+        Ok(())
+    }
+}
+
+impl FakeDisplays {
+    fn check(&mut self) -> Result<(), DisplayPowerError> {
+        if let DisplayControl::Unavailable(why) = &self.control {
+            return Err(DisplayPowerError::Unavailable(why.clone()));
+        }
+        if self.fail {
+            return Err(DisplayPowerError::Platform("failing on purpose".into()));
+        }
+        if self.fail_next > 0 {
+            self.fail_next -= 1;
+            return Err(DisplayPowerError::Platform(
+                "CGCompleteDisplayConfiguration failed: 1001".into(),
+            ));
+        }
         Ok(())
     }
 }

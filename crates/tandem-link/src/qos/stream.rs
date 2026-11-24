@@ -17,11 +17,26 @@ use crate::transport::TransportError;
 pub struct DataStream<W> {
     qos: Qos,
     inner: W,
+    /// The input pause holds it back (bulk data); otherwise only the cap ([`Qos::live_stream`]).
+    pausable: bool,
 }
 
 impl<W> DataStream<W> {
     pub fn new(qos: Qos, inner: W) -> Self {
-        DataStream { qos, inner }
+        DataStream {
+            qos,
+            inner,
+            pausable: true,
+        }
+    }
+
+    /// Respects the cap but not the pause ([`Qos::acquire_capped`]).
+    pub fn live(qos: Qos, inner: W) -> Self {
+        DataStream {
+            qos,
+            inner,
+            pausable: false,
+        }
     }
 
     pub fn qos(&self) -> &Qos {
@@ -45,7 +60,11 @@ impl<W: AsyncWrite + Unpin> DataStream<W> {
     /// Writes all of `buf`, in pieces as the cap lets out; when paused, waits.
     pub async fn write_all(&mut self, mut buf: &[u8]) -> io::Result<()> {
         while !buf.is_empty() {
-            let n = self.qos.acquire(buf.len()).await;
+            let n = if self.pausable {
+                self.qos.acquire(buf.len()).await
+            } else {
+                self.qos.acquire_capped(buf.len()).await
+            };
             let (now, rest) = buf.split_at(n.min(buf.len()));
             self.inner.write_all(now).await?;
             buf = rest;

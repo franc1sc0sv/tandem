@@ -10,14 +10,14 @@ import type { Bridge } from "../bridge";
 import type { CrossSample } from "../crossing";
 import { nextLive, summaryOf } from "../machine";
 import { machineColor, machineName, other } from "../machines";
-import type { Action, ActionResult, AdminView, Bindings, Caps, Desk, DragStatus, Link, Machine, MachineCaps, MonitorInput, Side, Permission, ResourceSample, SceneJson, SetupView, ShortcutsView, Snapshot, TxnView } from "../model";
+import type { Action, ActionResult, AdminView, Bindings, BuiltinMode, Caps, Desk, DragStatus, Link, Machine, MachineCaps, MonitorInput, Side, Permission, ResourceSample, SceneJson, SetupView, ShortcutsView, Snapshot, TxnView } from "../model";
 import { devicesOfHub } from "../wizard";
 import { gbpsOf, measuredText, networkFromWire, primaryOf } from "../network";
-import { hiddenScreens, monitorsUi } from "../monitors";
+import { deskScreens, monitorsUi } from "../monitors";
 import { sceneView } from "../scenes";
 import { grantTo, permissionState } from "../permissions";
-import type { ActResult, Capability, CursorEvent, DeskChange, DeskView, FilesView, EnvView, HardwareView, LinkKind, LiveView, MachineView, ModuleView, NetworkView, OutputChunk, OutputCursor, PairActionKind, PermissionsView, PrefsView, ProcessRow, Source, Topic, TransferView, TunnelView } from "./types";
-import { addTransfer, newMemory, outputChunk, processRow, tunnelsFromWire, type Memory, type ProjectWire } from "../tunnels";
+import type { ActResult, Capability, CursorEvent, DeskChange, DeskView, FilesView, EnvView, HardwareView, LinkKind, LiveChunk, LiveView, MachineView, ModuleView, NetworkView, OutputChunk, OutputCursor, PairActionKind, PermissionsView, PrefsView, ProcessRow, Source, Topic, TransferView, TunnelView } from "./types";
+import { addTransfer, liveChunk, newMemory, outputChunk, processRow, tunnelsFromWire, type LiveOutputWire, type Memory, type ProjectWire } from "../tunnels";
 import type { UpdateView } from "../updates";
 import { EMPTY_NETWORK } from "./types";
 
@@ -137,6 +137,7 @@ function machineView(who: Machine, here: Machine, caps: Caps, snap: Extract<Snap
     inputDevices: devicesOfHub(c?.hub),
     live: shown,
     wake: who === here ? null : { mac: caps.here.power.wol_mac ?? null },
+    ...(os === "macos" ? { builtinDisplay: snap.desk.builtin_display?.[who] ?? "external-only" } : {}),
   };
 }
 
@@ -207,8 +208,9 @@ export function deskFromSnapshot(raw: Snapshot, live: LiveByMachine = {}, networ
  */
 export function layoutFromDesk(snap: Extract<Snapshot, { kind: "connected" }>): LayoutView {
   const screens: LayoutScreen[] = [];
-  // A monitor that shows the other machine is not a screen of this one (T-340): drawn once.
-  const hidden = hiddenScreens(snap.desk.cables, monitorsUi(snap.monitors));
+  // A monitor that shows the other machine is not a screen of this one (T-340): drawn once. One
+  // that shows neither (off, standby, unplugged input) is drawn once, dimmed (T-349).
+  const { hidden, dim } = deskScreens(snap.desk.cables, monitorsUi(snap.monitors), (m) => machineName(m, snap.caps, snap.desk));
   for (const m of ["a", "b"] as Machine[]) {
     const name = machineName(m, snap.caps, snap.desk);
     const known = snap.desk.machines?.[m] ?? (snap.caps.here.machine === m ? snap.caps.here : snap.caps.peer?.machine === m ? snap.caps.peer : null);
@@ -248,6 +250,7 @@ export function layoutFromDesk(snap: Extract<Snapshot, { kind: "connected" }>): 
         usable: true,
         line: name,
         native: { id: s.id, x: s.x, y: s.y, w: s.width, h: s.height },
+        ...(dim[m][s.id] !== undefined ? { dim: dim[m][s.id] } : {}),
       });
     }
   }
@@ -395,6 +398,10 @@ export class LiveSource implements Source {
     return result(await this.bridge.act({ kind: "switch_monitor", monitor, input }));
   }
 
+  async monitorPower(monitor: string, on: boolean): Promise<ActResult> {
+    return result(await this.bridge.act({ kind: "monitor_power", monitor, on }));
+  }
+
   async saveScene(scene: SceneJson, isNew: boolean): Promise<ActResult> {
     const r = result(await this.bridge.act(isNew ? { kind: "add_scene", scene } : { kind: "edit_scene", scene }));
     return r.ok ? { ok: true, text: `Scene “${scene.name}” saved` } : r;
@@ -469,6 +476,10 @@ export class LiveSource implements Source {
 
   setPrefs(p: { cmdCtrl: boolean; dragFiles: boolean }): Promise<ActResult> {
     return this.ask({ kind: "set_prefs", cmd_ctrl: p.cmdCtrl, drag_files: p.dragFiles });
+  }
+
+  setBuiltinDisplay(machine: Machine, mode: BuiltinMode): Promise<ActResult> {
+    return this.ask({ kind: "set_builtin_display", machine, mode });
   }
 
   setDeskName(name: string): Promise<ActResult> {
@@ -664,6 +675,35 @@ export class LiveSource implements Source {
     const r = await this.bridge.act({ kind: "processes", tunnel });
     if (r.kind === "processes") return r.processes.map(processRow);
     throw new Error(r.kind === "rejected" || r.kind === "unavailable" ? r.reason : "the agent did not answer with processes");
+  }
+
+  /** Only a core that forwards the output event can push it. */
+  get pushesOutput(): boolean {
+    return this.bridge.onOutput !== undefined;
+  }
+
+  /** The single listener of the output event, and who receives it now (one watch per window). */
+  private outputBound: Promise<void> | null = null;
+  private outputListener: ((o: LiveOutputWire) => void) | null = null;
+
+  async watchOutput(tunnel: string, process: number, from: OutputCursor, onChunk: (c: LiveChunk) => void): Promise<() => void> {
+    this.outputBound ??= Promise.resolve(this.bridge.onOutput?.((o) => this.outputListener?.(o)));
+    await this.outputBound;
+    const mine = (o: LiveOutputWire) => {
+      if (o.tunnel === tunnel && o.process.id === process) onChunk(liveChunk(o));
+    };
+    this.outputListener = mine;
+    const r = await this.bridge.act({ kind: "watch_output", tunnel, process, stdout: from.stdout, stderr: from.stderr });
+    if (r.kind !== "done") {
+      if (this.outputListener === mine) this.outputListener = null;
+      throw new Error(r.kind === "rejected" || r.kind === "unavailable" ? r.reason : "the agent did not accept the watch");
+    }
+    return () => {
+      // Another view may have taken over in the meantime: only the current one stops it.
+      if (this.outputListener !== mine) return;
+      this.outputListener = null;
+      void Promise.resolve(this.bridge.act({ kind: "stop_output" })).catch(() => {});
+    };
   }
 
   async output(tunnel: string, process: number, from: OutputCursor): Promise<OutputChunk> {

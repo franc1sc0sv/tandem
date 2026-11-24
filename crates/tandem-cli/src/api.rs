@@ -5,11 +5,11 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
-use tandem_core::Machine;
+use tandem_core::{LinkState, Machine, MonitorInput, MonitorLink};
 use tandem_proto::files::Direction;
 use tandem_proto::{
-    ExecSpec, OutputCursor, ProcessId, Project, Reply, Tunnel, TunnelProcess, UiCommand,
-    WorkspaceSpec,
+    ExecSpec, MonitorView, OutputCursor, ProcessId, Project, PtySize, Reply, Tunnel, TunnelProcess,
+    UiCommand, WorkspaceSpec,
 };
 use tandemd::ipc::IpcClient;
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -260,6 +260,56 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Api<S> {
         match name {
             "machines" => self.machines().await,
             "resources" => self.resources(&a).await,
+            "monitors" => self.monitors().await,
+            "monitor_switch" => {
+                let monitor = self
+                    .monitor_id(a.str("monitor").unwrap_or_default())
+                    .await?;
+                let input = match a
+                    .str("input")
+                    .map(|s| s.trim().to_ascii_lowercase())
+                    .as_deref()
+                {
+                    Some("dp" | "displayport" | "display_port") => MonitorInput::DisplayPort,
+                    Some("hdmi") => MonitorInput::Hdmi,
+                    other => {
+                        return Err(ToolError::Args(format!(
+                            "`{}` is not an input: use `dp` or `hdmi`",
+                            other.unwrap_or_default()
+                        )));
+                    }
+                };
+                match self
+                    .ask(UiCommand::SwitchMonitor {
+                        monitor: monitor.clone(),
+                        input,
+                    })
+                    .await?
+                {
+                    Reply::Done | Reply::Accepted { .. } => Ok(
+                        json!({"monitor": monitor, "input": input.to_string(), "requested": true}),
+                    ),
+                    r => Err(unexpected(&r)),
+                }
+            }
+            "monitor_power" => {
+                let monitor = self
+                    .monitor_id(a.str("monitor").unwrap_or_default())
+                    .await?;
+                let on = a.flag("on");
+                match self
+                    .ask(UiCommand::MonitorPower {
+                        monitor: monitor.clone(),
+                        on,
+                    })
+                    .await?
+                {
+                    Reply::Done | Reply::Accepted { .. } => {
+                        Ok(json!({"monitor": monitor, "on": on, "requested": true}))
+                    }
+                    r => Err(unexpected(&r)),
+                }
+            }
             "tunnels" => match self.ask(UiCommand::GetTunnels).await? {
                 Reply::Tunnels(groups) => {
                     let groups: Vec<Value> = groups
@@ -307,6 +357,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Api<S> {
                         })
                         .collect::<Result<_, _>>()?,
                     allow_secret_env: a.flag("allow_secret_env"),
+                    pty: pty_size(&a)?,
                 };
                 match self
                     .ask(UiCommand::Exec {
@@ -330,6 +381,43 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Api<S> {
                 }
                 r => Err(unexpected(&r)),
             },
+            "input" => {
+                let (tunnel, process) = (a.tunnel()?, a.process()?);
+                let text = a.req("text")?;
+                match self
+                    .ask(UiCommand::Input {
+                        tunnel,
+                        process,
+                        bytes: text.as_bytes().to_vec(),
+                    })
+                    .await?
+                {
+                    Reply::Done | Reply::Accepted { .. } => {
+                        Ok(json!({"typed": text.len(), "process": process.0}))
+                    }
+                    r => Err(unexpected(&r)),
+                }
+            }
+            "resize" => {
+                let (tunnel, process) = (a.tunnel()?, a.process()?);
+                let size = PtySize {
+                    cols: cells(&a, "cols")?.unwrap_or_default(),
+                    rows: cells(&a, "rows")?.unwrap_or_default(),
+                };
+                match self
+                    .ask(UiCommand::Resize {
+                        tunnel,
+                        process,
+                        size,
+                    })
+                    .await?
+                {
+                    Reply::Done | Reply::Accepted { .. } => {
+                        Ok(json!({"cols": size.cols, "rows": size.rows}))
+                    }
+                    r => Err(unexpected(&r)),
+                }
+            }
             "output" => self.output(&a).await,
             "kill" => {
                 let (tunnel, process) = (a.tunnel()?, a.process()?);
@@ -434,6 +522,53 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Api<S> {
         }))
     }
 
+    /// The monitors with their derived link (T-349).
+    /// The id of the one monitor whose id or name starts with `query` (case-insensitive).
+    async fn monitor_id(&mut self, query: &str) -> Result<String, ToolError> {
+        let views = match self.ask(UiCommand::GetMonitors).await? {
+            Reply::Monitors(v) => v,
+            r => return Err(unexpected(&r)),
+        };
+        let q = query.trim().to_ascii_lowercase();
+        if let Some(v) = views.iter().find(|v| v.id == q) {
+            return Ok(v.id.clone());
+        }
+        let hits: Vec<&str> = views
+            .iter()
+            .filter(|v| {
+                !q.is_empty()
+                    && (v.id.starts_with(&q) || v.name.to_ascii_lowercase().starts_with(&q))
+            })
+            .map(|v| v.id.as_str())
+            .collect();
+        match hits.as_slice() {
+            [one] => Ok((*one).to_owned()),
+            [] => Err(ToolError::Args(format!("no monitor matches `{query}`"))),
+            many => Err(ToolError::Args(format!(
+                "`{query}` matches several monitors: {}",
+                many.join(", ")
+            ))),
+        }
+    }
+
+    async fn monitors(&mut self) -> Result<Value, ToolError> {
+        let views = match self.ask(UiCommand::GetMonitors).await? {
+            Reply::Monitors(v) => v,
+            r => return Err(unexpected(&r)),
+        };
+        let caps = self.caps().await?;
+        let mut names = std::collections::BTreeMap::new();
+        for c in std::iter::once(&caps.here).chain(caps.peer.as_ref()) {
+            names.insert(c.machine, c.info.name.clone());
+        }
+        Ok(monitors_json(&views, |m| {
+            names
+                .get(&m)
+                .cloned()
+                .unwrap_or_else(|| format!("machine {}", m.as_str().to_uppercase()))
+        }))
+    }
+
     async fn resources(&mut self, a: &Args<'_>) -> Result<Value, ToolError> {
         let this = self.ipc.agent();
         let machine = match a.str("machine") {
@@ -532,18 +667,20 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Api<S> {
         let wait = Duration::from_millis(a.int("wait_ms").unwrap_or(0)).min(MAX_WAIT);
         let deadline = Instant::now() + wait;
         loop {
+            // The agent waits for the output itself and answers the moment a byte arrives.
+            let left = deadline.saturating_duration_since(Instant::now());
             let reply = self
                 .ask(UiCommand::Output {
                     tunnel,
                     process,
                     from,
                     max: budget,
+                    wait_ms: u32::try_from(left.as_millis()).unwrap_or(u32::MAX),
                 })
                 .await?;
             let Reply::Output(o) = reply else {
                 return Err(unexpected(&reply));
             };
-            // The agent does not wait: here we poll until there is something or `wait_ms` expires.
             let empty = o.stdout.is_empty() && o.stderr.is_empty();
             if !(empty && !o.done && Instant::now() < deadline) {
                 let (so, se) = page(&o.stdout, &o.stderr, budget as usize, budget as usize);
@@ -565,9 +702,72 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Api<S> {
                     "done": o.done && !more,
                 }));
             }
-            tokio::time::sleep(Duration::from_millis(25)).await;
         }
     }
+}
+
+/// A terminal cell count (`cols`, `rows`): 1..=u16::MAX.
+fn cells(a: &Args<'_>, k: &str) -> Result<Option<u16>, ToolError> {
+    a.int(k)
+        .map(|n| {
+            u16::try_from(n)
+                .ok()
+                .filter(|n| *n > 0)
+                .ok_or_else(|| ToolError::Args(format!("`{k}` must be between 1 and 65535")))
+        })
+        .transpose()
+}
+
+/// `exec`'s terminal: with `pty`, of `cols` × `rows` (default 120 × 32).
+fn pty_size(a: &Args<'_>) -> Result<Option<PtySize>, ToolError> {
+    if !a.flag("pty") {
+        return Ok(None);
+    }
+    let d = PtySize::default();
+    Ok(Some(PtySize {
+        cols: cells(a, "cols")?.unwrap_or(d.cols),
+        rows: cells(a, "rows")?.unwrap_or(d.rows),
+    }))
+}
+
+/// The plain words of a monitor's link ("Showing PC", "Mac cable unplugged"), as the UI says them.
+pub fn link_summary(link: &MonitorLink, name: &dyn Fn(Machine) -> String) -> String {
+    match link.state {
+        LinkState::ShowsMachine(m) => format!("Showing {}", name(m)),
+        LinkState::ActiveInputUnplugged(m) => format!("{} cable unplugged", name(m)),
+        LinkState::Standby => "Monitor in standby".to_owned(),
+        LinkState::Off => "Monitor off".to_owned(),
+        LinkState::Unknown => "State unknown".to_owned(),
+    }
+}
+
+/// `monitors`: each monitor with its derived state and each end's cable state.
+pub fn monitors_json(views: &[MonitorView], name: impl Fn(Machine) -> String) -> Value {
+    let list: Vec<Value> = views
+        .iter()
+        .map(|v| {
+            let link = v.link;
+            let (state, machine) = match link.state {
+                LinkState::ShowsMachine(m) => ("shows_machine", Some(m)),
+                LinkState::ActiveInputUnplugged(m) => ("active_input_unplugged", Some(m)),
+                LinkState::Standby => ("standby", None),
+                LinkState::Off => ("off", None),
+                LinkState::Unknown => ("unknown", None),
+            };
+            json!({
+                "id": v.id,
+                "name": v.name,
+                "state": state,
+                "machine": machine.map(Machine::as_str),
+                "summary": link_summary(&link, &name),
+                "power": link.power,
+                "cables": link.cables,
+                "owner": v.owner.map(Machine::as_str),
+                "input": v.report.as_ref().and_then(|r| r.input),
+            })
+        })
+        .collect();
+    json!({ "monitors": list })
 }
 
 fn parse_machine(s: &str) -> Result<Machine, ToolError> {
@@ -644,6 +844,61 @@ mod tests {
             }
             proptest::prop_assert_eq!(got, bytes);
         }
+    }
+
+    /// T-349: `monitors` returns the derived state and each end's cable state.
+    #[test]
+    fn monitors_carry_the_link_state_and_each_cable() {
+        use tandem_core::{CableState, Cables, PowerState};
+        use tandem_proto::{MonitorCompat, MonitorView};
+        let view = |state, a, b, power| MonitorView {
+            id: "lc34-1".into(),
+            name: "LC34G55T".into(),
+            compat: MonitorCompat::Compatible { protocol: 2 },
+            seen_by: vec![Machine::A, Machine::B],
+            via: vec![],
+            owner: Some(Machine::B),
+            report: None,
+            link: MonitorLink {
+                state,
+                power,
+                cables: Cables { a, b },
+            },
+        };
+        let name = |m: Machine| if m == Machine::A { "Mac" } else { "PC" }.to_owned();
+        let views = [
+            view(
+                LinkState::ShowsMachine(Machine::B),
+                CableState::Unknown,
+                CableState::Connected,
+                PowerState::On,
+            ),
+            view(
+                LinkState::ActiveInputUnplugged(Machine::A),
+                CableState::Disconnected,
+                CableState::Connected,
+                PowerState::Standby,
+            ),
+            view(
+                LinkState::Off,
+                CableState::Connected,
+                CableState::Connected,
+                PowerState::Off,
+            ),
+        ];
+        let v = monitors_json(&views, name);
+        let m = &v["monitors"];
+        assert_eq!(m[0]["state"], "shows_machine");
+        assert_eq!(m[0]["machine"], "b");
+        assert_eq!(m[0]["summary"], "Showing PC");
+        assert_eq!(m[0]["cables"], json!({"a": "unknown", "b": "connected"}));
+        assert_eq!(m[0]["power"], "on");
+        assert_eq!(m[1]["state"], "active_input_unplugged");
+        assert_eq!(m[1]["summary"], "Mac cable unplugged");
+        assert_eq!(m[1]["cables"]["a"], "disconnected");
+        assert_eq!(m[2]["summary"], "Monitor off");
+        assert_eq!(m[2]["machine"], Value::Null);
+        assert!(find("monitors").is_some());
     }
 
     #[test]

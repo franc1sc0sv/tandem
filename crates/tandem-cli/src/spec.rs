@@ -70,6 +70,45 @@ pub const TOOLS: &[Tool] = &[
         ],
     },
     Tool {
+        name: "monitors",
+        desc: "The shared monitors and their link state: which machine each one shows, whether it is on, \
+               in standby or off, and each machine's cable (connected, disconnected or unknown).",
+        params: &[],
+    },
+    Tool {
+        name: "monitor_switch",
+        desc: "Switches a shared monitor's input and waits for the firmware's verdict (rolled back if it fails). \
+               Refused when that input's cable is unplugged.",
+        params: &[
+            p(
+                "monitor",
+                Ty::Str,
+                true,
+                "Monitor id from `monitors`, or the start of its name",
+            ),
+            p("input", Ty::Str, true, "`dp` (DisplayPort) or `hdmi`"),
+        ],
+    },
+    Tool {
+        name: "monitor_power",
+        desc: "Puts a shared monitor in standby (`on` false) or wakes it (`on` true), by command. \
+               Only monitors whose firmware can be woken by command accept it.",
+        params: &[
+            p(
+                "monitor",
+                Ty::Str,
+                true,
+                "Monitor id from `monitors`, or the start of its name",
+            ),
+            p(
+                "on",
+                Ty::Bool,
+                true,
+                "true wakes it, false puts it in standby",
+            ),
+        ],
+    },
+    Tool {
         name: "tunnels",
         desc: "Open tunnels grouped by project, with their running processes.",
         params: &[],
@@ -161,6 +200,29 @@ pub const TOOLS: &[Tool] = &[
                 false,
                 "Lets secret-looking `env` variables through for this call",
             ),
+            p(
+                "pty",
+                Ty::Bool,
+                false,
+                "Run it in a terminal (ConPTY on Windows): it sees a TTY, stdout and stderr come together, and it takes `input`",
+            ),
+            p("cols", Ty::Int, false, "Terminal width with `pty` (120)"),
+            p("rows", Ty::Int, false, "Terminal height with `pty` (32)"),
+        ],
+    },
+    Tool {
+        name: "input",
+        desc: "Types into a process started with `pty` (a shell, a REPL, a prompt). Delivered in order and exactly once,                also across link drops. Use `\\r` for Enter and `\\u0003` for Ctrl+C.",
+        params: &[TUNNEL, PROCESS, p("text", Ty::Str, true, "What to type")],
+    },
+    Tool {
+        name: "resize",
+        desc: "Resizes the terminal of a process started with `pty`.",
+        params: &[
+            TUNNEL,
+            PROCESS,
+            p("cols", Ty::Int, true, "Width in columns"),
+            p("rows", Ty::Int, true, "Height in rows"),
         ],
     },
     Tool {
@@ -308,10 +370,15 @@ mod tests {
         for want in [
             "machines",
             "resources",
+            "monitors",
+            "monitor_switch",
+            "monitor_power",
             "tunnels",
             "tunnel_open",
             "tunnel_close",
             "exec",
+            "input",
+            "resize",
             "output",
             "kill",
             "files_put",

@@ -3,15 +3,15 @@
 
 import type { CommandContext } from "../commands";
 import { shouldOpen as pairingShouldOpen } from "../pairing";
-import type { AdminView, Machine, MonitorInput, SceneJson } from "../model";
+import type { AdminView, BuiltinMode, Machine, MonitorInput, SceneJson } from "../model";
 import { feedRun, running, viewOf, type Names, type Run, type RunView } from "../txn";
 import { machineName } from "../machines";
 import type { Bindings, DragStatus, Permission, ShortcutsView } from "../model";
 import { dragNotice } from "../drag";
 import { HOME, SCREEN_TOPICS, formatHash, parseHash, sameRoute, type Route } from "../routes";
 import { EMPTY_DESK, deskFromError } from "./live";
-import { changeToast, demoNotices, deskEvents, transferToast, type ToastSpec, type ToastTone } from "../notices";
-import type { ActResult, Capability, CursorEvent, DeskView, FilesView, LinkKind, OutputChunk, OutputCursor, PairActionKind, ProcessRow, Source, Topic } from "./types";
+import { changeToast, demoNotices, deskEvents, monitorNotices, transferToast, type LinkMemo, type ToastSpec, type ToastTone } from "../notices";
+import type { ActResult, Capability, CursorEvent, DeskView, FilesView, LinkKind, LiveChunk, OutputChunk, OutputCursor, PairActionKind, ProcessRow, Source, Topic } from "./types";
 import { updatedResult, type UpdateView } from "../updates";
 import type { Arrangement } from "../arrangement";
 import type { CrossSample } from "../crossing";
@@ -94,6 +94,9 @@ export class Store implements CommandContext {
     if (location) this.route = parseHash(location.hash);
   }
 
+  /** What was last announced about each monitor's link (T-349). */
+  private linkMemo: LinkMemo = {};
+
   /** The tray has no setup: only the main window opens it on pairing. */
   private get opensOnPairing(): boolean {
     return this.fixedTopics === null;
@@ -113,6 +116,12 @@ export class Store implements CommandContext {
         this.desk = d;
         // The notices for what changed, only in the main window; the tray does not repeat them.
         if (this.opensOnPairing) for (const spec of deskEvents(prev, d)) this.notify(spec);
+        // The monitors' link transitions (T-349), each state only once.
+        if (d.ready) {
+          const r = monitorNotices(this.linkMemo, d.monitors, (m) => d.machines[m]?.name ?? `machine ${m.toUpperCase()}`);
+          this.linkMemo = r.memo;
+          if (this.opensOnPairing) for (const spec of r.specs) this.notify(spec);
+        }
         // If the other machine started pairing (or the code appeared), the setup opens at that step.
         if (this.opensOnPairing && pairingShouldOpen(before, d.pair.pairing)) this.openWizard(WIZARD_PAIR);
         },
@@ -196,6 +205,17 @@ export class Store implements CommandContext {
   /** The output of a process from a cursor. */
   output(tunnel: string, process: number, from: OutputCursor): Promise<OutputChunk> {
     return this.source.output(tunnel, process, from);
+  }
+
+  /** Whether the source pushes output (otherwise it is asked for with `output`). */
+  get pushesOutput(): boolean {
+    return this.source.watchOutput !== undefined && (this.source.pushesOutput ?? true);
+  }
+
+  /** A process's output pushed as it arrives, until the returned function is called. */
+  watchOutput(tunnel: string, process: number, from: OutputCursor, onChunk: (c: LiveChunk) => void): Promise<() => void> {
+    if (!this.source.watchOutput) return Promise.reject(new Error("this source does not push output"));
+    return this.source.watchOutput(tunnel, process, from, onChunk);
   }
 
   private nowMs(): number {
@@ -286,6 +306,16 @@ export class Store implements CommandContext {
   switchMonitor(monitor: string, input: MonitorInput): Promise<ActResult> {
     const m = this.desk.monitors.find((x) => x.id === monitor);
     return this.change({ title: `Changing the input of ${m?.name ?? monitor}`, doneText: "Input changed." }, () => this.source.switchMonitor(monitor, input));
+  }
+
+  /** Standby or wake of a monitor by command, done by its owner. */
+  monitorPower(monitor: string, on: boolean): Promise<ActResult> {
+    const m = this.desk.monitors.find((x) => x.id === monitor);
+    const name = m?.name ?? monitor;
+    return this.change(
+      { title: on ? `Waking ${name}` : `Putting ${name} to sleep`, doneText: on ? `${name} is on.` : `${name} is in standby.` },
+      () => this.source.monitorPower(monitor, on),
+    );
   }
 
   /**
@@ -601,6 +631,10 @@ export class Store implements CommandContext {
 
   setPrefs(p: { cmdCtrl: boolean; dragFiles: boolean }): Promise<ActResult> {
     return this.report(this.source.setPrefs(p));
+  }
+
+  setBuiltinDisplay(machine: Machine, mode: BuiltinMode): Promise<ActResult> {
+    return this.report(this.source.setBuiltinDisplay(machine, mode));
   }
 
   setLockShortcut(lock: string[]): Promise<ActResult> {
