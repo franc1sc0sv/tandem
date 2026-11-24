@@ -288,6 +288,7 @@ export const SETTINGS: ShotSpec[] = [
     { app: ".pane > .row:nth-child(3) > button", mockup: ".pane > .row:nth-child(3) > button.ic", reason: "Without \"Remove from desk\" next to it, the pencil of the other machine falls at the right edge of the row" },
     { app: ".pane > .row:nth-child(4) > .fill", mockup: ".pane > .row:nth-child(4) > span", reason: "D1: \"Change the other machine\" instead of \"Add a machine\"" },
     { app: ".pane > .row:nth-child(4) > button", mockup: ".pane > .row:nth-child(4) > a.btn", reason: "D1: \"Pair again\" instead of \"Show code\"" },
+    { app: '[data-testid^="builtin-"]', mockup: NONE, reason: "The Mac's built-in display mode (T-353) has no row in the mockup: it is the pane's last row" },
     { app: ".pane > .row:nth-child(7)", reason: "T-345: \"Forget this pair and pair again\" has no counterpart in the mockup (the pair can go stale after a reinstall)" },
   ]),
   { ...settingsShot("settings-shortcuts", "shortcuts", [tab("Shortcuts")]), query: `${DEMO}&pconly` },

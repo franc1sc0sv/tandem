@@ -161,14 +161,6 @@
                 <Button icon="edit" size="sm" iconOnly label="Rename" style={B34} onclick={() => rename(m.id, m.name)} />
               </div>
             {/each}
-            {#each macs as m (m.id)}
-              <div class="row" data-testid="builtin-{m.id}">
-                <span class="fill col"
-                  >Built-in display of {m.name}<span class="mut sub">With an external monitor on. Without one, the built-in display always stays on.</span></span
-                >
-                <Segmented label="Built-in display of {m.name}" options={BUILTIN_OPTIONS} value={m.builtinDisplay ?? "external-only"} onchange={(v) => store.setBuiltinDisplay(m.id, v as BuiltinMode)} />
-              </div>
-            {/each}
             <div class="row">
               <span class="fill">Change the other machine</span>
               <Button icon="refresh" variant="pri" size="sm" style={B34} onclick={() => store.openWizard(WIZARD_PAIR)}>Pair again</Button>
@@ -187,6 +179,14 @@
                 <Button icon="refresh" size="sm" style={B34} onclick={forgetAndPair}>{forgetting ? "Confirm" : "Forget and pair"}</Button>
               </div>
             {/if}
+            {#each macs as m (m.id)}
+              <div class="row" data-testid="builtin-{m.id}">
+                <span class="fill col"
+                  >Built-in display of {m.name}<span class="mut sub">With an external monitor on. Without one, the built-in display always stays on.</span></span
+                >
+                <Segmented label="Built-in display of {m.name}" options={BUILTIN_OPTIONS} value={m.builtinDisplay ?? "external-only"} onchange={(v) => store.setBuiltinDisplay(m.id, v as BuiltinMode)} />
+              </div>
+            {/each}
           {:else if tab === "shortcuts"}
             <Shortcuts />
           {:else if tab === "keyboard"}

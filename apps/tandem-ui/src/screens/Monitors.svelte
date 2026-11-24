@@ -129,16 +129,23 @@
                 {/if}
               </span>
             </div>
+            {#if m.owner && m.link?.kind !== "off" && m.link?.kind !== "unplugged"}
+              {@const asleep = m.link?.kind === "standby"}
+              <Button
+                icon="power"
+                variant="ghost"
+                size="sm"
+                iconSize={16}
+                iconStroke={1.8}
+                iconOnly
+                class="power"
+                label={asleep ? `Wake the ${spoken(m.name)}` : `Put the ${spoken(m.name)} in standby`}
+                pressed={asleep}
+                onclick={() => store.monitorPower(m.id, asleep)}
+              />
+            {/if}
           </div>
           <Segmented size="lg" label="Which machine shows the {spoken(m.name)}" options={options(m)} value={selected(m)} onchange={(v) => pick(m, v)} />
-          {#if m.owner && m.link?.kind !== "off" && m.link?.kind !== "unplugged"}
-            {@const asleep = m.link?.kind === "standby"}
-            <div class="power">
-              <Button icon="power" size="sm" iconSize={15} variant={asleep ? undefined : "ghost"} onclick={() => store.monitorPower(m.id, asleep)}
-                >{asleep ? "Wake" : "Standby"}</Button
-              >
-            </div>
-          {/if}
           {#if m.events.length > 0}
             <div class="events">
               {#each m.events as e, k (`${e.at}-${e.text}-${k}`)}
@@ -235,6 +242,13 @@
     display: flex;
     align-items: center;
     gap: 14px;
+    position: relative;
+  }
+  /* Standby / wake: over the header's top-right corner, so the card keeps the mockup's layout. */
+  .head :global(.power) {
+    position: absolute;
+    top: -6px;
+    right: -6px;
   }
   .who {
     display: flex;
@@ -253,11 +267,6 @@
     display: flex;
     gap: 6px;
     flex-wrap: wrap;
-  }
-  .power {
-    display: flex;
-    justify-content: flex-end;
-    margin-top: 10px;
   }
   .events {
     display: flex;
