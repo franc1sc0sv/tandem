@@ -569,7 +569,14 @@ mod imp {
             let mut s = String::new();
             // Without a space or a quote nothing is quoted, trailing backslashes included; quoted,
             // a trailing run of backslashes is doubled so it does not escape the closing quote.
-            for a in ["plain", "two words", r#"say "hi""#, r"C:\dir\", r"C:\my dir\", ""] {
+            for a in [
+                "plain",
+                "two words",
+                r#"say "hi""#,
+                r"C:\dir\",
+                r"C:\my dir\",
+                "",
+            ] {
                 quote(a, &mut s);
                 s.push('|');
             }
