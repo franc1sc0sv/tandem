@@ -401,6 +401,9 @@ pub struct MonitorChannel {
     /// The monitor input this machine's cable goes to, according to the interface type
     /// of its EDID (E-EDID 1.4); `None` if the EDID does not say (T-111).
     pub via: Option<MonitorInput>,
+    /// The picture's physical size in millimetres (width, height), from its EDID; `None` if the
+    /// EDID does not say (T-356).
+    pub size_mm: Option<[u16; 2]>,
 }
 
 /// Whether a monitor speaks the own-firmware standard (DECISIONS D11).
@@ -498,6 +501,9 @@ pub struct MonitorView {
     pub report: Option<MonitorReport>,
     /// The derived link (T-349): which machine it shows, each end's cable and its power.
     pub link: MonitorLink,
+    /// The picture's physical size in millimetres (width, height), from the EDID either machine
+    /// read; `None` if no EDID says (T-356). The UI draws the monitor at its real proportions.
+    pub size_mm: Option<[u16; 2]>,
 }
 
 /// A machine's keyboard and mouse engine.
@@ -1387,6 +1393,7 @@ pub(crate) mod samples {
                         b: CableState::Connected,
                     },
                 },
+                size_mm: Some([797, 334]),
             },
             MonitorView {
                 id: "odyssey-0f0f0f0f".into(),
@@ -1399,6 +1406,7 @@ pub(crate) mod samples {
                 owner: None,
                 report: None,
                 link: MonitorLink::default(),
+                size_mm: None,
             },
         ]
     }
@@ -1626,6 +1634,7 @@ pub(crate) mod samples {
                         compat: MonitorCompat::Compatible { protocol: 2 },
                         latency_ms: 42,
                         via: Some(MonitorInput::DisplayPort),
+                        size_mm: Some([797, 334]),
                     },
                     MonitorChannel {
                         id: "odyssey-0f0f0f0f".into(),
@@ -1635,6 +1644,7 @@ pub(crate) mod samples {
                         },
                         latency_ms: 0,
                         via: None,
+                        size_mm: Some([700, 400]),
                     },
                 ],
                 local_network: None,

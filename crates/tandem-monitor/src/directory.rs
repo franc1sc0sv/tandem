@@ -284,6 +284,10 @@ impl Directory {
                     report: self.report(id),
                     // Derived by the agent with the desk's cables and both ends' (T-349).
                     link: tandem_core::MonitorLink::default(),
+                    // Both ends read the same panel: the shown one's EDID first, else any (T-356).
+                    size_mm: shown
+                        .size_mm
+                        .or_else(|| seen.iter().find_map(|(_, c)| c.size_mm)),
                 })
             })
             .collect()
@@ -309,6 +313,7 @@ mod tests {
             },
             latency_ms,
             via: None,
+            size_mm: None,
         }
     }
 
@@ -463,6 +468,32 @@ mod tests {
         let std = &views[1];
         assert_eq!(std.seen_by, [Machine::A, Machine::B]);
         assert_eq!(std.owner, Some(Machine::B));
+    }
+
+    /// T-356: the size comes from the shown channel's EDID or, if it does not say, from the
+    /// other machine's: both read the same panel.
+    #[test]
+    fn the_view_carries_the_size_either_edid_gives() {
+        let pc = ch("m34", true, 40);
+        let mac = MonitorChannel {
+            compat: MonitorCompat::NoChannel,
+            size_mm: Some([797, 334]),
+            ..ch("m34", true, 0)
+        };
+        let (da, _) = pair(vec![pc.clone()], vec![mac.clone()]);
+        assert_eq!(da.views()[0].size_mm, Some([797, 334]));
+        let pc = MonitorChannel {
+            size_mm: Some([800, 340]),
+            ..pc
+        };
+        let (da, _) = pair(vec![pc], vec![mac]);
+        assert_eq!(
+            da.views()[0].size_mm,
+            Some([800, 340]),
+            "the shown one's first"
+        );
+        let (da, _) = pair(vec![ch("m34", true, 40)], vec![]);
+        assert_eq!(da.views()[0].size_mm, None);
     }
 
     /// T-340: the PC has the channel (DP); the Mac only the EDID (HDMI). One monitor with both
