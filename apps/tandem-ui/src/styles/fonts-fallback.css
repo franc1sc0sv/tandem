@@ -1,0 +1,58 @@
+/*
+ * Bundled fonts (no Google Fonts in the app): Inter and JetBrains Mono from
+ * `@fontsource/*`, the same ones `tools/mockup-render` uses for the reference screenshots.
+ *
+ * What those subsets do not carry (⌃ ⌥ ⌘ → ↵ ≈ ✓ ➜) comes from DejaVu Sans, declared as an
+ * extra face of the same families only for those blocks; otherwise each system draws it
+ * with its own font. These faces go BEFORE Inter's (`main.ts` imports them
+ * first): with overlapping ranges the last one wins, so where Inter has the character
+ * (↑ ↓) its own is used. One face per weight, same as in the renderer (T-125).
+ */
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url("@fontsource/dejavu-sans/files/dejavu-sans-latin-400-normal.woff2") format("woff2");
+  unicode-range: U+2190-21FF, U+2200-22FF, U+2300-23FF, U+2700-27BF;
+}
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 500;
+  src: url("@fontsource/dejavu-sans/files/dejavu-sans-latin-400-normal.woff2") format("woff2");
+  unicode-range: U+2190-21FF, U+2200-22FF, U+2300-23FF, U+2700-27BF;
+}
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 600;
+  src: url("@fontsource/dejavu-sans/files/dejavu-sans-latin-700-normal.woff2") format("woff2");
+  unicode-range: U+2190-21FF, U+2200-22FF, U+2300-23FF, U+2700-27BF;
+}
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 700;
+  src: url("@fontsource/dejavu-sans/files/dejavu-sans-latin-700-normal.woff2") format("woff2");
+  unicode-range: U+2190-21FF, U+2200-22FF, U+2300-23FF, U+2700-27BF;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url("@fontsource/dejavu-sans/files/dejavu-sans-latin-400-normal.woff2") format("woff2");
+  unicode-range: U+2190-21FF, U+2200-22FF, U+2300-23FF, U+2700-27BF;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 500;
+  src: url("@fontsource/dejavu-sans/files/dejavu-sans-latin-400-normal.woff2") format("woff2");
+  unicode-range: U+2190-21FF, U+2200-22FF, U+2300-23FF, U+2700-27BF;
+}

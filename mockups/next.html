@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Tandem v0.2</title>
+<!-- Mockup v0.2 (DESIGN §10): live link, live cursor, screen arrangement, monitors paused.
+     `?view=layout` opens the arrangement editor; `?view=link` the link detail. -->
+<style>
+  :root {
+    --bg: #0f1013; --panel: #16171b; --panel-2: #1c1d22; --line: #26282e; --line-2: #32353d;
+    --text: #e7e7ea; --dim: #8c8f98; --faint: #5b5e67;
+    --mac: #7aa7e6; --pc: #a99be8; --ok: #6cc59a; --warn: #d9a75a; --usb: #6cc5b8; --r: 14px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body { font-family: "SF Pro Text", "Segoe UI Variable", "Inter", system-ui, sans-serif; background: var(--bg); color: var(--text); -webkit-font-smoothing: antialiased; font-size: 14px; overflow: hidden; }
+  .app { height: 100%; display: grid; grid-template-rows: auto auto 1fr auto; padding: 20px 28px 22px; gap: 16px; }
+  .top { display: flex; align-items: center; gap: 10px; }
+  .logo { display: flex; align-items: center; gap: 9px; font-weight: 650; font-size: 16px; }
+  .spacer { flex: 1; }
+  .pill { display: inline-flex; align-items: center; gap: 8px; padding: 7px 12px; border-radius: 999px; background: var(--panel); border: 1px solid var(--line); font-size: 12.5px; color: var(--dim); }
+  .pill b { color: var(--text); font-weight: 550; }
+  .pill.on { border-color: color-mix(in srgb, var(--usb) 45%, var(--line)); }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); }
+  .tabs { display: flex; gap: 6px; }
+  .tab { padding: 7px 14px; border-radius: 10px; color: var(--dim); border: 1px solid transparent; cursor: pointer; font-size: 13px; }
+  .tab.sel { background: var(--panel); border-color: var(--line); color: var(--text); }
+
+  /* scene */
+  .scene { display: grid; grid-template-columns: 1fr 230px 1fr; gap: 0; min-height: 0; }
+  .side { border-radius: 20px; background: var(--panel); border: 1px solid var(--line); padding: 18px 20px; display: grid; grid-template-rows: auto 1fr auto; gap: 12px; min-height: 0; }
+  .side.mac { --accent: var(--mac); } .side.pc { --accent: var(--pc); }
+  .side.focus { border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 25%, transparent) inset; }
+  .head { display: flex; align-items: center; gap: 10px; }
+  .head .name { font-size: 17px; font-weight: 650; }
+  .head .state { font-size: 12px; color: var(--dim); }
+  .badge { margin-left: auto; font-size: 12px; padding: 5px 9px; border-radius: 8px; border: 1px solid var(--line-2); color: var(--dim); display: inline-flex; gap: 6px; align-items: center; }
+  .badge i { width: 8px; height: 8px; border-radius: 2px; background: var(--accent); display: inline-block; }
+  .screens { position: relative; border-radius: 12px; background: var(--panel-2); border: 1px solid var(--line); overflow: hidden; }
+  .scr { position: absolute; border-radius: 6px; border: 1.5px solid color-mix(in srgb, var(--accent) 50%, var(--line-2)); background: color-mix(in srgb, var(--accent) 8%, var(--panel-2)); display: grid; place-items: center; font-size: 11.5px; color: var(--dim); }
+  .scr span b { display: block; color: var(--text); font-size: 12.5px; font-weight: 550; text-align: center; }
+  .cursor { position: absolute; width: 12px; height: 12px; border-radius: 50%; background: var(--text); box-shadow: 0 0 0 4px color-mix(in srgb, var(--text) 18%, transparent); transform: translate(-50%, -50%); transition: opacity .15s; }
+  .flash { position: absolute; top: 8%; bottom: 8%; width: 3px; border-radius: 3px; background: var(--text); opacity: 0; }
+  .flash.go { animation: flash .5s ease-out; }
+  @keyframes flash { 0% { opacity: .9; } 100% { opacity: 0; } }
+  .foot { display: flex; gap: 8px; flex-wrap: wrap; }
+  .chip { font-size: 12px; padding: 6px 10px; border-radius: 9px; background: var(--panel-2); border: 1px solid var(--line); color: var(--dim); display: inline-flex; gap: 6px; align-items: center; }
+  .chip b { color: var(--text); font-weight: 550; }
+  .chip.btn { cursor: pointer; } .chip.btn:hover { border-color: var(--line-2); }
+
+  /* link */
+  .link { display: grid; grid-template-rows: 1fr auto; align-items: center; justify-items: center; padding: 0 12px; }
+  .wires { width: 100%; display: grid; gap: 20px; }
+  .wire { position: relative; height: 26px; }
+  .wire .bar { position: absolute; left: 0; right: 0; top: 12px; height: 2px; background: var(--line-2); border-radius: 2px; }
+  .wire.active .bar { background: color-mix(in srgb, var(--c) 55%, var(--line-2)); height: 3px; top: 11px; }
+  .wire .lbl { position: absolute; left: 0; right: 0; top: -6px; text-align: center; font-size: 11.5px; color: var(--faint); }
+  .wire.active .lbl { color: var(--text); }
+  .wire .pk { position: absolute; top: 9px; width: 8px; height: 8px; border-radius: 50%; background: var(--c); opacity: 0; }
+  .wire.usb { --c: var(--usb); } .wire.eth { --c: var(--ok); } .wire.wifi { --c: var(--warn); }
+  .lat { margin-top: 18px; text-align: center; }
+  .lat .big { font-size: 30px; font-weight: 650; letter-spacing: -.5px; font-variant-numeric: tabular-nums; }
+  .lat .big small { font-size: 14px; color: var(--dim); font-weight: 500; }
+  .lat .sub { font-size: 12px; color: var(--dim); font-variant-numeric: tabular-nums; }
+  .spark { width: 190px; height: 40px; margin-top: 8px; }
+
+  /* barra inferior */
+  .bottom { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .card { border-radius: var(--r); background: var(--panel); border: 1px solid var(--line); padding: 14px 16px; display: flex; gap: 14px; align-items: center; }
+  .card.off { opacity: .45; }
+  .card .t { font-weight: 600; } .card .d { font-size: 12px; color: var(--dim); }
+  .modes { display: flex; gap: 8px; margin-left: auto; }
+  .mode { padding: 8px 12px; border-radius: 10px; border: 1px dashed var(--line-2); color: var(--faint); font-size: 12.5px; }
+  .soon { font-size: 11px; padding: 3px 8px; border-radius: 6px; background: var(--panel-2); border: 1px solid var(--line-2); color: var(--dim); }
+
+  /* arrangement editor */
+  .editor { display: none; border-radius: 20px; background: var(--panel); border: 1px solid var(--line); padding: 18px 20px; grid-template-rows: auto 1fr auto; gap: 12px; min-height: 0; }
+  .view-layout .scene { display: none; } .view-layout .editor { display: grid; }
+  .canvas { position: relative; border-radius: 12px; background: var(--panel-2); border: 1px solid var(--line); background-image: radial-gradient(var(--line) 1px, transparent 1px); background-size: 18px 18px; }
+  .canvas .scr { cursor: grab; }
+  .canvas .scr.sel { outline: 2px solid var(--text); outline-offset: 2px; }
+  .snap { position: absolute; width: 2px; background: var(--text); opacity: .6; border-radius: 2px; }
+  .props { display: flex; gap: 10px; align-items: center; font-size: 12.5px; color: var(--dim); }
+  .field { background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; color: var(--text); font-variant-numeric: tabular-nums; }
+  .btnp { margin-left: auto; padding: 8px 14px; border-radius: 10px; background: var(--text); color: var(--bg); font-weight: 600; font-size: 13px; }
+  @media (prefers-reduced-motion: reduce) { .flash.go { animation: none; } }
+</style>
+</head>
+<body>
+<div class="app" id="app">
+  <div class="top">
+    <div class="logo"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2.5" y="5" width="8" height="12" rx="2"/><rect x="13.5" y="5" width="8" height="12" rx="2"/><path d="M10.5 11h3"/></svg>Tandem</div>
+    <div class="tabs"><div class="tab sel" data-v="scene">Scene</div><div class="tab" data-v="layout">Screen arrangement</div></div>
+    <div class="spacer"></div>
+    <div class="pill on"><span class="dot" style="background:var(--usb)"></span><b>USB-C</b> 20 Gbps · <span id="rtt">0.31</span> ms</div>
+    <div class="pill"><span class="dot"></span><b>tandemd</b> · Mac</div>
+  </div>
+  <div></div>
+
+  <div class="scene">
+    <div class="side mac" id="sideMac">
+      <div class="head"><div><div class="name">Mac</div><div class="state">this machine</div></div><div class="badge"><i></i>Keyboard here</div></div>
+      <div class="screens" id="macScreens"></div>
+      <div class="foot"><span class="chip">USB hub <b>connected</b></span><span class="chip">clipboard <b>synced</b></span></div>
+    </div>
+
+    <div class="link">
+      <div class="wires">
+        <div class="wire usb active"><div class="lbl">USB-C · 20 Gbps</div><div class="bar"></div></div>
+        <div class="wire eth"><div class="lbl">Ethernet · no cable</div><div class="bar"></div></div>
+        <div class="wire wifi"><div class="lbl">Wi-Fi · control only</div><div class="bar"></div></div>
+      </div>
+      <div class="lat">
+        <div class="big"><span id="p50">0.7</span><small> ms</small></div>
+        <div class="sub">input p50 · p99 <span id="p99">2.1</span> ms · <span id="eps">0</span> ev/s</div>
+        <svg class="spark" id="spark" viewBox="0 0 190 40" preserveAspectRatio="none"><polyline id="sparkLine" fill="none" stroke="var(--usb)" stroke-width="1.6" points=""/></svg>
+      </div>
+    </div>
+
+    <div class="side pc" id="sidePc">
+      <div class="head"><div><div class="name">PC</div><div class="state">on · Windows 11</div></div><div class="badge"><i></i>Receives keyboard</div></div>
+      <div class="screens" id="pcScreens"></div>
+      <div class="foot"><span class="chip btn">⏻ <b>Power off</b></span><span class="chip">RTX 5080 <b>needs cable</b> ✓</span></div>
+    </div>
+  </div>
+
+  <div class="editor">
+    <div class="props"><b style="color:var(--text);font-size:15px">Screen arrangement</b><span>Drag each screen to where it sits on your desk. The mouse crosses at the edges that touch.</span></div>
+    <div class="canvas" id="canvas"></div>
+    <div class="props">Selected: <b style="color:var(--text)">PC · 32"</b><span class="field">2560 × 1440</span><span class="field">scale 100 %</span><span class="field">right of the Mac · offset 0</span><span class="btnp">Test crossing</span></div>
+  </div>
+
+  <div class="bottom">
+    <div class="card off"><div><div class="t">Monitors</div><div class="d">34" · 32"</div></div><span class="soon">Coming soon: own firmware</span></div>
+    <div class="card off"><div class="t">Modes</div><div class="modes"><span class="mode">Mac only</span><span class="mode">Shared</span><span class="mode">Windows only</span></div></div>
+  </div>
+</div>
+
+<script>
+const q = new URLSearchParams(location.search);
+// Declared arrangement (DESIGN §7): rectangles in each machine's virtual px.
+const layout = {
+  mac: [{ id: "Mac · 34\"", w: 3440, h: 1440, x: 0, y: 0 }],
+  pc: [{ id: "PC · 32\"", w: 2560, h: 1440, x: 0, y: 0 }],
+};
+function draw(el, list, cls) {
+  const box = el.getBoundingClientRect();
+  const W = Math.max(...list.map(s => s.x + s.w)), H = Math.max(...list.map(s => s.y + s.h));
+  const k = Math.min((box.width - 40) / W, (box.height - 40) / H);
+  const ox = (box.width - W * k) / 2, oy = (box.height - H * k) / 2;
+  el.innerHTML = "";
+  for (const s of list) {
+    const d = document.createElement("div"); d.className = "scr";
+    Object.assign(d.style, { left: ox + s.x * k + "px", top: oy + s.y * k + "px", width: s.w * k + "px", height: s.h * k + "px" });
+    d.innerHTML = `<span><b>${s.id}</b>${s.w}×${s.h}</span>`; el.appendChild(d);
+  }
+  return { ox, oy, k, W, H };
+}
+let gm, gp;
+function layoutAll() { gm = draw(macScreens, layout.mac); gp = draw(pcScreens, layout.pc); drawCanvas(); }
+
+// Editor: two machines on one canvas, the PC to the right of the Mac.
+function drawCanvas() {
+  const c = document.getElementById("canvas"); const b = c.getBoundingClientRect();
+  const items = [
+    { id: "Mac · built-in", w: 1512, h: 982, x: 0, y: 360, a: "var(--mac)" },
+    { id: "Mac · 34\"", w: 3440, h: 1440, x: 1512, y: 0, a: "var(--mac)" },
+    { id: "PC · 32\"", w: 2560, h: 1440, x: 4952, y: 0, a: "var(--pc)", sel: true },
+  ];
+  const W = 7512, H = 1440, k = Math.min((b.width - 80) / W, (b.height - 80) / H);
+  const ox = (b.width - W * k) / 2, oy = (b.height - H * k) / 2;
+  c.innerHTML = "";
+  for (const s of items) {
+    const d = document.createElement("div"); d.className = "scr" + (s.sel ? " sel" : "");
+    d.style.setProperty("--accent", s.a);
+    Object.assign(d.style, { left: ox + s.x * k + "px", top: oy + s.y * k + "px", width: s.w * k + "px", height: s.h * k + "px" });
+    d.innerHTML = `<span><b>${s.id}</b>${s.w}×${s.h}</span>`; c.appendChild(d);
+  }
+  const sn = document.createElement("div"); sn.className = "snap";
+  Object.assign(sn.style, { left: ox + 4952 * k - 1 + "px", top: oy - 10 + "px", height: H * k + 20 + "px" }); c.appendChild(sn);
+}
+
+// Cursor en vivo: recorre la Mac, cruza a la PC y vuelve.
+const cm = document.createElement("div"); cm.className = "cursor";
+const cp = document.createElement("div"); cp.className = "cursor";
+const fm = document.createElement("div"); fm.className = "flash";
+const fp = document.createElement("div"); fp.className = "flash";
+let t = q.has("still") ? 2.2 : 0, side = "mac", lastSide = "mac";
+const p50s = [];
+function tick(dt) {
+  t += dt;
+  const period = 8, u = (t % period) / period;           // 0..1
+  const x = u < .5 ? u * 2 : 2 - u * 2;                   // va y vuelve
+  const y = .5 + .28 * Math.sin(t * 1.3);
+  side = x < .5 ? "mac" : "pc";
+  for (const [el, f] of [[macScreens, fm], [pcScreens, fp]]) { if (!el.contains(f)) el.appendChild(f); }
+  if (!macScreens.contains(cm)) macScreens.appendChild(cm);
+  if (!pcScreens.contains(cp)) pcScreens.appendChild(cp);
+  const lx = side === "mac" ? x * 2 : (x - .5) * 2;
+  const g = side === "mac" ? gm : gp, c = side === "mac" ? cm : cp, o = side === "mac" ? cp : cm;
+  c.style.opacity = 1; o.style.opacity = 0;
+  c.style.left = g.ox + lx * g.W * g.k + "px"; c.style.top = g.oy + y * g.H * g.k + "px";
+  sideMac.classList.toggle("focus", side === "mac"); sidePc.classList.toggle("focus", side === "pc");
+  sidePc.querySelector(".badge").innerHTML = side === "pc" ? "<i></i>Focus here" : "<i></i>Receives keyboard";
+  if (side !== lastSide) {
+    Object.assign(fm.style, { left: gm.ox + gm.W * gm.k - 2 + "px" });
+    Object.assign(fp.style, { left: gp.ox + "px" });
+    for (const f of [fm, fp]) { f.classList.remove("go"); void f.offsetWidth; f.classList.add("go"); }
+    lastSide = side;
+  }
+  // simulated metrics
+  const busy = Math.abs(Math.cos(t * 1.3)) * 900 + 120;
+  eps.textContent = Math.round(busy);
+  const v = .55 + Math.random() * .35; p50s.push(v); if (p50s.length > 60) p50s.shift();
+  p50.textContent = (p50s.reduce((a, b) => a + b, 0) / p50s.length).toFixed(1);
+  p99.textContent = (1.6 + Math.random() * .8).toFixed(1);
+  rtt.textContent = (.27 + Math.random() * .08).toFixed(2);
+  sparkLine.setAttribute("points", p50s.map((v, i) => `${i * 190 / 59},${40 - v * 30}`).join(" "));
+  // packets on the active cable, at the traffic rate
+  const w = document.querySelector(".wire.active");
+  if (Math.random() < busy / 2500) {
+    const pk = document.createElement("div"); pk.className = "pk"; w.appendChild(pk);
+    const dir = side === "pc" ? 1 : -1, wd = w.clientWidth;
+    pk.animate([{ left: (dir > 0 ? 0 : wd - 8) + "px", opacity: 1 }, { left: (dir > 0 ? wd - 8 : 0) + "px", opacity: .2 }], { duration: 420, easing: "linear" }).onfinish = () => pk.remove();
+  }
+}
+for (const tb of document.querySelectorAll(".tab")) tb.onclick = () => setView(tb.dataset.v);
+function setView(v) {
+  app.classList.toggle("view-layout", v === "layout");
+  for (const tb of document.querySelectorAll(".tab")) tb.classList.toggle("sel", tb.dataset.v === v);
+  requestAnimationFrame(layoutAll);
+}
+setView(q.get("view") || "scene");
+layoutAll();
+addEventListener("resize", layoutAll);
+let prev = performance.now();
+for (let i = 0; i < 60; i++) tick(0);
+(function loop(now) { tick(q.has("still") ? 0 : (now - prev) / 1000); prev = now; requestAnimationFrame(loop); })(prev);
+</script>
+</body>
+</html>

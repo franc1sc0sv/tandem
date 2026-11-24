@@ -1,0 +1,145 @@
+# End-to-end test of the NSIS installer on a clean machine (run by CI on
+# windows-latest): install, check the startup with the session (the scheduled task with the
+# highest privileges if the installer runs as administrator, as in CI; otherwise the
+# Run key) and that the agent starts without a
+# config and generates it itself (T-082: the installer ships no template), reinstall on top
+# (update), uninstall and check that nothing of the program is left.
+#
+# Usage: pwsh tools/windows/installer/test-installer.ps1 -Installer <Tandem_..._x64-setup.exe>
+# Careful: it really installs and uninstalls for the current user; do not run it on the daily-use PC.
+
+param([Parameter(Mandatory = $true)][string]$Installer)
+
+$ErrorActionPreference = 'Stop'
+Set-StrictMode -Version Latest
+
+$installDir = Join-Path $env:LOCALAPPDATA 'Tandem'
+$dataDir = Join-Path $env:APPDATA 'Tandem'
+$config = Join-Path $dataDir 'tandem.toml'
+$runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+$launcher = Join-Path $installDir 'tandemw.exe'
+$daemon = Join-Path $installDir 'tandemd.exe'
+
+function Fail([string]$msg) {
+    $logs = Join-Path $dataDir 'logs'
+    if (Test-Path $logs) {
+        Get-ChildItem $logs -File | ForEach-Object {
+            Write-Host "--- $($_.FullName)"
+            Get-Content $_.FullName -Tail 40
+        }
+    }
+    throw "FAILED: $msg"
+}
+
+function Ok([string]$msg) { Write-Host "ok: $msg" }
+
+function Get-RunValue {
+    $props = Get-ItemProperty -Path $runKey -ErrorAction SilentlyContinue
+    if ($props -and ($props.PSObject.Properties.Name -contains 'tandemd')) { return $props.tandemd }
+    return $null
+}
+
+# T-104 (A7): with administrator rights startup is a scheduled task with the highest privileges.
+$taskName = 'Tandem\tandemd'
+
+function Get-TaskXml {
+    $xml = & schtasks.exe /Query /TN $taskName /XML 2>$null
+    if ($LASTEXITCODE -ne 0) { return $null }
+    return ($xml -join "`n")
+}
+
+function Test-Elevated {
+    $id = [Security.Principal.WindowsIdentity]::GetCurrent()
+    return ([Security.Principal.WindowsPrincipal]$id).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
+function Wait-Until([scriptblock]$cond, [int]$seconds, [string]$what) {
+    $deadline = (Get-Date).AddSeconds($seconds)
+    while ((Get-Date) -lt $deadline) {
+        if (& $cond) { return }
+        Start-Sleep -Milliseconds 500
+    }
+    Fail "$what (expected within $seconds s)"
+}
+
+# Start-Process -Wait also waits for descendants, and the installer leaves
+# tandemw/tandemd running: it would never return. Only the process is awaited (reading Handle first keeps
+# the exit code).
+function Invoke-Silent([string]$exe) {
+    $p = Start-Process -FilePath $exe -ArgumentList '/S' -PassThru
+    $null = $p.Handle
+    if (-not $p.WaitForExit(300000)) { Fail "$exe did not finish in 5 min" }
+    return $p.ExitCode
+}
+
+function Install-Silent {
+    $code = Invoke-Silent $Installer
+    if ($code -ne 0) { Fail "the installer exited with $code" }
+}
+
+function Assert-Installed {
+    foreach ($f in 'tandemd.exe', 'tandemw.exe', 'tandem.exe', 'uninstall.exe') {
+        if (-not (Test-Path (Join-Path $installDir $f))) { Fail "$f missing in $installDir" }
+    }
+    Ok "files in $installDir"
+    # The elevated task is only registered if the executable is where only administrators write
+    # (Program Files); in %LOCALAPPDATA% (per-user install) the non-elevated Run key is used.
+    $adminOnly = $installDir.StartsWith($env:ProgramFiles, [StringComparison]::OrdinalIgnoreCase)
+    if ((Test-Elevated) -and $adminOnly) {
+        $xml = Get-TaskXml
+        if (-not $xml) { Fail "as administrator the task $taskName was expected" }
+        if ($xml -notmatch 'HighestAvailable') { Fail 'the task does not ask for the highest privileges' }
+        if (-not $xml.Contains($launcher)) { Fail "the task does not launch $launcher" }
+        if ($null -ne (Get-RunValue)) { Fail 'with the task registered the Run key must not remain (it would start twice)' }
+        Ok "task $taskName with the highest privileges"
+    } else {
+        $expected = '"' + $launcher + '"'
+        $actual = Get-RunValue
+        if ($actual -ne $expected) { Fail "Run key: expected $expected but found '$actual'" }
+        if ($null -ne (Get-TaskXml)) { Fail 'a user-writable path must not have the elevated task' }
+        Ok "Run key -> $actual"
+    }
+    Wait-Until { Get-Process -Name tandemd -ErrorAction SilentlyContinue } 20 'tandemd did not start after install'
+    Ok 'tandemd running'
+    # The agent generates it on startup, with the monitors it detects.
+    Wait-Until { Test-Path $config } 30 "tandemd did not generate $config"
+    & $daemon --check-config $config
+    if ($LASTEXITCODE -ne 0) { Fail 'the generated config is not valid' }
+    # T-097: the generated config starts on side A; the real side is decided by the keys when pairing.
+    if (-not (Select-String -Path $config -Pattern '^machine = "a"' -Quiet)) { Fail 'the generated config does not start on side A' }
+    Ok 'config generated by the agent and valid'
+}
+
+if ((Test-Path $installDir) -or (Get-RunValue) -or (Get-TaskXml)) { Fail 'the machine is not clean: a Tandem is already installed' }
+if (Test-Path $config) { Fail "the machine is not clean: $config already exists" }
+
+Write-Host '== install'
+Install-Silent
+Assert-Installed
+
+Write-Host '== reinstall on top (update): the user config is kept'
+Add-Content -Path $config -Value '# user change'
+$before = Get-Content -Raw $config
+Install-Silent
+Assert-Installed
+if ((Get-Content -Raw $config) -ne $before) { Fail 'reinstalling changed the user config' }
+Ok 'user config intact'
+
+Write-Host '== uninstall'
+$code = Invoke-Silent (Join-Path $installDir 'uninstall.exe')
+if ($code -ne 0) { Fail "the uninstaller exited with $code" }
+# The NSIS uninstaller copies itself to %TEMP% and continues from there: wait for it to finish.
+Wait-Until { -not (Test-Path $daemon) -and -not (Test-Path $launcher) } 60 'the uninstaller did not delete the binaries'
+Wait-Until { -not (Test-Path (Join-Path $installDir 'uninstall.exe')) } 30 'the uninstaller did not finish'
+Ok 'binaries deleted'
+if (Get-Process -Name tandemd, tandemw -ErrorAction SilentlyContinue) { Fail 'tandemd is still running' }
+Ok 'tandemd stopped'
+if ($null -ne (Get-RunValue)) { Fail 'the Run key is still registered' }
+if ($null -ne (Get-TaskXml)) { Fail "the task $taskName is still registered" }
+Ok 'startup with the session removed'
+if (-not (Test-Path $config)) { Fail 'a normal uninstall must not delete the user config' }
+Ok 'user config kept'
+
+Remove-Item -Recurse -Force $dataDir
+Write-Host 'installer OK'
+exit 0

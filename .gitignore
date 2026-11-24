@@ -3,3 +3,22 @@
 .claude/settings.local.json
 CLAUDE.local.md
 node_modules/
+# Empty markers that the Claude Code sandbox creates to block paths; never versioned.
+/.mcp.json
+/.claude/.mcp.json
+/.claude/.claude/
+/.claude/launch.json
+/.claude/loop.md
+/.claude/output-styles
+/.claude/routines
+/.claude/scheduled_tasks.json
+apps/tandem-ui/dist/
+apps/tandem-ui/dist-demo/
+apps/tandem-ui/shots-out/
+apps/tandem-ui/src-tauri/gen/
+# Sidecars: copied by scripts/macos/bundle.sh (tandemd-<target>) and
+# tools/windows/installer/build-installer.ps1 (Windows installer).
+apps/tandem-ui/src-tauri/binaries/
+
+# Temporary dirs that tests may create next to a crate; never versioned.
+.tmp*/

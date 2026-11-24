@@ -1,112 +1,85 @@
-use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 
 use serde::{Deserialize, Serialize};
 
-use crate::model::{Config, Input, Machine, MonitorId};
-use crate::state::{BuiltinDisplay, State};
+use crate::model::{Arrangement, Machine};
+use crate::monitor::MonitorInput;
+use crate::state::State;
 
-/// Modo de trabajo elegido por el usuario.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case", tag = "mode", content = "assign")]
-pub enum Mode {
-    SoloMac,
-    /// Reparto explícito; los monitores que no aparecen se quedan en la Mac.
-    Shared(BTreeMap<MonitorId, Machine>),
-    SoloPc,
+/// What each machine can do, according to what it announced (DESIGN §3.7): which one can be
+/// powered on. Plans come from here, not from the machine's name.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Abilities {
+    /// The machines the other one can power on (Wake-on-LAN).
+    pub wakeable: BTreeSet<Machine>,
 }
 
-impl Mode {
-    pub fn assignment(&self, cfg: &Config) -> BTreeMap<MonitorId, Machine> {
-        cfg.monitors
-            .iter()
-            .map(|m| {
-                let owner = match self {
-                    Mode::SoloMac => Machine::Mac,
-                    Mode::SoloPc => Machine::Pc,
-                    Mode::Shared(a) => a.get(&m.id).copied().unwrap_or(Machine::Mac),
-                };
-                (m.id.clone(), owner)
-            })
-            .collect()
+impl Abilities {
+    /// Both can be woken. Serves as a base for the tests.
+    pub fn both_wake() -> Self {
+        Abilities {
+            wakeable: BTreeSet::from([Machine::A, Machine::B]),
+        }
+    }
+
+    pub fn can_wake(&self, machine: Machine) -> bool {
+        self.wakeable.contains(&machine)
     }
 }
 
-/// Un paso atómico. Lleva el estado anterior para poder deshacerse solo.
+/// An atomic step of a transaction.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "step")]
 pub enum Step {
-    PowerOnPc,
-    PowerOffPc,
-    /// Cambiar la entrada del monitor para que muestre `to`.
-    SwitchInput {
-        monitor: MonitorId,
-        from: Machine,
-        to: Machine,
-        input: Input,
+    /// Power on `machine` from the other one (Wake-on-LAN) and wait for its agent to answer.
+    PowerOn { machine: Machine },
+    /// Clean shutdown of `machine`.
+    PowerOff { machine: Machine },
+    /// Switch the input of monitor `monitor` (its id, `<model>-<hash>`) and wait for the
+    /// firmware's verdict. Done by the machine that owns the monitor (DECISIONS D13), whichever
+    /// one orchestrates.
+    SwitchMonitor {
+        monitor: String,
+        input: MonitorInput,
     },
-    /// Agregar el monitor al escritorio de `machine`.
-    Attach {
-        machine: Machine,
-        monitor: MonitorId,
-    },
-    /// Quitar el monitor del escritorio de `machine` (evita el monitor fantasma).
-    Detach {
-        machine: Machine,
-        monitor: MonitorId,
-    },
-    SetBuiltin {
-        from: BuiltinDisplay,
-        to: BuiltinDisplay,
-    },
-    /// Recalcular la geometría de pantallas del motor de teclado y mouse.
-    UpdateInputGeometry,
+    /// Scene step: make monitor `monitor` show `machine` (DESIGN §5). It is the
+    /// abstract step of T-100; T-111 translates it to [`Step::SwitchMonitor`] with that
+    /// machine's input. Done by the machine that applies the scene.
+    ShowMachine { monitor: String, machine: Machine },
+    /// Scene step: the desktop arrangement (`None`: the default). It is a change
+    /// to the shared desk.
+    Arrange { layout: Option<Arrangement> },
+    /// Scene step: the input engine takes the geometry left by the previous steps.
+    Geometry,
+    /// `machine` turns its display of monitor `monitor` back on (T-341). Never in a plan: the
+    /// orchestrator asks for it right before a [`Step::SwitchMonitor`] to that machine's input,
+    /// so the monitor does not land on a dark input.
+    DisplayOn { monitor: String, machine: Machine },
+    /// Put monitor `monitor` in standby (`on = false`) or wake it, by command over DDC. Done
+    /// by the monitor's owner; only monitors whose firmware can be woken by command accept it.
+    MonitorPower { monitor: String, on: bool },
 }
 
 impl Step {
-    /// El paso que deshace a este, si tiene sentido deshacerlo.
-    ///
-    /// Encender o apagar la PC no se deshace: dejarla prendida es inofensivo y
-    /// apagarla a mitad de un fallo empeoraría las cosas.
-    pub fn inverse(&self, cfg: &Config) -> Option<Step> {
-        Some(match self {
-            Step::PowerOnPc | Step::PowerOffPc => return None,
-            Step::SwitchInput {
-                monitor, from, to, ..
-            } => Step::SwitchInput {
-                monitor: monitor.clone(),
-                from: *to,
-                to: *from,
-                input: cfg.monitor(monitor)?.input_for(*from)?,
-            },
-            Step::Attach { machine, monitor } => Step::Detach {
-                machine: *machine,
-                monitor: monitor.clone(),
-            },
-            Step::Detach { machine, monitor } => Step::Attach {
-                machine: *machine,
-                monitor: monitor.clone(),
-            },
-            Step::SetBuiltin { from, to } => Step::SetBuiltin {
-                from: *to,
-                to: *from,
-            },
-            Step::UpdateInputGeometry => Step::UpdateInputGeometry,
-        })
-    }
-
-    /// Refleja en `state` el efecto del paso ya aplicado.
+    /// Reflects in `state` the effect of the step already applied.
     pub fn apply_to(&self, state: &mut State) {
         match self {
-            Step::PowerOnPc => state.pc_on = true,
-            Step::PowerOffPc => state.pc_on = false,
-            Step::SwitchInput { monitor, to, .. } => {
-                state.owner.insert(monitor.clone(), *to);
-            }
-            Step::SetBuiltin { .. }
-            | Step::Attach { .. }
-            | Step::Detach { .. }
-            | Step::UpdateInputGeometry => {}
+            Step::PowerOn { machine } => state.on.set(*machine, true),
+            Step::PowerOff { machine } => state.on.set(*machine, false),
+            // The real input is reported by the firmware (owner's events), not by the state.
+            Step::SwitchMonitor { .. } => {}
+            // The active scene is recorded when the transaction ends, not step by step.
+            Step::ShowMachine { .. } | Step::Arrange { .. } | Step::Geometry => {}
+            Step::DisplayOn { .. } | Step::MonitorPower { .. } => {}
         }
+    }
+
+    /// Whether it is a scene step: done by the machine that applies it, never the other on request.
+    pub fn is_scene(&self) -> bool {
+        matches!(
+            self,
+            Step::ShowMachine { .. } | Step::Arrange { .. } | Step::Geometry
+        )
     }
 }
 
@@ -117,98 +90,80 @@ pub struct Plan {
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum PlanError {
-    #[error("el monitor `{0}` no está en la configuración")]
-    UnknownMonitor(MonitorId),
-    #[error("el monitor `{monitor}` no está cableado a {machine}")]
-    NotWired {
-        monitor: MonitorId,
-        machine: Machine,
-    },
+    #[error(
+        "machine {0} is off and there is no way to power it on: the MAC of its network card (Wake-on-LAN) is missing; it is learned when pairing or written on the machine's page"
+    )]
+    CannotWake(Machine),
 }
 
 impl Plan {
-    /// Pasos para llevar el puesto desde `from` hasta el reparto de `mode`.
-    ///
-    /// Orden: encender la PC si hace falta → por cada monitor que se mueve, cambiar la
-    /// entrada, agregarlo en su nueva máquina y quitarlo de la anterior → pantalla
-    /// integrada → geometría del motor de entrada.
-    pub fn to_mode(cfg: &Config, from: &State, mode: &Mode) -> Result<Plan, PlanError> {
-        let target = mode.assignment(cfg);
-        let mut steps = Vec::new();
-
-        if !from.pc_on && target.values().any(|m| *m == Machine::Pc) {
-            steps.push(Step::PowerOnPc);
+    /// Power on `machine`: just wake it. Asking for what is already on is an empty plan.
+    pub fn power_on(
+        from: &State,
+        machine: Machine,
+        abilities: &Abilities,
+    ) -> Result<Plan, PlanError> {
+        if from.is_on(machine) {
+            return Ok(Plan::default());
         }
-
-        let mut next = from.clone();
-        for m in &cfg.monitors {
-            let cur = *from
-                .owner
-                .get(&m.id)
-                .ok_or_else(|| PlanError::UnknownMonitor(m.id.clone()))?;
-            let to = target[&m.id];
-            if cur == to {
-                continue;
-            }
-            let input = m.input_for(to).ok_or_else(|| PlanError::NotWired {
-                monitor: m.id.clone(),
-                machine: to,
-            })?;
-            steps.push(Step::SwitchInput {
-                monitor: m.id.clone(),
-                from: cur,
-                to,
-                input,
-            });
-            steps.push(Step::Attach {
-                machine: to,
-                monitor: m.id.clone(),
-            });
-            steps.push(Step::Detach {
-                machine: cur,
-                monitor: m.id.clone(),
-            });
-            next.owner.insert(m.id.clone(), to);
+        if !abilities.can_wake(machine) {
+            return Err(PlanError::CannotWake(machine));
         }
-
-        let (before, after) = (from.builtin_effective(cfg), next.builtin_effective(cfg));
-        if before != after {
-            steps.push(Step::SetBuiltin {
-                from: before,
-                to: after,
-            });
-        }
-        if !steps.is_empty() {
-            steps.push(Step::UpdateInputGeometry);
-        }
-        Ok(Plan { steps })
+        Ok(Plan {
+            steps: vec![Step::PowerOn { machine }],
+        })
     }
 
-    /// Apagado limpio: todo a la Mac primero, para que nunca se quede sin pantallas.
-    pub fn shutdown_pc(cfg: &Config, from: &State) -> Result<Plan, PlanError> {
-        let mut plan = Plan::to_mode(cfg, from, &Mode::SoloMac)?;
-        if from.pc_on {
-            plan.steps.push(Step::PowerOffPc);
+    /// Switch a monitor's input: a single step, with verdict and rollback.
+    pub fn switch_monitor(monitor: impl Into<String>, input: MonitorInput) -> Plan {
+        Plan {
+            steps: vec![Step::SwitchMonitor {
+                monitor: monitor.into(),
+                input,
+            }],
         }
-        Ok(plan)
+    }
+
+    /// Put `monitor` in standby (`on = false`) or wake it, by command.
+    pub fn monitor_power(monitor: impl Into<String>, on: bool) -> Plan {
+        Plan {
+            steps: vec![Step::MonitorPower {
+                monitor: monitor.into(),
+                on,
+            }],
+        }
+    }
+
+    /// Clean shutdown of `machine`. The keyboard and mouse return on their own to the one that remains: the
+    /// input engine takes the machine being powered off out of the geometry as soon as the state says so.
+    /// Shutting down what is already off is an empty plan.
+    pub fn power_off(from: &State, machine: Machine) -> Plan {
+        if !from.is_on(machine) {
+            return Plan::default();
+        }
+        Plan {
+            steps: vec![Step::PowerOff { machine }],
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::fixtures::desk;
-
-    fn shared_34_to_pc() -> Mode {
-        Mode::Shared([("m34".into(), Machine::Pc)].into())
-    }
 
     #[test]
-    fn same_mode_is_empty_plan() {
-        let cfg = desk();
-        let s = State::initial(&cfg);
+    fn power_on_only_wakes_what_is_off() {
+        let s = State::initial(Machine::A);
+        assert_eq!(
+            Plan::power_on(&s, Machine::B, &Abilities::both_wake())
+                .unwrap()
+                .steps,
+            [Step::PowerOn {
+                machine: Machine::B
+            }]
+        );
         assert!(
-            Plan::to_mode(&cfg, &s, &Mode::SoloMac)
+            Plan::power_on(&s, Machine::A, &Abilities::both_wake())
                 .unwrap()
                 .steps
                 .is_empty()
@@ -216,81 +171,56 @@ mod tests {
     }
 
     #[test]
-    fn shared_from_cold_powers_on_first() {
-        let cfg = desk();
-        let s = State::initial(&cfg);
-        let plan = Plan::to_mode(&cfg, &s, &shared_34_to_pc()).unwrap();
+    fn a_machine_that_cannot_be_woken_is_a_plan_error() {
+        let mut a = Abilities::both_wake();
+        a.wakeable.remove(&Machine::A);
+        assert_eq!(
+            Plan::power_on(&State::initial(Machine::B), Machine::A, &a).unwrap_err(),
+            PlanError::CannotWake(Machine::A)
+        );
+    }
+
+    #[test]
+    fn power_off_only_shuts_down_what_is_on() {
+        let mut s = State::initial(Machine::A);
+        assert!(Plan::power_off(&s, Machine::B).steps.is_empty());
+        s.on.b = true;
+        assert_eq!(
+            Plan::power_off(&s, Machine::B).steps,
+            [Step::PowerOff {
+                machine: Machine::B
+            }]
+        );
+    }
+
+    #[test]
+    fn switching_a_monitor_is_one_step_and_leaves_power_alone() {
+        let plan = Plan::switch_monitor("lc34g55t-0a1b2c3d", MonitorInput::Hdmi);
         assert_eq!(
             plan.steps,
-            vec![
-                Step::PowerOnPc,
-                Step::SwitchInput {
-                    monitor: "m34".into(),
-                    from: Machine::Mac,
-                    to: Machine::Pc,
-                    input: Input::DisplayPort
-                },
-                Step::Attach {
-                    machine: Machine::Pc,
-                    monitor: "m34".into()
-                },
-                Step::Detach {
-                    machine: Machine::Mac,
-                    monitor: "m34".into()
-                },
-                Step::UpdateInputGeometry,
-            ]
+            [Step::SwitchMonitor {
+                monitor: "lc34g55t-0a1b2c3d".into(),
+                input: MonitorInput::Hdmi
+            }]
         );
+        let mut s = State::initial(Machine::A);
+        let before = s.clone();
+        plan.steps[0].apply_to(&mut s);
+        assert_eq!(s, before);
     }
 
     #[test]
-    fn solo_pc_turns_builtin_on() {
-        let cfg = desk();
-        let mut s = State::initial(&cfg);
-        s.pc_on = true;
-        let plan = Plan::to_mode(&cfg, &s, &Mode::SoloPc).unwrap();
-        assert!(!plan.steps.contains(&Step::PowerOnPc));
-        assert!(plan.steps.contains(&Step::SetBuiltin {
-            from: BuiltinDisplay::Off,
-            to: BuiltinDisplay::Extend
-        }));
-        assert_eq!(plan.steps.last(), Some(&Step::UpdateInputGeometry));
-    }
-
-    #[test]
-    fn shutdown_returns_everything_to_mac_before_power_off() {
-        let cfg = desk();
-        let mut s = State::initial(&cfg);
-        s.pc_on = true;
-        s.owner.insert("m34".into(), Machine::Pc);
-        let plan = Plan::shutdown_pc(&cfg, &s).unwrap();
-        assert!(matches!(
-            plan.steps.first(),
-            Some(Step::SwitchInput {
-                to: Machine::Mac,
-                ..
-            })
-        ));
-        assert_eq!(plan.steps.last(), Some(&Step::PowerOffPc));
-    }
-
-    #[test]
-    fn switch_inverse_resolves_input() {
-        let cfg = desk();
-        let step = Step::SwitchInput {
-            monitor: "m34".into(),
-            from: Machine::Mac,
-            to: Machine::Pc,
-            input: Input::DisplayPort,
-        };
-        assert_eq!(
-            step.inverse(&cfg),
-            Some(Step::SwitchInput {
-                monitor: "m34".into(),
-                from: Machine::Pc,
-                to: Machine::Mac,
-                input: Input::Hdmi
-            })
-        );
+    fn steps_update_who_is_on() {
+        let mut s = State::initial(Machine::A);
+        Step::PowerOn {
+            machine: Machine::B,
+        }
+        .apply_to(&mut s);
+        assert!(s.is_on(Machine::B));
+        Step::PowerOff {
+            machine: Machine::B,
+        }
+        .apply_to(&mut s);
+        assert!(!s.is_on(Machine::B));
     }
 }

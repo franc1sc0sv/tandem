@@ -1,21 +1,65 @@
-use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 use std::fmt;
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-/// Las dos máquinas del puesto. Tandem está pensado para exactamente dos.
+use crate::data::{DataPrefs, DataPrefsError};
+use crate::desk::{InputPrefs, Modules, Shortcuts, valid_color};
+use crate::monitor::MonitorCable;
+use crate::scene::Scene;
+
+/// The two sides of the desk. Tandem is designed for exactly two machines, peer to
+/// peer (DECISIONS D1, A1): neither side assumes which system it has; that is
+/// [`MachineInfo`].
+///
+/// The side comes from the Ed25519 public keys ([`Machine::of_keys`]): the lesser is `A`. The
+/// two machines reach the same result without coordinating.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Machine {
-    Mac,
-    Pc,
+    /// Written `a`; when reading, `A` is also accepted (as displayed).
+    #[serde(alias = "A")]
+    A,
+    #[serde(alias = "B")]
+    B,
 }
 
 impl Machine {
+    pub const ALL: [Machine; 2] = [Machine::A, Machine::B];
+
     pub fn other(self) -> Self {
         match self {
-            Machine::Mac => Machine::Pc,
-            Machine::Pc => Machine::Mac,
+            Machine::A => Machine::B,
+            Machine::B => Machine::A,
+        }
+    }
+
+    /// As written in `tandem.toml` and in JSON: `a` or `b`.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Machine::A => "a",
+            Machine::B => "b",
+        }
+    }
+
+    /// The inverse of [`Machine::as_str`].
+    pub fn parse(s: &str) -> Option<Machine> {
+        match s {
+            "a" => Some(Machine::A),
+            "b" => Some(Machine::B),
+            _ => None,
+        }
+    }
+
+    /// The side of whoever holds the key `own` versus whoever holds `peer`: the lesser, in byte
+    /// order, is `A`. It is symmetric (`of_keys(p, o) == of_keys(o, p).other()`), so
+    /// each machine computes its own and they agree. `None` if both keys are the same (there
+    /// are not two machines).
+    pub fn of_keys(own: &[u8; 32], peer: &[u8; 32]) -> Option<Machine> {
+        match own.cmp(peer) {
+            std::cmp::Ordering::Less => Some(Machine::A),
+            std::cmp::Ordering::Greater => Some(Machine::B),
+            std::cmp::Ordering::Equal => None,
         }
     }
 }
@@ -23,137 +67,494 @@ impl Machine {
 impl fmt::Display for Machine {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
-            Machine::Mac => "mac",
-            Machine::Pc => "pc",
+            Machine::A => "A",
+            Machine::B => "B",
         })
     }
 }
 
-/// Entrada física de un monitor.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Input {
-    Hdmi,
-    DisplayPort,
+/// The system of a machine. What changes by system (the backends) is compiled with
+/// `#[cfg]`; the rest of the code asks about this or about capabilities, never about the side.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
+pub enum Os {
+    #[serde(rename = "macos")]
+    MacOs,
+    #[serde(rename = "windows")]
+    Windows,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct MonitorId(pub String);
+impl Os {
+    pub const ALL: [Os; 2] = [Os::MacOs, Os::Windows];
 
-impl fmt::Display for MonitorId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.0)
+    /// The one of this binary. Linux only runs tests and simulations (no platform
+    /// backends): it presents itself as Windows, and each test picks the one it needs.
+    pub fn local() -> Os {
+        if cfg!(target_os = "macos") {
+            Os::MacOs
+        } else {
+            Os::Windows
+        }
     }
-}
 
-impl From<&str> for MonitorId {
-    fn from(s: &str) -> Self {
-        MonitorId(s.to_owned())
+    /// The machine name when there is no other (neither the system's nor a chosen one).
+    pub fn default_name(self) -> &'static str {
+        match self {
+            Os::MacOs => "Mac",
+            Os::Windows => "PC",
+        }
     }
-}
 
-/// Códigos DDC/CI (VCP 0x60) que el monitor obedece de verdad.
-///
-/// Los Samsung declaran unos valores en su capabilities string y obedecen otros,
-/// así que se configuran a mano a partir de pruebas (ver `docs/research/`).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DdcProfile {
-    pub hdmi: u8,
-    pub display_port: u8,
-}
-
-impl DdcProfile {
-    pub fn code_for(&self, input: Input) -> u8 {
-        match input {
-            Input::Hdmi => self.hdmi,
-            Input::DisplayPort => self.display_port,
+    pub fn label(self) -> &'static str {
+        match self {
+            Os::MacOs => "macOS",
+            Os::Windows => "Windows",
         }
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct MonitorConfig {
-    pub id: MonitorId,
-    /// Nombre para la UI, por ejemplo `34"`.
-    pub label: String,
-    /// Modelo tal como lo reporta el EDID (por ejemplo `LC34G55T`); sirve para encontrar el monitor.
-    pub edid_model: Option<String>,
-    /// Qué entrada del monitor va cableada a cada máquina.
-    pub wiring: BTreeMap<Machine, Input>,
-    pub ddc: Option<DdcProfile>,
-}
-
-impl MonitorConfig {
-    pub fn input_for(&self, machine: Machine) -> Option<Input> {
-        self.wiring.get(&machine).copied()
+impl fmt::Display for Os {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.label())
     }
 }
 
-/// Configuración estática del puesto.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Config {
-    /// Monitores ordenados de izquierda a derecha sobre el escritorio.
-    pub monitors: Vec<MonitorConfig>,
+/// The palette of the v0.3 mockups (DECISIONS D17): blue, violet, teal and amber.
+pub const PALETTE: [&str; 4] = ["#7aa7e6", "#a99be8", "#5fbfb0", "#d9a75a"];
+
+/// The colors assigned automatically to each side when it becomes known. The user can change them
+/// to any one different from the other machine's.
+pub const DEFAULT_COLORS: [&str; 2] = [PALETTE[0], PALETTE[1]];
+
+/// The default color of `side`.
+pub fn default_color(side: Machine) -> &'static str {
+    match side {
+        Machine::A => DEFAULT_COLORS[0],
+        Machine::B => DEFAULT_COLORS[1],
+    }
 }
+
+/// What identifies a machine in the UI: its system, its name and its color. Travels in the
+/// capabilities announcement and is stored in the shared desk ([`Config::machines`]).
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
+#[serde(deny_unknown_fields)]
+pub struct MachineInfo {
+    pub os: Os,
+    pub name: String,
+    /// Accent color in CSS (`#rrggbb`).
+    pub color: String,
+}
+
+impl MachineInfo {
+    /// That of a machine just seen: the name the system gives (or, without it, one derived
+    /// from the operating system) and the default color of its side.
+    pub fn new(side: Machine, os: Os, name: Option<String>) -> Self {
+        let name = name
+            .map(|n| n.trim().to_owned())
+            .filter(|n| !n.is_empty())
+            .unwrap_or_else(|| os.default_name().to_owned());
+        MachineInfo {
+            os,
+            name,
+            color: default_color(side).to_owned(),
+        }
+    }
+}
+
+/// What is known about each side. Empty until each machine announces itself.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, PartialOrd, Ord)]
+#[serde(deny_unknown_fields)]
+pub struct Machines {
+    #[serde(default)]
+    pub a: Option<MachineInfo>,
+    #[serde(default)]
+    pub b: Option<MachineInfo>,
+}
+
+impl Machines {
+    pub fn get(&self, side: Machine) -> Option<&MachineInfo> {
+        match side {
+            Machine::A => self.a.as_ref(),
+            Machine::B => self.b.as_ref(),
+        }
+    }
+
+    pub fn set(&mut self, side: Machine, info: Option<MachineInfo>) {
+        match side {
+            Machine::A => self.a = info,
+            Machine::B => self.b = info,
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.a.is_none() && self.b.is_none()
+    }
+
+    /// The name of `side` for texts: the stored one or, without it, "machine A".
+    pub fn name(&self, side: Machine) -> String {
+        self.get(side)
+            .map(|i| i.name.clone())
+            .unwrap_or_else(|| format!("machine {side}"))
+    }
+
+    /// The sides swapped (see [`Config::swap_sides`]).
+    pub fn swapped(self) -> Self {
+        Machines {
+            a: self.b,
+            b: self.a,
+        }
+    }
+
+    /// Leaves the two machines with different colors (D17): if they match, B takes the first
+    /// of the palette that A does not have. It is the same rule on both machines, so they do not
+    /// argue. `true` if anything changed.
+    pub fn distinct_colors(&mut self) -> bool {
+        let (Some(a), Some(b)) = (&self.a, &mut self.b) else {
+            return false;
+        };
+        if !a.color.eq_ignore_ascii_case(&b.color) {
+            return false;
+        }
+        let free = PALETTE
+            .iter()
+            .find(|c| !c.eq_ignore_ascii_case(&a.color))
+            .unwrap_or(&PALETTE[1]);
+        b.color = (*free).to_owned();
+        true
+    }
+}
+
+/// Side of a desktop (DECISIONS D18: any of the four).
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, PartialOrd, Ord,
+)]
+#[serde(rename_all = "lowercase")]
+pub enum Side {
+    /// Without a declared arrangement, A goes to the left of B.
+    #[default]
+    Left,
+    Right,
+    Up,
+    Down,
+}
+
+impl Side {
+    pub const ALL: [Side; 4] = [Side::Left, Side::Right, Side::Up, Side::Down];
+
+    pub fn opposite(self) -> Self {
+        match self {
+            Side::Left => Side::Right,
+            Side::Right => Side::Left,
+            Side::Up => Side::Down,
+            Side::Down => Side::Up,
+        }
+    }
+
+    /// The edge of this side is vertical (left or right): it runs along `y`.
+    pub fn is_vertical_edge(self) -> bool {
+        matches!(self, Side::Left | Side::Right)
+    }
+}
+
+/// How the two desktops align along the edge they share: start (top or
+/// left), center or end (bottom or right). It is symmetric: it holds the same seen from
+/// either machine.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, PartialOrd, Ord,
+)]
+#[serde(rename_all = "lowercase")]
+pub enum Align {
+    Start,
+    #[default]
+    Center,
+    End,
+}
+
+impl Align {
+    pub const ALL: [Align; 3] = [Align::Start, Align::Center, Align::End];
+
+    /// What part of the length difference remains before the shorter desktop.
+    pub fn factor(self) -> f64 {
+        match self {
+            Align::Start => 0.0,
+            Align::Center => 0.5,
+            Align::End => 1.0,
+        }
+    }
+}
+
+/// Native cursor units per logical point, stored in thousandths so the desk
+/// can be compared (and travel) exactly. In `tandem.toml` it is written as a number: `1.5`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct Scale(u32);
+
+impl Scale {
+    pub const ONE: Scale = Scale(1000);
+
+    pub fn from_milli(milli: u32) -> Self {
+        Scale(milli)
+    }
+
+    pub fn milli(self) -> u32 {
+        self.0
+    }
+
+    pub fn as_f64(self) -> f64 {
+        f64::from(self.0) / 1000.0
+    }
+
+    /// `None` if it is not a representable positive number.
+    pub fn from_f64(v: f64) -> Option<Self> {
+        let milli = (v * 1000.0).round();
+        let valid = v.is_finite() && milli >= 1.0 && milli <= f64::from(u32::MAX);
+        // `as` saturates; only used with the value already checked.
+        valid.then_some(Scale(milli as u32))
+    }
+}
+
+impl Default for Scale {
+    fn default() -> Self {
+        Scale::ONE
+    }
+}
+
+impl Serialize for Scale {
+    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_f64(self.as_f64())
+    }
+}
+
+impl<'de> Deserialize<'de> for Scale {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let v = f64::deserialize(d)?;
+        Scale::from_f64(v).ok_or_else(|| serde::de::Error::custom(format!("invalid scale: {v}")))
+    }
+}
+
+/// A screen of the declared arrangement, in the native cursor coordinates of its
+/// machine: points on macOS, physical pixels of the virtual desktop on Windows (DESIGN §7).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, PartialOrd, Ord)]
+#[serde(deny_unknown_fields)]
+pub struct ScreenSpec {
+    pub machine: Machine,
+    /// To recognize it in the UI and in the logs; unique per machine.
+    pub id: String,
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+    #[serde(default)]
+    pub scale: Scale,
+}
+
+/// Where one desktop sits relative to the other (DECISIONS D18): on which side and with what
+/// alignment, without manual coordinates. The crossing edge is the stretch they share.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, PartialOrd, Ord)]
+#[serde(deny_unknown_fields)]
+pub struct Arrangement {
+    /// The side of B on which A is.
+    #[serde(default)]
+    pub a_side: Side,
+    #[serde(default)]
+    pub align: Align,
+}
+
+impl Arrangement {
+    /// The same arrangement said with the sides swapped: if A was to the left of B, the one
+    /// now called B (the former one) is still on the left, that is, the new A ends up on
+    /// the right. The alignment is symmetric and does not change.
+    pub fn swapped(self) -> Self {
+        Arrangement {
+            a_side: self.a_side.opposite(),
+            align: self.align,
+        }
+    }
+}
+
+/// The desk shared between the two machines (DESIGN §4.4): which machine is each side, the
+/// arrangement, the scenes, the shortcuts, the keyboard and mouse preferences and the enabled
+/// modules. Edited by the UI with patches ([`crate::DeskPatch`]) and synchronized by the two
+/// agents ([`crate::DeskVersion`]). Without a machine's `[[screens]]`, the ones it
+/// reads itself apply; without an arrangement, A to the left of B with the usual proportional crossing.
+///
+/// Travels with postcard (`ControlMsg::Desk`): no field can be skipped when serializing.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, PartialOrd, Ord)]
+pub struct Desk {
+    /// The desk name (T-159); `None`: the UI default. Travels with the desk to
+    /// the other machine. In `tandem.toml` it is `desk_name`.
+    #[serde(default, rename = "desk_name")]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub machines: Machines,
+    #[serde(default)]
+    pub screens: Vec<ScreenSpec>,
+    /// `None`: never declared.
+    #[serde(default)]
+    pub arrangement: Option<Arrangement>,
+    #[serde(default)]
+    pub scenes: Vec<Scene>,
+    #[serde(default)]
+    pub shortcuts: Shortcuts,
+    #[serde(default)]
+    pub prefs: InputPrefs,
+    #[serde(default)]
+    pub modules: Modules,
+    /// The cap on data over Wi-Fi (`[data]`, T-101).
+    #[serde(default)]
+    pub data: DataPrefs,
+    /// Which input of each compatible monitor each machine goes to and which of its screens it is
+    /// (`[[cables]]`, T-111). A monitor without a declared cable is resolved with the EDID.
+    #[serde(default)]
+    pub cables: Vec<MonitorCable>,
+    /// What each machine does with its built-in display (`[builtin_display]`, T-353).
+    #[serde(default)]
+    pub builtin_display: crate::desk::BuiltinDisplays,
+}
+
+/// The previous name of [`Desk`].
+pub type Config = Desk;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
-    #[error("configuración inválida: {0}")]
+    #[error("invalid configuration: {0}")]
     Parse(#[from] toml::de::Error),
-    #[error("el monitor `{0}` está repetido")]
-    DuplicateMonitor(MonitorId),
-    #[error("el monitor `{0}` no está cableado a ninguna máquina")]
-    Unwired(MonitorId),
+    #[error("the screen `{id}` of machine {machine} is repeated")]
+    DuplicateScreen { machine: Machine, id: String },
+    #[error("the screen `{id}` of machine {machine} has no area")]
+    EmptyScreen { machine: Machine, id: String },
+    #[error("a screen of machine {0} has no id")]
+    UnnamedScreen(Machine),
+    #[error(transparent)]
+    Data(#[from] DataPrefsError),
+    #[error("the color `{color}` of machine {machine} is not #rrggbb")]
+    BadColor { machine: Machine, color: String },
+    #[error("machine {0} has no name")]
+    UnnamedMachine(Machine),
+    #[error("a scene has no id or name")]
+    UnnamedScene,
+    #[error("the scene `{0}` is repeated")]
+    DuplicateScene(String),
+    #[error("{0}")]
+    BadScene(String),
+    #[error("the shortcut {} already belongs to another scene or to the lock", .0.join("+"))]
+    DuplicateShortcut(Vec<String>),
+    #[error("a module of machine {0} has no id")]
+    UnnamedModule(Machine),
+    #[error("{0}")]
+    BadCable(String),
 }
 
-impl Config {
+impl Desk {
     pub fn from_toml(s: &str) -> Result<Self, ConfigError> {
-        let cfg: Config = toml::from_str(s)?;
+        let cfg: Desk = toml::from_str(s)?;
         cfg.validate()?;
         Ok(cfg)
     }
 
     pub fn validate(&self) -> Result<(), ConfigError> {
-        let mut seen = std::collections::BTreeSet::new();
-        for m in &self.monitors {
-            if !seen.insert(&m.id) {
-                return Err(ConfigError::DuplicateMonitor(m.id.clone()));
+        self.data.validate()?;
+        let mut seen = BTreeSet::new();
+        for s in &self.screens {
+            if s.id.trim().is_empty() {
+                return Err(ConfigError::UnnamedScreen(s.machine));
             }
-            if m.wiring.is_empty() {
-                return Err(ConfigError::Unwired(m.id.clone()));
+            if s.width == 0 || s.height == 0 {
+                return Err(ConfigError::EmptyScreen {
+                    machine: s.machine,
+                    id: s.id.clone(),
+                });
+            }
+            if !seen.insert((s.machine, s.id.as_str())) {
+                return Err(ConfigError::DuplicateScreen {
+                    machine: s.machine,
+                    id: s.id.clone(),
+                });
+            }
+        }
+        for side in Machine::ALL {
+            if let Some(info) = self.machines.get(side) {
+                if info.name.trim().is_empty() {
+                    return Err(ConfigError::UnnamedMachine(side));
+                }
+                if !valid_color(&info.color) {
+                    return Err(ConfigError::BadColor {
+                        machine: side,
+                        color: info.color.clone(),
+                    });
+                }
+            }
+            if self.modules.of(side).keys().any(|m| m.trim().is_empty()) {
+                return Err(ConfigError::UnnamedModule(side));
+            }
+        }
+        let mut scenes = BTreeSet::new();
+        // The same shortcut for two things would do both at once: not accepted. The order of
+        // the keys does not matter.
+        let mut shortcuts = BTreeSet::new();
+        let mut keys = |k: &[String]| {
+            let set: BTreeSet<String> = k.iter().cloned().collect();
+            set.is_empty() || shortcuts.insert(set)
+        };
+        keys(&self.shortcuts.lock);
+        for s in &self.scenes {
+            if s.id.trim().is_empty() || s.name.trim().is_empty() {
+                return Err(ConfigError::UnnamedScene);
+            }
+            if !scenes.insert(s.id.as_str()) {
+                return Err(ConfigError::DuplicateScene(s.id.clone()));
+            }
+            if let Some(problem) = s.problem() {
+                return Err(ConfigError::BadScene(problem));
+            }
+            if !keys(&s.shortcut) {
+                return Err(ConfigError::DuplicateShortcut(s.shortcut.clone()));
+            }
+        }
+        let mut cabled = BTreeSet::new();
+        for c in &self.cables {
+            if let Some(problem) = c.problem() {
+                return Err(ConfigError::BadCable(problem));
+            }
+            if !cabled.insert(c.monitor.as_str()) {
+                return Err(ConfigError::BadCable(format!(
+                    "the monitor `{}` has two cablings",
+                    c.monitor
+                )));
             }
         }
         Ok(())
     }
 
-    pub fn monitor(&self, id: &MonitorId) -> Option<&MonitorConfig> {
-        self.monitors.iter().find(|m| &m.id == id)
+    /// The declared cabling of `monitor`.
+    pub fn cable(&self, monitor: &str) -> Option<&MonitorCable> {
+        self.cables.iter().find(|c| c.monitor == monitor)
     }
-}
 
-#[cfg(test)]
-pub(crate) mod fixtures {
-    use super::*;
+    /// The declared screens of `machine`, in file order.
+    pub fn screens_of(&self, machine: Machine) -> impl Iterator<Item = &ScreenSpec> {
+        self.screens.iter().filter(move |s| s.machine == machine)
+    }
 
-    /// El puesto real: 34" a la izquierda, 32" a la derecha; DP a la PC, HDMI a la Mac.
-    pub fn desk() -> Config {
-        Config::from_toml(
-            r#"
-            [[monitors]]
-            id = "m34"
-            label = '34"'
-            edid_model = "LC34G55T"
-            wiring = { pc = "displayport", mac = "hdmi" }
-            ddc = { hdmi = 0x06, display_port = 0x0F }
-
-            [[monitors]]
-            id = "m32"
-            label = '32"'
-            wiring = { pc = "displayport", mac = "hdmi" }
-            "#,
-        )
-        .unwrap()
+    /// The same desk with the sides swapped (A↔B): what is done when a machine
+    /// discovers, when pairing, that it is the other side. Nothing physical changes: each screen
+    /// is still its machine's and the arrangement is still the same.
+    pub fn swap_sides(self) -> Self {
+        Desk {
+            machines: self.machines.swapped(),
+            screens: self
+                .screens
+                .into_iter()
+                .map(|s| ScreenSpec {
+                    machine: s.machine.other(),
+                    ..s
+                })
+                .collect(),
+            arrangement: self.arrangement.map(Arrangement::swapped),
+            scenes: self.scenes.into_iter().map(Scene::swapped).collect(),
+            modules: self.modules.swapped(),
+            cables: self.cables.into_iter().map(MonitorCable::swapped).collect(),
+            builtin_display: self.builtin_display.swapped(),
+            ..self
+        }
     }
 }
 
@@ -162,29 +563,306 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parses_desk_config() {
-        let cfg = fixtures::desk();
-        let m34 = cfg.monitor(&"m34".into()).unwrap();
-        assert_eq!(m34.input_for(Machine::Pc), Some(Input::DisplayPort));
-        assert_eq!(m34.ddc.as_ref().unwrap().code_for(Input::Hdmi), 0x06);
-        assert!(cfg.monitor(&"m32".into()).unwrap().ddc.is_none());
+    fn the_wifi_data_cap_belongs_to_the_desk_and_has_its_patch() {
+        let desk = Desk::from_toml("[data]\nwifi_cap_percent = 30\nwifi_cap_mbps = 80").unwrap();
+        assert_eq!(desk.data.wifi_cap_percent, 30);
+        assert_eq!(desk.data.fixed_cap_bytes(), Some(10_000_000));
+        assert_eq!(desk.clone().swap_sides().data, desk.data);
+        assert!(matches!(
+            Desk::from_toml("[data]\nwifi_cap_percent = 0"),
+            Err(ConfigError::Data(_))
+        ));
+
+        let mut edited = Desk::default();
+        edited.apply(crate::DeskPatch::Data(desk.data)).unwrap();
+        assert_eq!(edited.data, desk.data);
+        assert_eq!(
+            Desk::default().summary_of_changes(&edited).as_deref(),
+            Some("Data over Wi-Fi")
+        );
+        let bad = DataPrefs {
+            wifi_cap_percent: 0,
+            wifi_cap_mbps: None,
+        };
+        assert!(edited.apply(crate::DeskPatch::Data(bad)).is_err());
     }
 
     #[test]
-    fn rejects_duplicate_monitor() {
-        let err = Config::from_toml(
-            r#"
-            [[monitors]]
-            id = "a"
-            label = "a"
-            wiring = { pc = "hdmi" }
-            [[monitors]]
-            id = "a"
-            label = "b"
-            wiring = { pc = "hdmi" }
-            "#,
+    fn an_empty_desk_is_valid_and_puts_a_on_the_left() {
+        let cfg = Config::from_toml("").unwrap();
+        assert!(cfg.screens.is_empty());
+        assert!(cfg.machines.is_empty());
+        assert_eq!(cfg.arrangement, None);
+        assert_eq!(cfg.shortcuts.lock, ["ScrollLock"]);
+        assert!(cfg.prefs.cmd_ctrl && cfg.prefs.drag_files);
+        assert!(cfg.scenes.is_empty());
+    }
+
+    #[test]
+    fn parses_declared_screens_arrangement_and_machines() {
+        let cfg = Config::from_toml(
+            r##"
+            [machines.a]
+            os = "windows"
+            name = "Tower"
+            color = "#7aa7e6"
+
+            [[screens]]
+            machine = "b"
+            id = "34"
+            x = 0
+            y = 0
+            width = 3440
+            height = 1440
+
+            [[screens]]
+            machine = "b"
+            id = "32"
+            x = 3440
+            y = 0
+            width = 3840
+            height = 2160
+            scale = 1.5
+
+            [[screens]]
+            machine = "a"
+            id = "laptop"
+            x = 0
+            y = 0
+            width = 1512
+            height = 982
+            scale = 2
+
+            [arrangement]
+            a_side = "up"
+            align = "end"
+
+            [[scenes]]
+            id = "work"
+            name = "Work"
+
+            [shortcuts]
+            lock = ["ControlLeft", "KeyL"]
+
+            [prefs]
+            drag_files = false
+
+            [modules.b]
+            clipboard = false
+            "##,
         )
-        .unwrap_err();
-        assert!(matches!(err, ConfigError::DuplicateMonitor(_)));
+        .unwrap();
+        let b: Vec<_> = cfg.screens_of(Machine::B).map(|s| s.id.as_str()).collect();
+        assert_eq!(b, ["34", "32"]);
+        assert_eq!(cfg.screens[0].scale, Scale::ONE);
+        assert_eq!(cfg.screens[1].scale.milli(), 1500);
+        assert_eq!(cfg.screens[2].scale.as_f64(), 2.0);
+        assert_eq!(
+            cfg.arrangement,
+            Some(Arrangement {
+                a_side: Side::Up,
+                align: Align::End,
+            })
+        );
+        assert_eq!(cfg.scenes[0].name, "Work");
+        assert_eq!(cfg.shortcuts.lock, ["ControlLeft", "KeyL"]);
+        assert!(!cfg.prefs.drag_files && cfg.prefs.cmd_ctrl);
+        assert_eq!(cfg.modules.get(Machine::B, "clipboard"), Some(false));
+        assert_eq!(cfg.modules.get(Machine::A, "clipboard"), None);
+        let a = cfg.machines.get(Machine::A).unwrap();
+        assert_eq!((a.os, a.name.as_str()), (Os::Windows, "Tower"));
+        assert_eq!(cfg.machines.get(Machine::B), None);
+        assert_eq!(cfg.machines.name(Machine::B), "machine B");
+    }
+
+    #[test]
+    fn rejects_bad_screens() {
+        let screen = |machine: &str, id: &str, w: u32, scale: &str| {
+            format!(
+                "[[screens]]\nmachine = \"{machine}\"\nid = \"{id}\"\nx = 0\ny = 0\nwidth = {w}\nheight = 10\nscale = {scale}\n"
+            )
+        };
+        let twice = format!("{}{}", screen("b", "a", 10, "1"), screen("b", "a", 10, "1"));
+        assert!(matches!(
+            Config::from_toml(&twice),
+            Err(ConfigError::DuplicateScreen { .. })
+        ));
+        // The same id on each machine is fine.
+        let both = format!("{}{}", screen("b", "a", 10, "1"), screen("a", "a", 10, "1"));
+        assert!(Config::from_toml(&both).is_ok());
+        assert!(matches!(
+            Config::from_toml(&screen("a", "a", 0, "1")),
+            Err(ConfigError::EmptyScreen { .. })
+        ));
+        assert!(matches!(
+            Config::from_toml(&screen("a", " ", 10, "1")),
+            Err(ConfigError::UnnamedScreen(Machine::A))
+        ));
+        for bad in ["0", "-1", "nan"] {
+            assert!(
+                matches!(
+                    Config::from_toml(&screen("a", "a", 10, bad)),
+                    Err(ConfigError::Parse(_))
+                ),
+                "{bad}"
+            );
+        }
+        assert!(matches!(
+            Config::from_toml("[arrangement]\nside = \"left\""),
+            Err(ConfigError::Parse(_))
+        ));
+        // The manual offset from before no longer exists (D18): the migration removes it.
+        assert!(matches!(
+            Config::from_toml("[arrangement]\na_side = \"left\"\noffset = 0"),
+            Err(ConfigError::Parse(_))
+        ));
+        let color = "[machines.a]\nos = \"macos\"\nname = \"Mac\"\ncolor = \"blue\"";
+        assert!(matches!(
+            Config::from_toml(color),
+            Err(ConfigError::BadColor { .. })
+        ));
+        let unnamed = "[machines.a]\nos = \"macos\"\nname = \" \"\ncolor = \"#7aa7e6\"";
+        assert!(matches!(
+            Config::from_toml(unnamed),
+            Err(ConfigError::UnnamedMachine(Machine::A))
+        ));
+        let scenes = "[[scenes]]\nid = \"x\"\nname = \"X\"\n[[scenes]]\nid = \"x\"\nname = \"Y\"";
+        assert!(matches!(
+            Config::from_toml(scenes),
+            Err(ConfigError::DuplicateScene(_))
+        ));
+        assert!(matches!(
+            Config::from_toml("[[scenes]]\nid = \"x\"\nname = \"\""),
+            Err(ConfigError::UnnamedScene)
+        ));
+        assert!(matches!(
+            Config::from_toml("[modules.a]\n\"\" = true"),
+            Err(ConfigError::UnnamedModule(Machine::A))
+        ));
+        // The former names are no longer sides: the agent migrates them, not the core.
+        assert!(matches!(
+            Config::from_toml(&screen("mac", "a", 10, "1")),
+            Err(ConfigError::Parse(_))
+        ));
+    }
+
+    #[test]
+    fn the_desk_round_trips_through_toml() {
+        let cfg = Config {
+            machines: Machines {
+                a: Some(MachineInfo::new(Machine::A, Os::MacOs, None)),
+                b: None,
+            },
+            screens: vec![ScreenSpec {
+                machine: Machine::A,
+                id: "laptop".into(),
+                x: -1512,
+                y: 10,
+                width: 1512,
+                height: 982,
+                scale: Scale::from_milli(1250),
+            }],
+            arrangement: Some(Arrangement {
+                a_side: Side::Down,
+                align: Align::Start,
+            }),
+            scenes: vec![Scene::new("only", "Only A")],
+            ..Config::default()
+        };
+        let text = toml::to_string(&cfg).unwrap();
+        assert_eq!(Config::from_toml(&text).unwrap(), cfg);
+    }
+
+    #[test]
+    fn scale_conversions() {
+        assert_eq!(Scale::from_f64(1.25), Some(Scale::from_milli(1250)));
+        assert_eq!(Scale::from_f64(0.0), None);
+        assert_eq!(Scale::from_f64(f64::INFINITY), None);
+        assert_eq!(Scale::default(), Scale::ONE);
+        for side in Side::ALL {
+            assert_ne!(side.opposite(), side);
+            assert_eq!(side.opposite().opposite(), side);
+            assert_eq!(side.opposite().is_vertical_edge(), side.is_vertical_edge());
+        }
+        assert_eq!(Align::Start.factor(), 0.0);
+        assert_eq!(Align::default(), Align::Center);
+    }
+
+    #[test]
+    fn sides_come_from_the_keys() {
+        let (low, high) = ([1u8; 32], [2u8; 32]);
+        assert_eq!(Machine::of_keys(&low, &high), Some(Machine::A));
+        assert_eq!(Machine::of_keys(&high, &low), Some(Machine::B));
+        assert_eq!(Machine::of_keys(&low, &low), None);
+        // Byte order, not numeric: the first byte rules.
+        let mut a = [0xffu8; 32];
+        a[0] = 0;
+        let mut b = [0u8; 32];
+        b[0] = 1;
+        assert_eq!(Machine::of_keys(&a, &b), Some(Machine::A));
+    }
+
+    #[test]
+    fn names_and_strings_of_each_side() {
+        for m in Machine::ALL {
+            assert_eq!(Machine::parse(m.as_str()), Some(m));
+            assert_eq!(m.other().other(), m);
+        }
+        assert_eq!(Machine::parse("mac"), None);
+        assert_eq!(Machine::A.to_string(), "A");
+        assert_eq!(
+            serde_json::to_string(&Machine::B).unwrap(),
+            "\"b\"",
+            "in files and JSON they are lowercase"
+        );
+    }
+
+    #[test]
+    fn machine_info_defaults_come_from_the_system() {
+        let mac = MachineInfo::new(Machine::A, Os::MacOs, None);
+        assert_eq!(mac.name, "Mac");
+        assert_eq!(mac.color, DEFAULT_COLORS[0]);
+        let pc = MachineInfo::new(Machine::B, Os::Windows, Some("  ".into()));
+        assert_eq!(pc.name, "PC");
+        assert_eq!(pc.color, DEFAULT_COLORS[1]);
+        let named = MachineInfo::new(Machine::B, Os::MacOs, Some(" Air ".into()));
+        assert_eq!(named.name, "Air");
+        assert_eq!(serde_json::to_string(&Os::MacOs).unwrap(), "\"macos\"");
+        assert_eq!(Os::Windows.to_string(), "Windows");
+    }
+
+    #[test]
+    fn swapping_sides_keeps_the_physical_desk() {
+        let cfg = Config {
+            machines: Machines {
+                a: Some(MachineInfo::new(Machine::A, Os::MacOs, None)),
+                b: Some(MachineInfo::new(Machine::B, Os::Windows, None)),
+            },
+            screens: vec![ScreenSpec {
+                machine: Machine::A,
+                id: "laptop".into(),
+                x: 0,
+                y: 0,
+                width: 10,
+                height: 10,
+                scale: Scale::ONE,
+            }],
+            arrangement: Some(Arrangement {
+                a_side: Side::Left,
+                align: Align::End,
+            }),
+            ..Config::default()
+        };
+        let mut cfg = cfg;
+        cfg.modules.set(Machine::A, "clipboard", false);
+        let swapped = cfg.clone().swap_sides();
+        assert_eq!(swapped.machines.b.as_ref().unwrap().os, Os::MacOs);
+        assert_eq!(swapped.screens[0].machine, Machine::B);
+        // The Mac stays on the left: it is now B, so A (the PC) ends up on the right.
+        let arr = swapped.arrangement.unwrap();
+        assert_eq!(arr.a_side, Side::Right);
+        assert_eq!(arr.align, Align::End);
+        assert_eq!(swapped.modules.get(Machine::B, "clipboard"), Some(false));
+        assert_eq!(swapped.swap_sides(), cfg);
     }
 }

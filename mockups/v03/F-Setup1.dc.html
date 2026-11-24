@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Setup 1: this machine</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0e0f12}
+a{color:#9cc0f0}
+.mut{color:#9a9da6}
+.mono{font-family:'JetBrains Mono',ui-monospace,monospace}
+.btn{font:inherit;font-size:13.5px;padding:10px 18px;border-radius:10px;border:1px solid #31343b;background:#1b1c21;color:#e8e8eb;cursor:pointer;min-height:44px;transition:border-color .2s,background .2s}
+.btn:hover{border-color:#4a4e58}
+.pri{background:#22324a;border-color:#7aa7e6}
+.st{display:flex;align-items:center;gap:12px;font-size:13.5px;color:#9a9da6;padding:8px 0}
+.st i{width:26px;height:26px;border-radius:50%;border:1.5px solid #31343b;display:grid;place-items:center;font-style:normal;font-size:12px;flex:none}
+.chk{display:flex;align-items:center;gap:12px;padding:11px 14px;border-top:1px solid #1f2126;font-size:13.5px;opacity:0;animation:up .45s cubic-bezier(.2,.8,.2,1) forwards}
+.ok{width:20px;height:20px;border-radius:50%;background:#1e3a2e;display:grid;place-items:center;flex:none}
+.spin{width:16px;height:16px;border-radius:50%;border:2px solid #31343b;border-top-color:#7aa7e6;animation:sp .8s linear infinite;flex:none;margin:2px}
+.sw{width:30px;height:30px;border-radius:50%;cursor:pointer;transition:transform .2s}
+.sw:hover{transform:scale(1.1)}
+@keyframes up{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@keyframes sp{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;opacity:1!important;transition:none!important}}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:9px;height:44px;min-height:0;padding:0 20px;box-sizing:border-box;flex:none;align-self:center;white-space:nowrap;font:inherit;font-size:14px;font-weight:500;line-height:1;border-radius:11px;border:1px solid #2e3138;background:linear-gradient(180deg,#1f2025,#18191d);color:#e8e8eb;cursor:pointer;text-decoration:none;box-shadow:inset 0 1px 0 rgba(255,255,255,.05),0 1px 2px rgba(0,0,0,.3);transition:transform .18s cubic-bezier(.2,.8,.2,1),border-color .18s,box-shadow .18s;position:relative;overflow:hidden}
+.btn svg{width:17px;height:17px;flex:none;transition:transform .25s cubic-bezier(.2,.8,.2,1)}
+.btn:hover{border-color:#41454e;transform:translateY(-1px);box-shadow:0 6px 16px rgba(0,0,0,.35)}
+.btn:active{transform:scale(.97)}
+.btn:focus-visible{outline:2px solid #7aa7e6;outline-offset:2px}
+.btn.pri{background:linear-gradient(180deg,#3a6aa8,#2c5288)!important;border-color:#5b8fd4!important;color:#fff}
+.btn.pri:hover{box-shadow:0 0 0 4px rgba(122,167,230,.16),0 8px 20px rgba(44,82,136,.45)}
+.btn.pri::after{content:"";position:absolute;inset:0;background:linear-gradient(110deg,transparent 30%,rgba(255,255,255,.2) 50%,transparent 70%);transform:translateX(-120%);transition:transform .6s}
+.btn.pri:hover::after{transform:translateX(120%)}
+.btn.pri:hover svg.go{transform:translateX(4px)}
+.btn.sm{height:34px;padding:0 13px;font-size:12.5px;border-radius:9px}
+.btn.sm svg{width:15px;height:15px}
+.btn:hover svg.dl{transform:translateY(2px)}
+.stl{display:flex;align-items:center;gap:12px;font-size:13.5px;color:#9a9da6!important;padding:8px 10px!important;margin:0 -10px;border-radius:9px;text-decoration:none;font-weight:400;transition:background .2s,color .2s}
+.stl:hover{background:#17181c;color:#e8e8eb!important}
+.stl i{width:26px;height:26px;border-radius:50%;border:1.5px solid #31343b!important;color:#9a9da6!important;display:grid;place-items:center;font-style:normal;font-size:12px;flex:none;transition:transform .25s cubic-bezier(.3,1.5,.5,1)}
+.stl:hover i{transform:scale(1.1)}
+.stl.done{color:#c4c6cc!important}
+.stl.done i{border-color:#6cc59a!important;color:#6cc59a!important}
+.stl.cur{color:#e8e8eb!important;font-weight:600;background:#15161a}
+.stl.cur i{border-color:#e8e8eb!important;color:#e8e8eb!important}
+</style>
+</helmet>
+<div style="width:100%;min-height:860px;display:flex;flex-wrap:wrap;font-family:'Inter',system-ui,sans-serif;color:#e8e8eb;font-size:14px;background:#0e0f12">
+  <aside aria-label="Steps" style="flex:1 1 240px;max-width:300px;box-sizing:border-box;padding:28px;border-right:1px solid #1f2126;background:#0b0c0e;display:flex;flex-direction:column;gap:4px">
+    <div style="display:flex;align-items:center;gap:9px;padding-bottom:22px;font-weight:650;font-size:16px"><svg width="22" height="22" viewBox="0 0 32 32" fill="none" aria-hidden="true"><circle cx="11.5" cy="16" r="8" stroke="#7aa7e6" stroke-width="2.4"></circle><circle cx="20.5" cy="16" r="8" stroke="#a99be8" stroke-width="2.4"></circle></svg>Tandem</div>
+    <ol style="list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px">
+      <li><a class="st stl cur" href="F-Setup1.dc.html" aria-current="step"><i>1</i>This machine</a></li>
+      <li><a class="st stl" href="V3-Setup.dc.html"><i>2</i>Your desk</a></li>
+      <li><a class="st stl" href="F-Setup3.dc.html"><i>3</i>Permissions</a></li>
+      <li><a class="st stl" href="F-Setup4.dc.html"><i>4</i>Keyboard and mouse</a></li>
+      <li><a class="st stl" href="F-Setup5.dc.html"><i>5</i>Arrangement and crossing test</a></li>
+      <li><a class="st stl" href="F-Setup6.dc.html"><i>6</i>Done</a></li>
+    </ol>
+  </aside>
+  <main style="flex:999 1 560px;min-width:0;box-sizing:border-box;padding:48px 56px;display:flex;flex-direction:column;gap:22px;max-width:860px">
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <span class="mut" style="font-size:12.5px">Step 1 of 6</span>
+      <h1 style="margin:0;font-size:26px;font-weight:650">This machine</h1>
+      <p class="mut" style="margin:0;line-height:1.55;max-width:560px">Tandem checks what this machine can do. Nothing is fixed: what it finds is what it announces to the rest of the desk.</p>
+    </div>
+    <div style="display:flex;gap:18px;flex-wrap:wrap;align-items:flex-end">
+      <label style="display:flex;flex-direction:column;gap:6px;font-size:13px;flex:1 1 260px">Name
+        <input value="MacBook Pro" style="font:inherit;font-size:15px;color:#e8e8eb;background:#111215;border:1px solid #31343b;border-radius:10px;padding:12px 14px">
+      </label>
+      <div role="radiogroup" aria-label="Color" style="display:flex;gap:8px;padding-bottom:6px">
+        <sc-for list="{{colors}}" as="c" hint-placeholder-count="4"><button type="button" role="radio" class="sw" aria-checked="{{c.on}}" aria-label="{{c.name}}" onClick="{{c.pick}}" style="{{c.style}}"></button></sc-for>
+      </div>
+    </div>
+    <section aria-label="What it found" style="border-radius:14px;background:#15161a;border:1px solid #25272d;overflow:hidden">
+      <div style="padding:12px 14px;font-size:13px;font-weight:600;display:flex;gap:8px;align-items:center"><span style="width:8px;height:8px;border-radius:50%;background:{{accent}};transition:background .3s"></span>What it found</div>
+      <div class="chk" style="animation-delay:.1s"><span class="ok"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#6cc59a" stroke-width="3" aria-hidden="true"><path d="m4 12 5 5L20 6"></path></svg></span>macOS 26 · Apple M5 · 24 GB<span style="flex:1"></span><span class="mut" style="font-size:12px">system</span></div>
+      <div class="chk" style="animation-delay:.5s"><span class="ok"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#6cc59a" stroke-width="3" aria-hidden="true"><path d="m4 12 5 5L20 6"></path></svg></span>Keyboard and mouse<span style="flex:1"></span><span class="mut" style="font-size:12px">capture and injection</span></div>
+      <div class="chk" style="animation-delay:.9s"><span class="ok"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#6cc59a" stroke-width="3" aria-hidden="true"><path d="m4 12 5 5L20 6"></path></svg></span>Clipboard<span style="flex:1"></span><span class="mut" style="font-size:12px">text, HTML, image</span></div>
+      <div class="chk" style="animation-delay:1.3s"><span class="ok"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#6cc59a" stroke-width="3" aria-hidden="true"><path d="m4 12 5 5L20 6"></path></svg></span>Compute<span style="flex:1"></span><span class="mono mut" style="font-size:12px">zsh · Docker · uv · node</span></div>
+      <div class="chk" style="animation-delay:1.7s"><span style="width:20px;height:20px;border-radius:50%;border:1.5px dashed #6a6d76;box-sizing:border-box;flex:none"></span>Monitors<span style="flex:1"></span><span class="mut" style="font-size:12px">no DDC channel right now; another machine controls them</span></div>
+      <div class="chk" style="animation-delay:2.1s"><span class="spin"></span>Administrator service<span style="flex:1"></span><button type="button" class="btn sm pri"><svg class="dl" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"></path></svg>Install</button></div>
+    </section>
+    <div style="display:flex;gap:10px;margin-top:auto"><span style="flex:1"></span><a class="btn pri" href="V3-Setup.dc.html">Continue<svg class="go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"></path></svg></a></div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":860}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { c: 0 }; }
+  renderVals() {
+    const cs = [['Blue', '#7aa7e6'], ['Violet', '#a99be8'], ['Teal', '#5fbfb0'], ['Amber', '#d9a75a']];
+    return {
+      accent: cs[this.state.c][1],
+      colors: cs.map(([name, hex], i) => ({ name, on: i === this.state.c ? 'true' : 'false',
+        style: 'background:' + hex + ';border:2px solid ' + (i === this.state.c ? '#e8e8eb' : '#0e0f12'),
+        pick: () => this.setState({ c: i }) }))
+    };
+  }
+}
+</script>
+</body>
+</html>

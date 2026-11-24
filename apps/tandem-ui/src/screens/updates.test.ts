@@ -1,0 +1,48 @@
+import { render, screen } from "@testing-library/svelte";
+import userEvent from "@testing-library/user-event";
+import { tick } from "svelte";
+import { describe, expect, it } from "vitest";
+
+import { STORE_KEY } from "../lib/context";
+import { DemoSource, demoOptions } from "../lib/store/demo";
+import { Store } from "../lib/store/store.svelte";
+import Shell from "../shell/Shell.svelte";
+
+async function openUpdates() {
+  const store = new Store(new DemoSource(demoOptions("demo&still")), { hash: "#/settings" });
+  await store.start();
+  render(Shell, { context: new Map([[STORE_KEY, store]]) });
+  await tick();
+  await userEvent.click(screen.getByRole("tab", { name: "Updates" }));
+  await screen.findByText("Tandem 0.3.0");
+  return store;
+}
+
+describe("Settings → Updates (F-Settings, T-122)", () => {
+  it("shows the version of the two machines, the source and \"Update automatically\" on", async () => {
+    await openUpdates();
+    expect(screen.getByText("All machines of the desk on the same version.")).toBeInTheDocument();
+    expect(screen.getByText("GitHub Releases · unsigned")).toBeInTheDocument();
+    expect(screen.getByRole("switch", { name: "Update automatically" })).toHaveAttribute("aria-checked", "true");
+    expect(screen.queryByRole("button", { name: /Update all/ })).toBeNull();
+  });
+
+  it("searching now finds the new version and \"Update all\" starts with the other machine", async () => {
+    await openUpdates();
+    await userEvent.click(screen.getByRole("button", { name: /Check now/ }));
+    expect(await screen.findByText("A new version is available: 0.3.1")).toBeInTheDocument();
+    expect(screen.getByText("It installs on every machine, one at a time, without cutting the keyboard.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Check again/ })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /Update all/ }));
+    expect(await screen.findByText("Asking the other machine to update…")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Update all/ })).toBeDisabled();
+  });
+
+  it("the switch is saved", async () => {
+    const store = await openUpdates();
+    const sw = screen.getByRole("switch", { name: "Update automatically" });
+    await userEvent.click(sw);
+    expect(sw).toHaveAttribute("aria-checked", "false");
+    expect((await store.updates(() => {})).auto).toBe(false);
+  });
+});

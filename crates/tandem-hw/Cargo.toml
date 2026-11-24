@@ -1,0 +1,26 @@
+[package]
+name = "tandem-hw"
+description = "Hardware test suite (T-123): provisions test agents, runs the checks over IPC and builds the report. Never runs in CI."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+anyhow.workspace = true
+monitor-ddc.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tandem-core = { path = "../tandem-core" }
+tandem-input = { path = "../tandem-input" }
+tandem-link = { path = "../tandem-link" }
+tandem-monitor = { path = "../tandem-monitor" }
+tandem-proto = { path = "../tandem-proto" }
+tandemd = { path = "../tandemd" }
+tokio = { workspace = true, features = ["io-util", "macros", "net", "rt-multi-thread", "time"] }
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

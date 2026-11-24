@@ -1,0 +1,25 @@
+[package]
+name = "tandem-monitor"
+description = "Monitors in Tandem: monitor-ddc, elected owner, events, switches with a verdict and automatic rollback"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+# The automatic-rollback watchdog: a separate process that restores the input if the
+# one that changed it dies without doing so.
+name = "tandem-monitor-guard"
+path = "src/bin/tandem-monitor-guard.rs"
+
+[dependencies]
+monitor-ddc.workspace = true
+tandem-core = { path = "../tandem-core" }
+tandem-proto = { path = "../tandem-proto" }
+thiserror.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+
+[lints]
+workspace = true

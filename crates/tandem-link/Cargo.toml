@@ -1,0 +1,42 @@
+[package]
+name = "tandem-link"
+description = "Link layer: discovery, links, health, priority, plane policy"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+bytes.workspace = true
+ed25519-dalek.workspace = true
+getrandom.workspace = true
+if-addrs.workspace = true
+mdns-sd.workspace = true
+quinn.workspace = true
+rcgen.workspace = true
+rustls.workspace = true
+serde.workspace = true
+sha2.workspace = true
+socket2.workspace = true
+tandem-core = { path = "../tandem-core" }
+tandem-proto = { path = "../tandem-proto" }
+thiserror.workspace = true
+tokio = { workspace = true, features = ["io-util", "macros", "net", "rt", "time", "sync"] }
+toml.workspace = true
+tracing.workspace = true
+zeroize.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows = { workspace = true, features = [
+    "Win32_Foundation",
+    "Win32_NetworkManagement_IpHelper",
+    "Win32_NetworkManagement_Ndis",
+    "Win32_Networking_WinSock",
+] }
+
+[dev-dependencies]
+proptest.workspace = true
+tempfile.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "test-util"] }
+
+[lints]
+workspace = true

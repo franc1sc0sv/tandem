@@ -1,0 +1,69 @@
+[package]
+name = "tandemd"
+description = "Agent binary (launchd service / Windows Service)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+# `tandemw` is the console-less launcher for startup with the Windows session.
+default-run = "tandemd"
+
+[features]
+# Simulated backends and the `--sim-backends` option, only for the end-to-end tests
+# with the binary (tests/two_processes.rs). The distributed binary does not include it.
+sim-backends = []
+
+[dependencies]
+anyhow.workspace = true
+dirs.workspace = true
+monitor-ddc.workspace = true
+postcard.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tandem-clipboard = { path = "../tandem-clipboard" }
+tandem-core = { path = "../tandem-core" }
+tandem-env = { path = "../tandem-env" }
+tandem-files = { path = "../tandem-files" }
+tandem-workspace = { path = "../tandem-workspace" }
+tandem-input = { path = "../tandem-input" }
+tandem-link = { path = "../tandem-link" }
+tandem-monitor = { path = "../tandem-monitor" }
+tandem-peripherals = { path = "../tandem-peripherals" }
+tandem-power = { path = "../tandem-power" }
+tandem-proto = { path = "../tandem-proto" }
+tandem-tunnel = { path = "../tandem-tunnel" }
+thiserror.workspace = true
+tokio = { workspace = true, features = ["io-util", "macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
+toml.workspace = true
+toml_edit.workspace = true
+tracing.workspace = true
+tracing-subscriber = { workspace = true, features = ["env-filter", "fmt"] }
+
+[target.'cfg(windows)'.dependencies]
+windows = { workspace = true, features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Authentication_Identity",
+    "Win32_Security_Authorization",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Com",
+    "Win32_System_IO",
+    "Win32_System_JobObjects",
+    "Win32_System_Pipes",
+    "Win32_System_Registry",
+    "Win32_System_RemoteDesktop",
+    "Win32_System_Services",
+    "Win32_System_StationsAndDesktops",
+    "Win32_System_TaskScheduler",
+    "Win32_System_Threading",
+    "Win32_System_Variant",
+] }
+
+[dev-dependencies]
+proptest.workspace = true
+# The tests (and the binary they launch) are built with the simulated backends.
+tandemd = { path = ".", features = ["sim-backends"] }
+tempfile.workspace = true
+tokio = { workspace = true, features = ["io-util", "macros", "net", "rt-multi-thread", "sync", "test-util", "time"] }
+
+[lints]
+workspace = true

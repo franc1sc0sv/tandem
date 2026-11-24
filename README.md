@@ -1,8 +1,8 @@
 # Tandem
 
-Una MacBook Pro y una PC Windows funcionando como un solo puesto de trabajo: los monitores se reparten con un clic, hay un solo teclado y mouse (Deskflow), la PC se enciende y apaga a distancia, y las dos máquinas comparten un enlace propio por cable con Wi-Fi de respaldo.
+A MacBook Pro and a Windows PC working as a single desk: one keyboard and mouse with our own engine and no perceptible latency, the PC powers on and off remotely, and the two machines share their own wired link with Wi-Fi as a fallback.
 
-- Diseño: [docs/DESIGN.md](docs/DESIGN.md)
-- Investigación: [docs/research/](docs/research/)
-- Mockups: [mockups/main.html](mockups/main.html) (ábrelo en el navegador)
-- Herramientas de diagnóstico: [tools/](tools/)
+- Design: [docs/DESIGN.md](docs/DESIGN.md)
+- Research: [docs/research/](docs/research/)
+- Mockups: [mockups/main.html](mockups/main.html) (open it in the browser)
+- Diagnostic tools: [tools/](tools/)

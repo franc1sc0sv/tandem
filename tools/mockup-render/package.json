@@ -1,0 +1,40 @@
+{
+  "name": "@tandem/mockup-render",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "packageManager": "pnpm@10.32.1",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./harness": "./src/harness.ts"
+  },
+  "scripts": {
+    "mockups:shot": "node src/cli/shot.ts",
+    "mockups:serve": "node src/cli/serve.ts",
+    "mockups:compare": "node src/cli/compare.ts",
+    "test": "vitest run",
+    "check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "pixelmatch": "8.0.0",
+    "pngjs": "7.0.0"
+  },
+  "devDependencies": {
+    "@fontsource/dejavu-sans": "5.3.0",
+    "@fontsource/inter": "5.3.0",
+    "@fontsource/jetbrains-mono": "5.3.0",
+    "@types/node": "22.20.5",
+    "@types/pngjs": "6.0.5",
+    "playwright": "1.65.1",
+    "typescript": "5.9.3",
+    "vitest": "4.1.12"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  }
+}

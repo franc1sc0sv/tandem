@@ -1,0 +1,477 @@
+//! From an `exec` (program, arguments, chosen environment) to the concrete command that is launched.
+//!
+//! Portable and side-effect free: tested on Linux for both systems. With a shell, `cmd` is
+//! the line that shell interprets and each argument is appended to it quoted as a literal.
+
+use tandem_proto::ExecSpec;
+
+use super::secrets;
+
+/// The destination's system: changes which shells exist and how arguments are quoted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Os {
+    Windows,
+    Unix,
+}
+
+impl Os {
+    pub fn current() -> Self {
+        if cfg!(windows) { Os::Windows } else { Os::Unix }
+    }
+}
+
+/// The concrete command that a [`super::Spawner`] launches.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Launch {
+    pub program: String,
+    pub args: Vec<String>,
+    /// Appended as is to the end of the Windows command line (`cmd /s /c "…"`, which
+    /// does not follow the quoting rules of other programs). Not used on Unix.
+    pub raw: Option<String>,
+    /// Working folder of the process; `None` leaves the agent's.
+    pub cwd: Option<String>,
+    /// Variables added to the process.
+    pub env: Vec<(String, String)>,
+    /// In a pseudo-terminal of this size ([`ExecSpec::pty`]).
+    pub pty: Option<tandem_proto::PtySize>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum LaunchError {
+    #[error("the program to run is missing")]
+    NoCommand,
+    #[error("there is no environment \"{0}\" that it knows how to launch")]
+    UnknownShell(String),
+    #[error("the environment \"{0}\" only exists on Windows")]
+    WindowsOnly(String),
+    #[error("for Docker the container has to be named: \"docker:<container>\"")]
+    NoContainer,
+    #[error("invalid variable name: \"{0}\"")]
+    BadVariable(String),
+    #[error(
+        "the variable \"{0}\" looks like a secret: the other machine does not receive credentials; \
+         explicit permission is needed in this call (allow_secret_env)"
+    )]
+    SecretEnv(String),
+    #[error("the variable \"{0}\" is a credentials agent and is never forwarded")]
+    AgentEnv(String),
+}
+
+/// What is shown of the process: the program and its arguments (quoted if needed).
+pub fn display(spec: &ExecSpec) -> String {
+    let mut line = spec.cmd.trim().to_owned();
+    for a in &spec.args {
+        line.push(' ');
+        line.push_str(&posix_quote(a));
+    }
+    line
+}
+
+pub fn plan(spec: &ExecSpec, os: Os) -> Result<Launch, LaunchError> {
+    let cmd = spec.cmd.trim();
+    if cmd.is_empty() {
+        return Err(LaunchError::NoCommand);
+    }
+    for (k, _) in &spec.env {
+        if k.is_empty() || k.contains('=') || k.contains('\0') {
+            return Err(LaunchError::BadVariable(k.clone()));
+        }
+    }
+    secrets::check_env(&spec.env, spec.allow_secret_env).map_err(|(name, why)| match why {
+        secrets::EnvSecret::Agent => LaunchError::AgentEnv(name),
+        secrets::EnvSecret::Secret => LaunchError::SecretEnv(name),
+    })?;
+    let base = Launch {
+        cwd: spec.cwd.clone(),
+        env: spec.env.clone(),
+        pty: spec.pty,
+        ..Launch::default()
+    };
+    let Some(shell) = spec.shell.as_deref() else {
+        return Ok(Launch {
+            program: cmd.to_owned(),
+            args: spec.args.clone(),
+            ..base
+        });
+    };
+    let posix_line = || {
+        let mut line = cmd.to_owned();
+        for a in &spec.args {
+            line.push(' ');
+            line.push_str(&posix_quote(a));
+        }
+        line
+    };
+    match shell {
+        // Login shell: the agent starts with the system's minimal PATH (launchd, the
+        // scheduled task) and the user's tools (cargo, uv) are in their profile.
+        "zsh" | "bash" | "fish" | "sh" => Ok(Launch {
+            program: shell.to_owned(),
+            args: vec!["-l".into(), "-c".into(), posix_line()],
+            ..base
+        }),
+        "pwsh" | "powershell" => {
+            let mut line = cmd.to_owned();
+            for a in &spec.args {
+                line.push(' ');
+                line.push_str(&pwsh_quote(a));
+            }
+            // `-EncodedCommand` (UTF-16LE in base64): the line arrives whole, without going through
+            // the quoting rules of the Windows command line.
+            Ok(Launch {
+                program: shell.to_owned(),
+                args: vec![
+                    "-NoLogo".into(),
+                    "-NoProfile".into(),
+                    "-NonInteractive".into(),
+                    "-EncodedCommand".into(),
+                    encode_utf16_base64(&line),
+                ],
+                ..base
+            })
+        }
+        "cmd" => {
+            if os != Os::Windows {
+                return Err(LaunchError::WindowsOnly(shell.into()));
+            }
+            let mut line = cmd.to_owned();
+            for a in &spec.args {
+                line.push(' ');
+                line.push_str(&cmd_quote(a));
+            }
+            // With `/s`, cmd strips the first and last quote and runs what is inside
+            // as is.
+            Ok(Launch {
+                program: "cmd".into(),
+                args: vec!["/d".into(), "/s".into(), "/c".into()],
+                raw: Some(format!("\"{line}\"")),
+                ..base
+            })
+        }
+        _ => {
+            if let Some(distro) = shell.strip_prefix("wsl:") {
+                if os != Os::Windows {
+                    return Err(LaunchError::WindowsOnly(shell.into()));
+                }
+                if distro.is_empty() {
+                    return Err(LaunchError::UnknownShell(shell.into()));
+                }
+                // Windows variables do not cross into WSL (except with WSLENV): they go in the line.
+                let mut args = vec!["-d".into(), distro.to_owned()];
+                if let Some(cwd) = &spec.cwd {
+                    args.push("--cd".into());
+                    args.push(cwd.clone());
+                }
+                args.extend(["--exec".into(), "sh".into(), "-lc".into()]);
+                args.push(format!("{}{}", exports(&spec.env), posix_line()));
+                return Ok(Launch {
+                    program: "wsl.exe".into(),
+                    args,
+                    raw: None,
+                    cwd: None,
+                    env: Vec::new(),
+                    pty: spec.pty,
+                });
+            }
+            if shell == "docker" {
+                return Err(LaunchError::NoContainer);
+            }
+            if let Some(container) = shell.strip_prefix("docker:") {
+                if container.is_empty() {
+                    return Err(LaunchError::NoContainer);
+                }
+                let mut args = vec!["exec".into(), "-i".into()];
+                // A terminal outside is not one inside the container unless it is asked for.
+                if spec.pty.is_some() {
+                    args.push("-t".into());
+                }
+                if let Some(cwd) = &spec.cwd {
+                    args.push("-w".into());
+                    args.push(cwd.clone());
+                }
+                for (k, v) in &spec.env {
+                    args.push("-e".into());
+                    args.push(format!("{k}={v}"));
+                }
+                args.extend([container.to_owned(), "sh".into(), "-lc".into()]);
+                args.push(posix_line());
+                return Ok(Launch {
+                    program: "docker".into(),
+                    args,
+                    raw: None,
+                    cwd: None,
+                    env: Vec::new(),
+                    pty: spec.pty,
+                });
+            }
+            Err(LaunchError::UnknownShell(shell.into()))
+        }
+    }
+}
+
+fn exports(env: &[(String, String)]) -> String {
+    env.iter()
+        .map(|(k, v)| format!("export {k}={}; ", posix_quote(v)))
+        .collect()
+}
+
+/// A literal for sh: unquoted if not needed, otherwise in single quotes.
+pub fn posix_quote(s: &str) -> String {
+    let plain = !s.is_empty()
+        && s.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"-_./=:,+@%".contains(&b));
+    if plain {
+        s.to_owned()
+    } else {
+        format!("'{}'", s.replace('\'', r"'\''"))
+    }
+}
+
+/// A literal for PowerShell: single quotes, with `''` for a quote.
+pub fn pwsh_quote(s: &str) -> String {
+    let mut out = String::from("'");
+    for c in s.chars() {
+        // PowerShell also takes typographic single quotes as delimiters.
+        if matches!(c, '\'' | '\u{2018}' | '\u{2019}' | '\u{201a}' | '\u{201b}') {
+            out.push(c);
+        }
+        out.push(c);
+    }
+    out.push('\'');
+    out
+}
+
+/// An argument for cmd: in quotes if it has spaces or metacharacters. The inner
+/// quotes are doubled (as most Windows programs understand them).
+pub fn cmd_quote(s: &str) -> String {
+    let plain = !s.is_empty()
+        && !s
+            .chars()
+            .any(|c| c.is_whitespace() || "\"&|<>^()%!,;=".contains(c));
+    if plain {
+        s.to_owned()
+    } else {
+        format!("\"{}\"", s.replace('"', "\"\""))
+    }
+}
+
+/// Base64 (standard, with padding) of the UTF-16LE text: what `-EncodedCommand` asks for.
+pub fn encode_utf16_base64(text: &str) -> String {
+    let bytes: Vec<u8> = text.encode_utf16().flat_map(u16::to_le_bytes).collect();
+    base64(&bytes)
+}
+
+fn base64(bytes: &[u8]) -> String {
+    const ABC: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let b = [
+            chunk[0],
+            chunk.get(1).copied().unwrap_or(0),
+            chunk.get(2).copied().unwrap_or(0),
+        ];
+        let n = (u32::from(b[0]) << 16) | (u32::from(b[1]) << 8) | u32::from(b[2]);
+        for i in 0..4 {
+            if i <= chunk.len() {
+                out.push(char::from(ABC[((n >> (18 - 6 * i)) & 63) as usize]));
+            } else {
+                out.push('=');
+            }
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use proptest::prelude::*;
+
+    use super::*;
+
+    fn spec(cmd: &str, args: &[&str], shell: Option<&str>) -> ExecSpec {
+        ExecSpec {
+            cmd: cmd.into(),
+            args: args.iter().map(|a| (*a).to_owned()).collect(),
+            shell: shell.map(Into::into),
+            cwd: Some("/src/x".into()),
+            allow_secret_env: false,
+            env: vec![("RUST_LOG".into(), "debug".into())],
+            pty: None,
+        }
+    }
+
+    #[test]
+    fn a_secret_in_the_environment_is_rejected_without_explicit_permission() {
+        let mut s = spec("git", &["push"], None);
+        s.env = vec![("GH_TOKEN".into(), "ghp_x".into())];
+        assert_eq!(
+            plan(&s, Os::Unix),
+            Err(LaunchError::SecretEnv("GH_TOKEN".into()))
+        );
+        s.allow_secret_env = true;
+        assert!(plan(&s, Os::Unix).is_ok());
+        // An agent has no permission that applies, not even with a shell.
+        s.env = vec![("SSH_AUTH_SOCK".into(), "/tmp/a".into())];
+        s.shell = Some("zsh".into());
+        assert_eq!(
+            plan(&s, Os::Unix),
+            Err(LaunchError::AgentEnv("SSH_AUTH_SOCK".into()))
+        );
+    }
+
+    #[test]
+    fn without_a_shell_it_is_the_program_directly() {
+        let l = plan(&spec("cargo", &["test", "a b"], None), Os::Unix).unwrap();
+        assert_eq!(l.program, "cargo");
+        assert_eq!(l.args, ["test", "a b"]);
+        assert_eq!(l.cwd.as_deref(), Some("/src/x"));
+        assert_eq!(l.env, [("RUST_LOG".to_owned(), "debug".to_owned())]);
+        assert_eq!(
+            plan(&spec("  ", &[], None), Os::Unix),
+            Err(LaunchError::NoCommand)
+        );
+    }
+
+    #[test]
+    fn posix_shells_are_login_and_quote_the_arguments() {
+        let l = plan(&spec("cargo test", &["it's", "x"], Some("zsh")), Os::Unix).unwrap();
+        assert_eq!(l.program, "zsh");
+        assert_eq!(l.args, ["-l", "-c", r"cargo test 'it'\''s' x"]);
+    }
+
+    #[test]
+    fn powershell_is_encoded() {
+        let l = plan(&spec("Write-Output", &["a'b"], Some("pwsh")), Os::Windows).unwrap();
+        assert_eq!(l.program, "pwsh");
+        assert_eq!(
+            l.args[..4],
+            [
+                "-NoLogo",
+                "-NoProfile",
+                "-NonInteractive",
+                "-EncodedCommand"
+            ]
+        );
+        assert_eq!(l.args[4], encode_utf16_base64("Write-Output 'a''b'"));
+    }
+
+    #[test]
+    fn cmd_goes_raw_and_only_on_windows() {
+        let l = plan(&spec("echo", &["a b", "c\"d"], Some("cmd")), Os::Windows).unwrap();
+        assert_eq!(l.args, ["/d", "/s", "/c"]);
+        assert_eq!(l.raw.as_deref(), Some(r#""echo "a b" "c""d"""#));
+        assert_eq!(
+            plan(&spec("echo", &[], Some("cmd")), Os::Unix),
+            Err(LaunchError::WindowsOnly("cmd".into()))
+        );
+    }
+
+    #[test]
+    fn wsl_carries_the_folder_and_the_variables_in_the_line() {
+        let l = plan(
+            &spec("cargo", &["test"], Some("wsl:Ubuntu-24.04")),
+            Os::Windows,
+        )
+        .unwrap();
+        assert_eq!(l.program, "wsl.exe");
+        assert_eq!(
+            l.args,
+            [
+                "-d",
+                "Ubuntu-24.04",
+                "--cd",
+                "/src/x",
+                "--exec",
+                "sh",
+                "-lc",
+                "export RUST_LOG=debug; cargo test"
+            ]
+        );
+        assert_eq!((l.cwd, l.env), (None, vec![]));
+    }
+
+    #[test]
+    fn docker_needs_the_container() {
+        assert_eq!(
+            plan(&spec("ls", &[], Some("docker")), Os::Unix),
+            Err(LaunchError::NoContainer)
+        );
+        let l = plan(&spec("ls", &["-la"], Some("docker:api")), Os::Unix).unwrap();
+        assert_eq!(l.program, "docker");
+        assert_eq!(
+            l.args,
+            [
+                "exec",
+                "-i",
+                "-w",
+                "/src/x",
+                "-e",
+                "RUST_LOG=debug",
+                "api",
+                "sh",
+                "-lc",
+                "ls -la"
+            ]
+        );
+    }
+
+    #[test]
+    fn invalid_environments_and_variables() {
+        assert_eq!(
+            plan(&spec("x", &[], Some("tcsh")), Os::Unix),
+            Err(LaunchError::UnknownShell("tcsh".into()))
+        );
+        let mut s = spec("x", &[], None);
+        s.env = vec![("A=B".into(), "c".into())];
+        assert_eq!(
+            plan(&s, Os::Unix),
+            Err(LaunchError::BadVariable("A=B".into()))
+        );
+    }
+
+    #[test]
+    fn known_base64() {
+        assert_eq!(base64(b""), "");
+        assert_eq!(base64(b"f"), "Zg==");
+        assert_eq!(base64(b"fo"), "Zm8=");
+        assert_eq!(base64(b"foobar"), "Zm9vYmFy");
+        // `powershell -EncodedCommand` of "dir".
+        assert_eq!(encode_utf16_base64("dir"), "ZABpAHIA");
+    }
+
+    /// Decodes what `posix_quote` produces as sh would (only single quotes and
+    /// `\'` outside them).
+    fn sh_unquote(s: &str) -> String {
+        let (mut out, mut inside, mut chars) = (String::new(), false, s.chars());
+        while let Some(c) = chars.next() {
+            match (c, inside) {
+                ('\'', _) => inside = !inside,
+                ('\\', false) => out.extend(chars.next()),
+                (c, _) => out.push(c),
+            }
+        }
+        out
+    }
+
+    proptest! {
+        #[test]
+        fn quoting_for_sh_preserves_the_literal(s in "\\PC{0,40}") {
+            prop_assert_eq!(sh_unquote(&posix_quote(&s)), s);
+        }
+
+        #[test]
+        fn quoting_for_powershell_preserves_the_literal(s in "[a-z' \u{2019}]{0,20}") {
+            let q = pwsh_quote(&s);
+            let inner = &q[1..q.len() - 1];
+            let mut out = String::new();
+            let mut chars = inner.chars().peekable();
+            while let Some(c) = chars.next() {
+                out.push(c);
+                if matches!(c, '\'' | '\u{2019}') {
+                    prop_assert_eq!(chars.next(), Some(c));
+                }
+            }
+            prop_assert_eq!(out, s);
+        }
+    }
+}

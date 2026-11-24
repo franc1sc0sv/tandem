@@ -1,0 +1,51 @@
+[package]
+name = "tandem-ui"
+description = "Tandem UI (Tauri 2): main window and client of tandemd's local IPC"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+# The Tauri app needs WebKitGTK on Linux; without the `app` feature the crate is only the
+# portable logic (agent state over the IPC) and is tested on any system.
+[features]
+app = [
+  "dep:tauri",
+  "dep:tauri-build",
+  "dep:tauri-plugin-global-shortcut",
+  "dep:tauri-plugin-updater",
+]
+
+[lib]
+name = "tandem_ui"
+
+[[bin]]
+name = "tandem-ui"
+path = "src/main.rs"
+required-features = ["app"]
+
+[dependencies]
+serde.workspace = true
+# The probe view travels as JSON in its window's URL.
+serde_json.workspace = true
+tandem-core = { path = "../../../crates/tandem-core" }
+tandem-proto = { path = "../../../crates/tandem-proto" }
+tandemd = { path = "../../../crates/tandemd" }
+# Tray / menu bar with its own icon (PNG).
+tauri = { workspace = true, optional = true, features = ["tray-icon", "image-png"] }
+tauri-plugin-global-shortcut = { workspace = true, optional = true }
+tauri-plugin-updater = { workspace = true, optional = true }
+thiserror.workspace = true
+tokio = { workspace = true, features = ["time"] }
+toml.workspace = true
+
+[build-dependencies]
+tauri-build = { workspace = true, optional = true }
+
+[dev-dependencies]
+proptest.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+tokio = { workspace = true, features = ["io-util", "macros", "rt-multi-thread", "sync", "test-util", "time"] }
+
+[lints]
+workspace = true

@@ -1,0 +1,824 @@
+$ cargo build --workspace
+/ 24 GB
+0
+0.3 ms
+0.4 ms
+0.41 Gbps · 3.8 ms
+0:18 / 2:00
+1
+1 MB
+1 h
+1 open of 2
+1.2 GB
+1.2 s
+1/2
+100 %
+11 m
+12
+12 MB
+12 processes running
+12.4
+12.4/24 GB
+120 MB
+13:47
+14"
+14.1 / 16 GB
+14.1/16 GB
+14:02
+15 m
+1512 × 982
+16:10
+16:9
+17.1
+17.1/24 GB
+18 %
+18 MB
+18 m
+19 m
+2
+2 MB
+2 environments · admin (LaunchDaemon installed)
+2 h 14 m
+2 m
+2 machines
+2 processes running
+2 tunnels
+2.1 GB
+2.3 s
+2.5 GbE
+20 m
+20 s
+200 %
+200 % (Retina)
+21:9
+22
+22 m
+23 m
+231 GB free of 1 TB
+24 GB
+25 m
+2560 × 1440
+27 m
+27"
+27" compatible · owner Mac mini
+27" compatible · owner PC-Workshop
+27" confirmed on PC-Workshop in 1.8 s.
+27" shows PC-Desktop
+27" shows PC-Workshop
+27" · Keep as is
+27" · PC-Workshop
+27" → PC-Desktop
+27" → PC-Workshop
+3
+3 MB
+3 active
+3 m
+3 open of 3
+3 processes running
+3 s test over the data path. It does not slow the keyboard or mouse.
+3 tunnels
+3.0 s
+3.8 ms
+3/3
+30 m
+31 %
+31 m
+32"
+34 m
+34"
+34" compatible · owner PC-Desktop
+34" confirmed on PC-Desktop in 1.8 s.
+34" shows MacBook Pro
+34" shows PC-Desktop
+34" · Keep as is
+34" · MacBook Pro
+34" · PC-Desktop
+34" → MacBook Pro
+34" → PC-Desktop
+34" → PC-Desktop (DP)
+3440 × 1440
+35 m
+37
+38 MB
+39 m
+4
+4 MB
+4 open · 2 projects
+40 m
+41 m
+410 Mbps
+410 Mbps · 3.8 ms
+412 GB free of 1.8 TB
+43 m
+44 °C
+47 m
+48 °C
+5
+6
+6 %
+6 processes running
+62 °C
+64 %
+64 MB
+7
+7 m
+71 °C
+8
+84 % · plugged in
+9
+9 %
+9.4
+9.4 Gbps
+9.4 Gbps · 0.3 ms
+9.4 of 10 Gbps
+97 %
+A desk is the group of machines that share keyboard, mouse, monitors and work. This one is “MacBook Pro”.
+A desk is the group of machines that share keyboard, mouse, monitors and work. This one is “PC-Desktop”.
+A monitor answered “change failed”. Tandem rolled back the scene: everything stayed as it was.
+A new version is available: 0.3.1
+ACTIONS
+Accessibility
+Active
+Activity detected
+Add it back to the desk
+Administrator service
+Advanced
+Agent logs
+Alignment
+All granted
+All machines of the desk on the same version.
+Amber
+Apply
+Apply “Game”
+Apply “MacBook only”
+Apply “PC only”
+Apply “PC-Desktop only”
+Apply “Work”
+Applying the scene “Game”
+Arrangement
+Arrangement and crossing test
+Arrangement canvas
+Arrangement › Crossing test
+Aspect ratio
+Back
+Back to Monitors
+Backup
+Bandwidth
+Battery
+Blue
+Bottom
+Built-in keyboard
+COMPUTE
+CPU
+Cancel
+Capture and injection (low-level hooks, SendInput)
+Capture with CGEventTap and injection with CGEventPost
+Center
+Change the desk name
+Change the name
+Change the other machine
+Change the other machine…
+Changes in progress
+Check again
+Check now
+Claude opened the tunnel “tandem”
+Claude session
+Clear MAC
+Clipboard
+Close
+Code of MacBook Pro
+Color
+Command palette
+Commands
+Compiling tandem-monitor v0.3.0
+Compute
+Configuration
+Continue
+Copy
+Copy command
+Copy is ⌘C on the Mac and Ctrl+C on the PC, with the same finger.
+Copy the command that connects Claude
+Create
+Create a new desk
+Create or join
+Crossed at another edge
+Crossed at the top, not the right: the arrangement does not match your desk. Move it in the arrangement and test again.
+Crossed at the top, not the right: the arrangement does not match your desk. Move the screens and test again.
+Crossed correctly
+Crossed to PC-Desktop through the right edge, as the arrangement says. Round trip measured: 0.4 ms.
+Crossing edge
+Ctrl+,
+Ctrl+Alt+1
+Ctrl+Alt+2
+Ctrl+Alt+3
+Ctrl+K
+DDC channel
+DDC channel over DisplayPort to 2 monitors. Owner of the 34".
+DP
+Desk
+Desk and machines
+Desk name
+Desktop
+Desktop → Workshop · active
+Did not cross in 20 s
+Digit 1
+Digit 2
+Digit 3
+Digit 4
+Digit 5
+Digit 6
+Disconnected
+Disk
+Docker
+Docker Desktop
+Does this machine join a desk?
+Done
+Drag between machines
+Edit arrangement
+Edit scene
+Edit scenes
+Enter the code Mac mini shows
+Enter the code PC-Desktop shows
+Enter the code PC-Workshop shows
+Environments
+Ethernet
+Ethernet path
+Ethernet · no cable
+Everything that touches another machine is a transaction: visible steps, a time limit and rollback if something fails.
+Everything works on this machine. What needs another one (shared keyboard, compute, scenes) shows as off until you pair the other machine.
+Execution environments
+FIRST TIME
+Forget this monitor
+Found on your network
+GET /api/monitors 200
+GO TO
+GPU
+GPU: --gpus all available
+Game
+Gbps
+GitHub Releases · unsigned
+Go to desk
+Go to tunnel “Monitors crate (T-097)”
+Go to tunnel “Review PR #66 on Windows”
+Go to tunnel “Review PR #66 on macOS”
+Go to tunnel “Train style LoRA”
+Go to tunnel “Tunnels in tandemd (T-101)”
+Go to tunnel “ia-local”
+Go to tunnel “tandem”
+Granted · checked just now
+HDMI
+HDMI signal detected
+How Claude opens them
+How each thing looks when it does not go well. Rule: it always says what happened, what Tandem did on its own and what you can do.
+If you plug the hub in here, it detects it on its own.
+Input
+Input Monitoring
+Input → DP, requested by Tandem
+Input → HDMI, with the buttons
+Install
+It can wake the others over Wake-on-LAN. It does not power itself off.
+It entered PC-Desktop at the right height (y = 612 of 1440). Crossing latency: 0.4 ms.
+It installs on every machine, one at a time, without cutting the keyboard.
+It is Mac mini’s color
+It is MacBook Pro’s color
+It is PC-Desktop’s color
+It joins only once its firmware meets the standard.
+It powers itself off. It wakes over Wake-on-LAN from MacBook Pro.
+It powers itself off. It wakes over Wake-on-LAN from PC-Desktop.
+It powers itself off. It wakes over Wake-on-LAN from PC-Workshop.
+It ran out of resources on Mac mini. Claude sees this reason over MCP and can wait or pick another machine.
+It ran out of resources on MacBook Pro. Claude sees this reason over MCP and can wait or pick another machine.
+It ran out of resources on PC-Desktop. Claude sees this reason over MCP and can wait or pick another machine.
+It ran out of resources on PC-Workshop. Claude sees this reason over MCP and can wait or pick another machine.
+Its card is dimmed and the mouse no longer crosses to it. Mac mini can wake it over the network.
+Its card is dimmed and the mouse no longer crosses to it. MacBook Pro can wake it over the network.
+Its card is dimmed and the mouse no longer crosses to it. PC-Desktop can wake it over the network.
+Its card is dimmed and the mouse no longer crosses to it. PC-Workshop can wake it over the network.
+Its owner (Mac mini) is off and MacBook Pro reaches it only over HDMI while it is showing it. When either can, it takes control on its own.
+Its owner (MacBook Pro) is off and Mac mini reaches it only over HDMI while it is showing it. When either can, it takes control on its own.
+Its owner (MacBook Pro) is off and PC-Desktop reaches it only over HDMI while it is showing it. When either can, it takes control on its own.
+Its owner (PC-Desktop) is off and MacBook Pro reaches it only over HDMI while it is showing it. When either can, it takes control on its own.
+Its owner (PC-Desktop) is off and PC-Workshop reaches it only over HDMI while it is showing it. When either can, it takes control on its own.
+Its owner (PC-Workshop) is off and PC-Desktop reaches it only over HDMI while it is showing it. When either can, it takes control on its own.
+Join
+Join a desk
+Keep as is
+Keep the mouse within reach.
+Keyboard and mouse
+Keyboard and mouse carried on over Wi-Fi without a break (0.6 s). Sending 2 workspaces is paused until a cable comes back, or you can send them over Wi-Fi now.
+Keyboard and mouse carry on over Wi-Fi. Data transfers wait for a cable to come back, or you can send them over Wi-Fi now.
+Keyboard and mouse carry on over Wi-Fi. Data transfers wait for the cable.
+Keychron K3 · MX Master 3S
+LINK
+Latency
+Latency over the last 60 s: no samples
+Latency over the last 60 s: now 1.3 ms, peak of 5.6 ms
+Latency · 60 s
+Leave
+Leave desk
+Left
+Link
+Link between MacBook Pro and Mac mini: USB-C
+Link between MacBook Pro and Mac mini: Wi-Fi
+Link between MacBook Pro and PC-Desktop: USB-C
+Link between MacBook Pro and PC-Desktop: Wi-Fi
+Link between PC-Desktop and PC-Workshop: USB-C
+Link between PC-Desktop and PC-Workshop: Wi-Fi
+Link manager
+Link map
+Live desktops
+Live processes
+Live resources
+Local Network
+Lock here
+Lock the keyboard on this machine
+M4 integrated
+M4 · 12 cores
+M5 integrated
+M5 · 12 cores
+MAC of Mac mini
+MAC of MacBook Pro
+MAC of PC-Desktop
+MAC of PC-Workshop
+MACHINE OFF
+MACHINES
+MCP ready for Claude Code on both
+MCP server
+MONITORS
+Mac
+Mac mini
+Mac mini in “My desk”
+Mac mini is off
+Mac mini · DP
+Mac mini · scene Work
+Mac mini · this machine
+Mac · MacBook Pro
+Mac → PC · active
+MacBook Pro
+MacBook Pro and
+MacBook Pro is off
+MacBook Pro → Mac mini · zsh.
+MacBook Pro → PC-Desktop · WSL.
+MacBook Pro · this machine
+MacBook only
+Machine color
+Machines
+Main
+Maybe the 34" is on another side of your desk. Move it in the arrangement and test again.
+Measure bandwidth
+Measure the link
+Measuring the USB-C link
+Memory
+Missing 1
+Missing 2
+Modules
+Monitors
+Monitors crate (T-097)
+Monitors › New scene
+Mouse: take the 34" off MacBook Pro
+Move Mac mini: drag or use the arrow keys
+Move PC-Desktop: drag or use the arrow keys
+Move PC-Workshop: drag or use the arrow keys
+Move the mouse to the left of the Mac
+Move the mouse to the left of the PC-Desktop
+Move the mouse to the left of the PC-Workshop
+Move the mouse to the right of the MacBook
+Move the mouse to the right of the PC-Desktop
+My desk
+Name
+Network
+New scene
+New scene…
+No cable
+No keyboard or mouse right now
+No link with Mac mini
+No link with PC-Desktop
+No link with PC-Workshop
+No open tunnels
+No samples yet
+No shortcut
+No signal
+Nobody can talk to the 34"
+Nobody can talk to “Odyssey G5 34"”
+Nobody can talk to “Studio Display”
+Nobody can talk to “UltraFine 27"”
+Not checked · macOS asks the first time it is used
+Nothing matches “zzz”.
+Nothing running right now
+Notices
+Odyssey G5 32"
+Odyssey G5 32", unsupported
+Odyssey G5 34"
+Odyssey G5 34" shows
+On
+On joining, this machine trusts every machine of the desk and they trust it, with administrator access for remote compute. You can remove it later from any machine; the other one forgets its key only if connected, otherwise once it also leaves the desk.
+One-machine desk
+Open
+Open System Settings
+Open folder
+Open settings
+Open setup
+Opened
+Out of GPU memory: “Train LoRA” uses 14.1 of 16 GB on PC-Desktop. Claude sees this reason over MCP and can wait or pick another machine.
+Over HDMI there is a DDC channel only while the monitor shows the Mac mini. Today MacBook Pro controls them.
+Over HDMI there is a DDC channel only while the monitor shows the MacBook. Today Mac mini controls them.
+Over HDMI there is a DDC channel only while the monitor shows the MacBook. Today PC-Desktop controls them.
+PC
+PC only
+PC → Mac · inactive
+PC-Desktop
+PC-Desktop and
+PC-Desktop in “My desk”
+PC-Desktop is off
+PC-Desktop only
+PC-Desktop with VRAM at 88 %
+PC-Desktop · DP
+PC-Desktop · HDMI
+PC-Desktop · scene Work
+PC-Desktop → PC-Workshop · WSL.
+PC-Desktop · this machine
+PC-Workshop
+PC-Workshop in “My desk”
+PC-Workshop is off
+PC-Workshop · DP
+PC-Workshop · scene Work
+PC-Workshop · this machine
+PERMISSIONS
+Pair again
+Pair the other machine
+Paired
+Paired · they see each other
+Pairing code
+Path
+Permissions
+Permissions are missing on this machine
+Ports
+Power
+Power of Mac mini
+Power of MacBook Pro
+Power of PC-Desktop
+Power of PC-Workshop
+Power off
+Power off Mac mini
+Power off PC-Desktop
+Power off PC-Workshop
+Power on
+Power on Mac mini
+Power on PC-Desktop
+Power on PC-Workshop
+PowerShell 7
+PowerShell 7 · Ubuntu 24.04 · Docker Desktop · winget
+Powering on PC-Desktop
+Press the new combination. It works on any machine of the desk.
+Preview
+Primary
+Pro
+Pro → mini · active
+Protected screens
+RAM
+RTX 5080
+Receives Claude tunnels in 3 environments, as administrator.
+Reconnected: the tunnel kept going
+Remote compute
+Rename
+Resolution
+Restart agent
+Retry
+Review PR #66 on Windows
+Review PR #66 on macOS
+Review permissions
+Right
+Rolling back to the previous state
+Run setup again
+Running processes
+Running tests/two_processes.rs
+Running unittests src/lib.rs
+Ryzen 7 · 16 threads
+SCENES
+SSE input-changed lc34g55t-9c1e dp
+SSE monitor-added lc34g55t-9c1e
+SSE switch-done lc34g55t-9c1e 1.8s
+Save
+Save and apply
+Save the current state
+Scale
+Scan again
+Scene Game
+Scene MacBook only
+Scene PC-Desktop only
+Scene Work
+Scene “Game” active.
+Scene “MacBook only”
+Scene “PC only”
+Scene “Work”
+Scene “Work” applied
+Scene, machine, job or action…
+Scenes
+Screen arrangement
+Scroll Lock
+Search
+Search or run…
+Sections
+Selected screen
+Send over Wi-Fi anyway
+Settings
+Setup
+Several addresses reach the other machine over the Wi-Fi path. Tandem uses 192.168.1.2:47770 and ignores 192.168.1.3:47770, 192.168.1.4:47770.
+Shared clipboard
+Shortcut
+Shortcut for “Command palette”: ⌘K
+Shortcut for “Lock the keyboard on this machine”: Scroll Lock
+Shortcut for “Scene “MacBook only””: ⌃⌥2
+Shortcut for “Scene “PC only””: ⌃⌥3
+Shortcut for “Scene “Work””: ⌃⌥1
+Shortcut for “Show or hide Tandem”: ⌃⌥0
+Shortcuts
+Show file
+Show or hide Tandem
+Size
+Skip
+Source
+Spike when the cable was unplugged · switched to Wi-Fi in 0.6 s
+Step 1 of 6
+Step 2 of 6
+Step 3 of 6 · MacBook Pro
+Step 3 of 6 · PC-Desktop
+Step 4 of 6
+Step 5 of 6
+Steps
+Studio
+Studio Display
+Studio Display confirmed on Mac mini in 1.8 s.
+Studio Display shows
+Studio Display shows Mac mini
+Studio Display shows MacBook Pro
+Studio Display · Keep as is
+Studio Display → Mac mini
+Studio Display → MacBook Pro
+Studio · Mac mini
+Summary
+Swap Cmd and Ctrl
+Swap Cmd and Ctrl between macOS and Windows
+TUNNELS
+Tandem
+Tandem 0.3.0
+Tandem checks what this machine can do. Nothing is fixed: what it finds is what it announces to the rest of the desk.
+Tandem only controls monitors that meet the standard: they report which input they show, confirm each change and report changes made with their buttons. The others are shown but not touched.
+Tandem standard
+Teal
+Temperature
+Test again
+Test crossing
+Text, HTML and image
+The 34" answered “change failed” (no HDMI signal from the MacBook). Tandem rolled back the scene: everything stayed as it was.
+The Tandem agent is not running on this machine
+The USB-C cable was unplugged
+The cable was unplugged
+The link manager is not running, so there is no link with the other machine: the health check timings cannot be 0
+The monitor confirms each change; nothing is guessed.
+The mouse and keyboard also work on UAC prompts and at the sign-in screen.
+The scene “MacBook only” was not applied
+The scene “Work” was not applied
+Then, on the other machine, choose “Join a desk” and enter the code that will appear here.
+There was no DisplayPort signal. Everything goes back to how it was; nothing was left half done.
+They are granted to tandemd, not to the window. Tandem detects them on its own as soon as you grant them: no need to come back here.
+They work on any machine of the desk, even with Tandem in the background. Click and press the new combination.
+This is the arrangement Tandem read. Drag if it does not match your desk and test: move the mouse from MacBook Pro to Mac mini across the marked edge.
+This is the arrangement Tandem read. Drag if it does not match your desk and test: move the mouse from MacBook Pro to PC-Desktop across the marked edge.
+This is the arrangement Tandem read. Drag if it does not match your desk and test: move the mouse from PC-Desktop to PC-Workshop across the marked edge.
+This is the first machine. The others join later.
+This machine
+This machine forgets the other machines’ keys and, if they are connected, they forget its key; if not, they do once they leave too.
+This machine needs no permissions
+This was actually checked, not assumed.
+Three paths: USB-C active at 0.3 ms, Ethernet no cable, Wi-Fi as backup at 3.8 ms
+Three paths: USB-C no cable, Ethernet no cable, Wi-Fi no signal
+To carry this machine’s keyboard and mouse to another one when the cursor crosses the edge.
+To find the other machines of the desk and talk to them encrypted.
+To scale: 34" · PC-Desktop and 27" · PC-Workshop. The cursor moves between the two.
+To scale: MacBook Pro and 34" · PC-Desktop. The cursor moves between the two.
+To scale: MacBook Pro and Studio · Mac mini. The cursor moves between the two.
+To type and move the mouse on this machine when you use them from another one.
+To use it from Claude Code
+Top
+Trackpad
+Train style LoRA
+Trouble states
+Trouble states (reference view)
+Try ComfyUI workflow
+Tunnel Monitors crate (T-097) from MacBook Pro to Mac mini
+Tunnel Monitors crate (T-097) from MacBook Pro to PC-Desktop
+Tunnel Monitors crate (T-097) from PC-Desktop to PC-Workshop
+Tunnel Review PR #66 on Windows from PC-Desktop to MacBook Pro
+Tunnel Train style LoRA from MacBook Pro to PC-Desktop
+Tunnel Try ComfyUI workflow from MacBook Pro to PC-Desktop
+Tunnel Tunnels in tandemd (T-101) from MacBook Pro to PC-Desktop
+Tunnel closed
+Tunnel detail
+Tunnels
+Tunnels by project
+Tunnels in tandemd (T-101)
+Turn off Clipboard
+Turn off Keyboard and mouse
+Two addresses reach the other machine over the Ethernet path. Tandem uses [fe80::2%3]:47770 and ignores 169.254.252.182:47770.
+Type to filter
+USB-C
+USB-C bandwidth
+USB-C cable
+USB-C latency
+USB-C · 0.3 ms
+USB-C · 0.4 ms
+USB-C · no cable
+USB4 20 Gbps link
+USB4 · 20 Gbps
+UltraFine 27"
+UltraFine 27" shows
+Unsupported
+Unsupported monitor
+Unsupported: it does not take part in the arrangement.
+Update all
+Update automatically
+Updates
+Usage
+Use the keyboard and mouse of any machine. Tandem follows the one you are using.
+VRAM
+VRAM almost full
+View
+View in Tunnels
+Violet
+WSL · Ubuntu
+WSL · Ubuntu 24.04
+Waiting for PC-Desktop to enter the code…
+Waiting for its agent to answer
+Waiting for the crossing at the right edge of MacBook Pro…
+Waiting… it is checked automatically
+Wake-on-LAN
+Wake-on-LAN sent from MacBook Pro
+What it found
+What the 27 shows
+What the 5 shows
+What the Studio Display shows
+What the standard is
+When applied, each monitor confirms its change. If one fails, the whole scene is rolled back.
+Where is MacBook Pro?
+Where is each screen?
+Where is the 27"?
+Where is the 34"?
+Where is the Studio Display?
+Which machine shows the 27 inches
+Which machine shows the 34 inches
+Which machine shows the Studio Display
+Wi-Fi
+Wi-Fi 7 · home
+Wi-Fi bandwidth
+Wi-Fi latency
+Wi-Fi path
+Wi-Fi · no signal
+Windows
+Windows + WSL · RTX 5080
+Windows 11 · AMD Ryzen 7
+Windows 11 · AMD Ryzen 7 · 24 GB
+Windows 11 · off
+Windows 11 · offline
+Windows 11 · online
+Windows lets you capture and inject the keyboard and mouse without asking for anything.
+Windows · Ryzen 7
+Windows · desk “My desk” · 1 machine · over Wi-Fi
+With a button held down, the cursor does not cross the edge.
+Without this permission, Mac mini cannot send its keyboard. Grant it to /Applications/Tandem.app/…/tandemd; Tandem detects it on its own.
+Without this permission, MacBook Pro cannot send its keyboard. Grant it to /Applications/Tandem.app/…/tandemd; Tandem detects it on its own.
+Work
+Workshop
+Workshop → Desktop · inactive
+You already have Tandem on another machine.
+You have 20 seconds. The glowing edge is where it should cross.
+Your desk
+Your desk is ready
+aa:bb:cc:dd:ee:ff
+active
+arm64 · no GPU
+capture and injection
+cargo build --workspace
+cargo clippy --workspace
+cargo test --workspace
+cargo test -p tandem-link
+cargo test -p tandem-monitor
+cargo watch -x check -p tandem-monitor
+claude mcp add tandem -- tandem mcp
+closed
+confirmed · 1.8 s
+crossing not tested
+default
+develop
+disconnected
+done
+epoch 7/20  step 1860/5200  loss 0.0398
+epoch 8/20  step 1880/5200  loss 0.0405
+epoch 9/20 · loss 0.0371
+esc
+every 5 s
+failed
+fanless
+fans 58 %
+from any machine · crossing tested
+ia-local
+in progress
+inactive 9 m
+listening on 127.0.0.1:8765
+macOS 26 · Apple M4
+macOS 26 · Apple M5
+macOS 26 · Apple M5 · 24 GB
+macOS 26 · off
+macOS 26 · offline
+macOS 26 · online
+macOS permissions
+macOS · M4
+macOS · M5
+macOS · desk “My desk” · 1 machine · over Wi-Fi
+main
+mini
+mini → Pro · inactive
+monitor-events serve --sim 2
+no DDC channel right now; another machine controls them
+no cable
+no input
+not measured
+notes
+nvidia-smi -l 5
+of RAM
+off
+on
+over USB-C
+p99 1.9 ms
+pending
+pid 2290 · 41 m
+pid 3810 · 30 m
+pid 4127 · 2 m
+pid 5210 · 3 m
+pid 6000 · 3 m
+pnpm --filter tandem-ui dev
+pnpm --filter tandem-ui test --watch
+python main.py --listen 127.0.0.1
+ready
+rolling back
+saved out/style-e7.safetensors
+system
+tail -f ~/.tandem/logs/tandemd.log
+tandem
+tandem mcp
+tandemd --sim --monitors 2
+tandemd --sim --peers 2
+target 4 ms
+task/T-097
+task/T-101
+tensorboard --logdir out
+test hotplug_adds_monitor ... ok
+test owner_failover_when_pc_sleeps ... ok
+test pairing_with_real_quic ...
+test probe_never_sends_vendor_codes ... ok
+test tunnel_many_processes ... ok
+test tunnel_survives_link_drop ... ok
+test verdict_failed_rolls_back_scene ...
+text, HTML, image
+the cursor arrived here
+the cursor does not cross
+the cursor is here
+the monitor said: change failed
+through the hub
+unified
+user-level installation does not support the administrator service: Tandem is not administrators-only. Move Tandem to Applications (owned by root) to install it
+user-level installation: Tandem is not administrators-only. Install Tandem in Program Files for the service
+uv run train.py --config style.toml
+uv · cargo · node · CUDA 12.8 · git
+uv · node · pnpm · cargo · git
+waiting for the cursor
+waiting for the monitor
+winget · python · git
+zsh
+zsh · Docker · uv · node
+~/Library/Application Support/Tandem/tandem.toml
+~/…/apps/tandem
+~/…/ia-local
+«Monitors crate (T-097)» failed
+«Monitors crate (T-097)» kept running on Mac mini while there was no link. The missing output was recovered.
+«Monitors crate (T-097)» kept running on MacBook Pro while there was no link. The missing output was recovered.
+«Monitors crate (T-097)» kept running on PC-Desktop while there was no link. The missing output was recovered.
+«Monitors crate (T-097)» kept running on PC-Workshop while there was no link. The missing output was recovered.
+—
+— GB
+“ComfyUI render” failed
+“Input Monitoring” is missing on macOS
+“Input Monitoring” is missing: it cannot send the keyboard. It is checked automatically.
+“Odyssey G5 32"” is not supported
+“Train LoRA” kept running on PC-Desktop while there was no link. 3 min of output were recovered.
+↑↓ move
+↵ run
+≈ 40 s
+⌃⌥0
+⌃⌥1
+⌃⌥2
+⌃⌥3
+⌃⌥4
+⌘,
+⌘K
+✓

@@ -1,0 +1,568 @@
+//! Two agents in the same process, over loopback, with real QUIC.
+
+use std::collections::BTreeSet;
+use std::net::{Ipv4Addr, SocketAddr};
+use std::sync::{Arc, RwLock};
+use std::time::{Duration, Instant};
+
+use bytes::Bytes;
+use tandem_core::Machine;
+use tandem_link::identity::{Identity, PublicKey, TrustStore, TrustedPeer};
+use tandem_link::transport::{Connection, Endpoint, PeerTrust, TransportError};
+use tandem_proto::{ControlMsg, Hello, Peer, ProtoError};
+
+const LOOPBACK: SocketAddr = SocketAddr::new(std::net::IpAddr::V4(Ipv4Addr::LOCALHOST), 0);
+/// Cap so that a broken test fails instead of hanging.
+const TIMEOUT: Duration = Duration::from_secs(10);
+
+struct Keys(BTreeSet<PublicKey>);
+
+impl PeerTrust for Keys {
+    fn is_trusted(&self, key: &PublicKey) -> bool {
+        self.0.contains(key)
+    }
+}
+
+fn identity(seed: u8) -> Identity {
+    Identity::from_seed([seed; 32])
+}
+
+fn trusting(peers: &[&Identity]) -> Arc<dyn PeerTrust> {
+    Arc::new(Keys(peers.iter().map(|i| i.public_key()).collect()))
+}
+
+fn endpoint(id: &Identity, trust: Arc<dyn PeerTrust>) -> Endpoint {
+    Endpoint::bind(LOOPBACK, id, trust).unwrap()
+}
+
+async fn within<F: Future>(f: F) -> F::Output {
+    tokio::time::timeout(TIMEOUT, f)
+        .await
+        .expect("the test exceeded the maximum time")
+}
+
+/// Connects `client` with `server` and returns the two ends.
+async fn pair(client: &Endpoint, server: &Endpoint) -> (Connection, Connection) {
+    let addr = server.local_addr().unwrap();
+    let (c, s) = within(async { tokio::join!(client.connect(addr), server.accept()) }).await;
+    (c.unwrap(), s.unwrap().unwrap())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn paired_peers_exchange_messages_and_datagrams() {
+    let mac = identity(1);
+    let pc = identity(2);
+    let mac_ep = endpoint(&mac, trusting(&[&pc]));
+    let pc_ep = endpoint(&pc, trusting(&[&mac]));
+
+    let (to_pc, to_mac) = pair(&mac_ep, &pc_ep).await;
+    assert_eq!(to_pc.peer(), pc.public_key());
+    assert_eq!(to_mac.peer(), mac.public_key());
+
+    let mac_hello = Hello::new(Peer::Agent(Machine::A));
+    let pc_hello = Hello::new(Peer::Agent(Machine::B));
+    let (opened, accepted) = within(async {
+        tokio::join!(
+            to_pc.open_control(&mac_hello),
+            to_mac.accept_control(&pc_hello)
+        )
+    })
+    .await;
+    let (mut mac_ctl, their_hello) = opened.unwrap();
+    assert_eq!(their_hello, pc_hello);
+    let (mut pc_ctl, their_hello) = accepted.unwrap();
+    assert_eq!(their_hello, mac_hello);
+
+    // Control in both directions.
+    let msgs = [
+        ControlMsg::Ping { nonce: 7 },
+        ControlMsg::GetState,
+        ControlMsg::Pong { nonce: 8 },
+    ];
+    for m in &msgs {
+        mac_ctl.send(m).await.unwrap();
+    }
+    for m in &msgs {
+        assert_eq!(
+            within(pc_ctl.recv::<ControlMsg>()).await.unwrap(),
+            Some(m.clone())
+        );
+    }
+    pc_ctl.send(&ControlMsg::Pong { nonce: 7 }).await.unwrap();
+    assert_eq!(
+        within(mac_ctl.recv::<ControlMsg>()).await.unwrap(),
+        Some(ControlMsg::Pong { nonce: 7 })
+    );
+
+    // Datagrams in both directions.
+    assert!(to_pc.max_datagram_size().is_some_and(|n| n >= 512));
+    let payloads: Vec<Bytes> = (0u8..5).map(|i| Bytes::from(vec![i; 32])).collect();
+    for p in &payloads {
+        to_pc.send_datagram(p.clone()).unwrap();
+    }
+    for p in &payloads {
+        assert_eq!(&within(to_mac.read_datagram()).await.unwrap(), p);
+    }
+    to_mac.send_datagram(Bytes::from_static(b"mouse")).unwrap();
+    assert_eq!(
+        within(to_pc.read_datagram()).await.unwrap(),
+        Bytes::from_static(b"mouse")
+    );
+
+    // Clean close of the stream: the other side sees the end and not an error.
+    mac_ctl.finish().unwrap();
+    assert_eq!(within(pc_ctl.recv::<ControlMsg>()).await.unwrap(), None);
+
+    mac_ep.close();
+    pc_ep.close();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn round_trip_latency_on_loopback() {
+    let mac = identity(1);
+    let pc = identity(2);
+    let mac_ep = endpoint(&mac, trusting(&[&pc]));
+    let pc_ep = endpoint(&pc, trusting(&[&mac]));
+    let (to_pc, to_mac) = pair(&mac_ep, &pc_ep).await;
+
+    let hello = Hello::new(Peer::Agent(Machine::A));
+    let (opened, accepted) =
+        within(async { tokio::join!(to_pc.open_control(&hello), to_mac.accept_control(&hello)) })
+            .await;
+    let (mut mac_ctl, _) = opened.unwrap();
+    let (mut pc_ctl, _) = accepted.unwrap();
+
+    // The other agent answers each Ping with its Pong.
+    let echo = tokio::spawn(async move {
+        while let Some(msg) = pc_ctl.recv::<ControlMsg>().await.unwrap() {
+            if let ControlMsg::Ping { nonce } = msg {
+                pc_ctl.send(&ControlMsg::Pong { nonce }).await.unwrap();
+            }
+        }
+    });
+
+    const ROUNDS: u64 = 200;
+    let mut samples = Vec::with_capacity(ROUNDS as usize);
+    for nonce in 0..ROUNDS {
+        let start = Instant::now();
+        mac_ctl.send(&ControlMsg::Ping { nonce }).await.unwrap();
+        let reply = within(mac_ctl.recv::<ControlMsg>()).await.unwrap();
+        samples.push(start.elapsed());
+        assert_eq!(reply, Some(ControlMsg::Pong { nonce }));
+    }
+    mac_ctl.finish().unwrap();
+    within(echo).await.unwrap();
+
+    samples.sort();
+    let mean = samples.iter().sum::<Duration>() / ROUNDS as u32;
+    let p50 = samples[samples.len() / 2];
+    let p99 = samples[samples.len() * 99 / 100];
+    // Informational: `cargo test -p tandem-link --test transport -- --nocapture`.
+    println!(
+        "RTT control (loopback, {ROUNDS} pings): media {mean:?}, p50 {p50:?}, p99 {p99:?}, \
+         max {:?}; QUIC estimate {:?}",
+        samples[samples.len() - 1],
+        to_pc.rtt()
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_server_rejects_an_unpaired_client() {
+    let mac = identity(1);
+    let pc = identity(2);
+    let intruder = identity(9);
+    // The intruder trusts the PC, but the PC only knows the Mac.
+    let intruder_ep = endpoint(&intruder, trusting(&[&pc]));
+    let pc_ep = endpoint(&pc, trusting(&[&mac]));
+    let addr = pc_ep.local_addr().unwrap();
+
+    let (client, server) =
+        within(async { tokio::join!(intruder_ep.connect(addr), pc_ep.accept()) }).await;
+
+    // The server cuts it off in the handshake.
+    assert!(matches!(
+        server,
+        Some(Err(TransportError::Connection(
+            quinn::ConnectionError::TransportError(_)
+        )))
+    ));
+    // The client may have taken the handshake as good (TLS 1.3); in that
+    // case nothing passes through the connection.
+    if let Ok(conn) = client {
+        let hello = Hello::new(Peer::Agent(Machine::B));
+        assert!(within(conn.open_control(&hello)).await.is_err());
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_client_rejects_an_unpaired_server() {
+    let mac = identity(1);
+    let pc = identity(2);
+    let impostor = identity(9);
+    // The impostor accepts the Mac, but the Mac only trusts the PC.
+    let mac_ep = endpoint(&mac, trusting(&[&pc]));
+    let impostor_ep = endpoint(&impostor, trusting(&[&mac]));
+    let addr = impostor_ep.local_addr().unwrap();
+
+    let (client, server) =
+        within(async { tokio::join!(mac_ep.connect(addr), impostor_ep.accept()) }).await;
+    assert!(matches!(
+        client,
+        Err(TransportError::Connection(
+            quinn::ConnectionError::TransportError(_)
+        ))
+    ));
+    assert!(matches!(server, Some(Err(_))));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_peer_paired_after_opening_the_endpoint_is_accepted() {
+    let mac = identity(1);
+    let pc = identity(2);
+    let dir = tempfile::tempdir().unwrap();
+    let store = Arc::new(RwLock::new(
+        TrustStore::open(dir.path().join("trust.toml")).unwrap(),
+    ));
+    let pc_ep = endpoint(&pc, store.clone());
+    let mac_ep = endpoint(&mac, trusting(&[&pc]));
+    let addr = pc_ep.local_addr().unwrap();
+
+    let (_, server) = within(async { tokio::join!(mac_ep.connect(addr), pc_ep.accept()) }).await;
+    assert!(matches!(server, Some(Err(_))));
+
+    store.write().unwrap().add(TrustedPeer {
+        public_key: mac.public_key(),
+        name: "Mac".to_owned(),
+    });
+    let (to_pc, to_mac) = pair(&mac_ep, &pc_ep).await;
+    assert_eq!(to_mac.peer(), mac.public_key());
+    assert_eq!(to_pc.peer(), pc.public_key());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_hello_of_another_version_is_rejected_on_both_sides() {
+    let mac = identity(1);
+    let pc = identity(2);
+    let mac_ep = endpoint(&mac, trusting(&[&pc]));
+    let pc_ep = endpoint(&pc, trusting(&[&mac]));
+    let (to_pc, to_mac) = pair(&mac_ep, &pc_ep).await;
+
+    let mut old = Hello::new(Peer::Agent(Machine::A));
+    old.version = old.version.wrapping_add(1);
+    let current = Hello::new(Peer::Agent(Machine::B));
+    let (opened, accepted) =
+        within(async { tokio::join!(to_pc.open_control(&old), to_mac.accept_control(&current)) })
+            .await;
+
+    assert!(matches!(
+        accepted,
+        Err(TransportError::Proto(
+            ProtoError::IncompatibleVersion { .. }
+        ))
+    ));
+    // The Hello goes back anyway, so whoever opened is not left hanging.
+    // Here it receives one of its same compiled version; in the real case (another
+    // binary) it would also fail with `IncompatibleVersion`.
+    assert_eq!(opened.unwrap().1, current);
+}
+
+/// T-084: an agent from before the capabilities announcement (protocol 8) is rejected at the
+/// greeting, with an error that says what is happening and what to do.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_agent_without_a_capabilities_announcement_is_rejected_with_a_clear_error() {
+    let mac = identity(1);
+    let pc = identity(2);
+    let mac_ep = endpoint(&mac, trusting(&[&pc]));
+    let pc_ep = endpoint(&pc, trusting(&[&mac]));
+    let (to_pc, to_mac) = pair(&mac_ep, &pc_ep).await;
+
+    let mut old = Hello::new(Peer::Agent(Machine::A));
+    old.version = tandem_proto::CAPABILITIES_SINCE - 1;
+    let current = Hello::new(Peer::Agent(Machine::B));
+    let (_, accepted) =
+        within(async { tokio::join!(to_pc.open_control(&old), to_mac.accept_control(&current)) })
+            .await;
+    let Err(e) = accepted else {
+        panic!("an agent without capabilities was accepted");
+    };
+    assert!(
+        matches!(
+            e,
+            TransportError::Proto(ProtoError::IncompatibleVersion { theirs: 9, .. })
+        ),
+        "{e}"
+    );
+    let text = e.to_string();
+    assert!(text.contains("incompatible protocol version"), "{text}");
+    assert!(
+        text.contains("without a capabilities announcement"),
+        "{text}"
+    );
+}
+
+/// With the stream split, both sides can send a lot at once: each one
+/// keeps reading while flow control holds back its writing.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn split_stream_writes_and_reads_at_once_in_both_directions() {
+    let mac = identity(1);
+    let pc = identity(2);
+    let mac_ep = endpoint(&mac, trusting(&[&pc]));
+    let pc_ep = endpoint(&pc, trusting(&[&mac]));
+    let (to_pc, to_mac) = pair(&mac_ep, &pc_ep).await;
+    let hello = Hello::new(Peer::Agent(Machine::A));
+    let (opened, accepted) =
+        within(async { tokio::join!(to_pc.open_control(&hello), to_mac.accept_control(&hello)) })
+            .await;
+
+    // More than fits in QUIC's windows, in both directions.
+    const FRAMES: usize = 64;
+    let block = vec![0xA5u8; 128 * 1024];
+    async fn exchange(stream: tandem_link::transport::ControlStream, block: &[u8]) -> Vec<Vec<u8>> {
+        let (mut tx, mut rx) = stream.split();
+        let write = async {
+            for i in 0..FRAMES {
+                let mut b = block.to_vec();
+                b[0] = i as u8;
+                tx.send(&b).await.unwrap();
+            }
+            tx.finish().unwrap();
+        };
+        let read = async {
+            let mut got = Vec::new();
+            while let Some(b) = rx.recv::<Vec<u8>>().await.unwrap() {
+                got.push(b);
+            }
+            got
+        };
+        tokio::join!(write, read).1
+    }
+    let (a, b) = within(async {
+        tokio::join!(
+            exchange(opened.unwrap().0, &block),
+            exchange(accepted.unwrap().0, &block)
+        )
+    })
+    .await;
+    for got in [a, b] {
+        assert_eq!(got.len(), FRAMES);
+        for (i, b) in got.iter().enumerate() {
+            assert_eq!(b[0], i as u8);
+            assert_eq!(b.len(), block.len());
+        }
+    }
+}
+
+/// The pairing endpoint connects with keys nobody knows yet, and each
+/// side sees the other's real key (the one that signed the handshake).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_pairing_endpoint_accepts_unknown_keys() {
+    let (mac, pc) = (identity(30), identity(31));
+    let mac_ep = Endpoint::bind_pairing(LOOPBACK, &mac).unwrap();
+    let pc_ep = Endpoint::bind_pairing(LOOPBACK, &pc).unwrap();
+    let (to_pc, to_mac) = pair(&mac_ep, &pc_ep).await;
+    assert_eq!(to_pc.peer(), pc.public_key());
+    assert_eq!(to_mac.peer(), mac.public_key());
+
+    let (mac_hello, pc_hello) = (
+        Hello::new(Peer::Agent(Machine::A)),
+        Hello::new(Peer::Agent(Machine::B)),
+    );
+    let (opened, accepted) = within(async {
+        tokio::join!(
+            to_pc.open_control(&mac_hello),
+            to_mac.accept_control(&pc_hello)
+        )
+    })
+    .await;
+    let (mut a, _) = opened.unwrap();
+    let (mut b, _) = accepted.unwrap();
+    a.send(&ControlMsg::Ping { nonce: 1 }).await.unwrap();
+    assert_eq!(
+        within(b.recv::<ControlMsg>()).await.unwrap(),
+        Some(ControlMsg::Ping { nonce: 1 })
+    );
+}
+
+/// With another ALPN, the pairing endpoint does not talk to a normal one in either
+/// direction, even if the normal one trusts the key: a half-paired peer does not reach the
+/// control plane, and the normal endpoint never accepts unknown keys.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn pairing_and_control_do_not_mix() {
+    let (mac, pc) = (identity(32), identity(33));
+    let pairing = Endpoint::bind_pairing(LOOPBACK, &mac).unwrap();
+    let normal = endpoint(&pc, trusting(&[&mac]));
+
+    // quinn only advances the handshake of the acceptor: both sides at once.
+    let (c, s) = within(async {
+        tokio::join!(
+            pairing.connect(normal.local_addr().unwrap()),
+            normal.accept()
+        )
+    })
+    .await;
+    assert!(c.is_err(), "connected with another ALPN");
+    assert!(matches!(s, Some(Err(_))), "accepted another ALPN");
+    let (c, s) = within(async {
+        tokio::join!(
+            normal.connect(pairing.local_addr().unwrap()),
+            pairing.accept()
+        )
+    })
+    .await;
+    assert!(c.is_err(), "connected with another ALPN");
+    assert!(matches!(s, Some(Err(_))), "accepted another ALPN");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn data_goes_over_a_minimum_priority_stream_with_the_wifi_cap() {
+    use tandem_link::manager::LinkKind;
+    use tandem_link::qos::StreamClass;
+
+    let a = identity(1);
+    let b = identity(2);
+    let a_ep = endpoint(&a, trusting(&[&b]));
+    let b_ep = endpoint(&b, trusting(&[&a]));
+    let (to_b, to_a) = pair(&a_ep, &b_ep).await;
+    let a_hello = Hello::new(Peer::Agent(Machine::A));
+    let b_hello = Hello::new(Peer::Agent(Machine::B));
+
+    // The input one, with the highest priority.
+    let (opened, accepted) =
+        within(async { tokio::join!(to_b.open_control(&a_hello), to_a.accept_control(&b_hello)) })
+            .await;
+    let (input, _) = opened.unwrap();
+    let _keep = accepted.unwrap();
+    input.set_class(StreamClass::Input).unwrap();
+    let (input_tx, _) = input.split();
+    assert_eq!(input_tx.priority().unwrap(), StreamClass::Input.priority());
+
+    // Over Wi-Fi measured at 400 kB/s, data gets 200 kB/s.
+    to_b.qos().set_link(Some(LinkKind::Wifi));
+    to_b.qos().set_measured(400_000);
+    assert_eq!(to_b.qos().cap(), Some(200_000));
+    let (opened, accepted) =
+        within(async { tokio::join!(to_b.open_control(&a_hello), to_a.accept_control(&b_hello)) })
+            .await;
+    let (mut data, _) = opened.unwrap().0.into_data(to_b.qos()).unwrap();
+    let (mut rx, _) = accepted.unwrap();
+    assert_eq!(
+        data.get_ref().priority().unwrap(),
+        StreamClass::Data.priority()
+    );
+
+    let chunk = vec![7u8; 30_000];
+    let start = Instant::now();
+    let reader = tokio::spawn(async move {
+        for _ in 0..10 {
+            let msg = within(rx.recv::<Vec<u8>>()).await.unwrap().unwrap();
+            assert_eq!(msg.len(), 30_000);
+        }
+    });
+    for _ in 0..10 {
+        within(data.send(&chunk)).await.unwrap();
+    }
+    within(reader).await.unwrap();
+    // 300 kB at 200 kB/s, with the initial burst (2 kB): no less than 1.4 s.
+    let took = start.elapsed();
+    assert!(took >= Duration::from_millis(1400), "took {took:?}");
+}
+
+/// Between the two machines there are two connections (the one each opens). With the path's shared
+/// `Qos`, the data that A sends over both at once does not together exceed the cap.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_two_connections_of_a_path_share_the_cap() {
+    use tandem_link::manager::LinkKind;
+    use tandem_link::qos::{LinkQos, StreamClass};
+
+    let a = identity(1);
+    let b = identity(2);
+    let a_ep = endpoint(&a, trusting(&[&b]));
+    let b_ep = endpoint(&b, trusting(&[&a]));
+    let a_hello = Hello::new(Peer::Agent(Machine::A));
+    let b_hello = Hello::new(Peer::Agent(Machine::B));
+
+    let qos = LinkQos::default();
+    let wifi = qos.get(LinkKind::Wifi);
+    wifi.set_measured(400_000);
+    assert_eq!(wifi.cap(), Some(200_000));
+    // The one A opens and the one A accepts from B, both over Wi-Fi.
+    let (a_out, b_in) = pair(&a_ep, &b_ep).await;
+    let (b_out, a_in) = pair(&b_ep, &a_ep).await;
+    let a_out = a_out.with_qos(qos.get(LinkKind::Wifi));
+    let a_in = a_in.with_qos(qos.get(LinkKind::Wifi));
+    assert!(a_out.qos().same(a_in.qos()));
+
+    let mut streams = Vec::new();
+    for (mine, theirs) in [(&a_out, &b_in), (&a_in, &b_out)] {
+        let (opened, accepted) = within(async {
+            tokio::join!(mine.open_control(&a_hello), theirs.accept_control(&b_hello))
+        })
+        .await;
+        let (data, _) = opened.unwrap().0.into_data(mine.qos()).unwrap();
+        let (accepted, _) = accepted.unwrap();
+        // The accepting side sets its own priority for what it sends.
+        accepted.set_class(StreamClass::Clipboard).unwrap();
+        let (tx, rx) = accepted.split();
+        assert_eq!(tx.priority().unwrap(), StreamClass::Clipboard.priority());
+        streams.push((data, rx));
+    }
+
+    // Both writes (150 kB each) at once: 300 kB at 200 kB/s between the two.
+    let start = Instant::now();
+    let mut tasks = Vec::new();
+    for (mut data, mut rx) in streams {
+        tasks.push(tokio::spawn(async move {
+            let chunk = vec![1u8; 30_000];
+            for _ in 0..5 {
+                within(data.send(&chunk)).await.unwrap();
+            }
+            // Keep the stream alive until the other side reads everything.
+            let mut got = 0;
+            while got < 5 {
+                let msg = within(rx.recv::<Vec<u8>>()).await.unwrap().unwrap();
+                assert_eq!(msg.len(), 30_000);
+                got += 1;
+            }
+        }));
+    }
+    for t in tasks {
+        within(t).await.unwrap();
+    }
+    let took = start.elapsed();
+    assert!(took >= Duration::from_millis(1400), "took {took:?}");
+}
+
+/// T-102: the bandwidth test over a real QUIC data stream. The receiver
+/// measures and whoever asked for it receives that number.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_bandwidth_test_returns_what_the_other_side_measured() {
+    use tandem_proto::Channel;
+
+    let mac = identity(1);
+    let pc = identity(2);
+    let mac_ep = endpoint(&mac, trusting(&[&pc]));
+    let pc_ep = endpoint(&pc, trusting(&[&mac]));
+    let (to_pc, to_mac) = pair(&mac_ep, &pc_ep).await;
+    let mac_hello = Hello::new(Peer::Agent(Machine::A));
+    let pc_hello = Hello::new(Peer::Agent(Machine::B));
+    let answer = tokio::spawn(async move {
+        let (mut s, _) = to_mac.accept_control(&pc_hello).await.unwrap();
+        assert_eq!(
+            s.recv::<ControlMsg>().await.unwrap(),
+            Some(ControlMsg::Open(Channel::Measure))
+        );
+        // The connection stays alive until the other side reads the reply.
+        (s.answer_measure().await.unwrap(), to_mac)
+    });
+    let (mut s, _) = within(to_pc.open_control(&mac_hello)).await.unwrap();
+    s.send(&ControlMsg::Open(Channel::Measure)).await.unwrap();
+    let qos = to_pc.qos().clone();
+    let got = within(s.measure(Duration::from_millis(500), &qos))
+        .await
+        .unwrap();
+    let (answered, _conn) = within(answer).await.unwrap();
+    assert_eq!(got, answered);
+    assert!(got.bytes > 0, "{got:?}");
+    // Over loopback, quite a bit more than 1 MB/s.
+    assert!(got.bytes_per_sec().unwrap() > 1_000_000, "{got:?}");
+}

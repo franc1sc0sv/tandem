@@ -1,0 +1,63 @@
+import { beforeEach, expect, it, vi } from "vitest";
+
+import type { ShortcutsView } from "./model";
+
+const invoke = vi.fn(async (..._args: unknown[]) => undefined);
+const handlers = new Map<string, (e: { payload: unknown }) => void>();
+
+vi.mock("@tauri-apps/api/core", () => ({ invoke: (...args: unknown[]) => invoke(...args) }));
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: async (name: string, cb: (e: { payload: unknown }) => void) => {
+    handlers.set(name, cb);
+    return () => handlers.delete(name);
+  },
+}));
+
+const { bridgeFailed, tauriBridge } = await import("./bridge");
+
+beforeEach(() => {
+  invoke.mockClear();
+  handlers.clear();
+});
+
+it("turns a bridge failure into a no-agent state", () => {
+  expect(bridgeFailed(new Error("no __TAURI_INTERNALS__"))).toEqual({
+    kind: "unavailable",
+    endpoint: null,
+    reason: "the window could not ask the app core: no __TAURI_INTERNALS__",
+  });
+});
+
+it("receives the new shortcuts through the `tandem_ui::app` event", async () => {
+  const bridge = await tauriBridge();
+  const seen: ShortcutsView[] = [];
+  await bridge.onShortcuts((v) => seen.push(v));
+  const view: ShortcutsView = {
+    bindings: { toggle_window: "Ctrl+Alt+KeyM" },
+    failed: {},
+    warning: null,
+    file: null,
+  };
+  handlers.get("ui-shortcuts")?.({ payload: view });
+  expect(seen).toEqual([view]);
+});
+
+it("hides the main window with its command", async () => {
+  const bridge = await tauriBridge();
+  await bridge.hideMain();
+  expect(invoke).toHaveBeenCalledWith("ui_hide_main");
+});
+
+it("uses the permissions guide commands of `tandem_ui::app`", async () => {
+  const bridge = await tauriBridge();
+  await bridge.setup();
+  await bridge.openSettings("input_monitoring");
+  await bridge.restartAgent();
+  await bridge.finishSetup();
+  expect(invoke.mock.calls).toEqual([
+    ["setup_get"],
+    ["setup_open", { permission: "input_monitoring" }],
+    ["agent_restart"],
+    ["setup_finish"],
+  ]);
+});

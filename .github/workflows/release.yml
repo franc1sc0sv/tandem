@@ -1,0 +1,367 @@
+name: Release
+
+# Builds the macOS (.dmg) and Windows (NSIS) installers, the signed updater
+# packages (T-122), their checksums, the notes and `latest.json`, and creates the release on GitHub.
+# See docs/dev/release.md.
+#
+# - Pushed `v*` tag: release of that tag (it must match the version). It is created as
+#   a draft with everything uploaded and, if it is a final version (`v0.3.0`), published at the end;
+#   a prerelease (`v0.3.0-rc.1`) stays as a draft to test by hand.
+# - By hand (workflow_dispatch): test mode by default, which leaves everything as workflow
+#   artifacts and creates no release or tag.
+# - PR touching this workflow, scripts/release or the updater config: always test mode.
+#
+# The updater packages are signed with the minisign key from the secret
+# TAURI_SIGNING_PRIVATE_KEY (and TAURI_SIGNING_PRIVATE_KEY_PASSWORD if it has a password). Without the
+# secret, a release fails in `prepare` with the reason; test mode signs with a throwaway
+# key to exercise the whole path.
+#
+# The macOS app and tandemd are code-signed with the stable self-signed identity (T-348) from the
+# secrets MACOS_SIGNING_CERTIFICATE (the .p12 in base64) and MACOS_SIGNING_CERTIFICATE_PASSWORD,
+# made once with scripts/release/make-macos-identity.sh. A release without them fails in
+# `prepare`; test mode always signs with a disposable identity. Either way the job checks that
+# a second version signed with the same identity keeps the designated requirement.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      test_mode:
+        description: 'Test mode: artifacts only, no release is created'
+        type: boolean
+        default: true
+  pull_request:
+    paths:
+      - .github/workflows/release.yml
+      - scripts/release/**
+      - apps/tandem-ui/src-tauri/tauri.updater.json
+      - apps/tandem-ui/src-tauri/tauri.macos.conf.json
+      - scripts/macos/**
+
+# Only the `release` job (which does not run in test mode) gets write permission.
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  prepare:
+    name: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      version: ${{ steps.mode.outputs.version }}
+      tag: ${{ steps.mode.outputs.tag }}
+      publish: ${{ steps.mode.outputs.publish }}
+      prerelease: ${{ steps.mode.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the notes walk the history from the previous tag
+      - run: scripts/release/test.sh
+      - name: Version and mode
+        id: mode
+        env:
+          EVENT: ${{ github.event_name }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          TEST_MODE: ${{ inputs.test_mode }}
+          HAS_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
+          HAS_MACOS_IDENTITY: ${{ secrets.MACOS_SIGNING_CERTIFICATE != '' && secrets.MACOS_SIGNING_CERTIFICATE_PASSWORD != '' }}
+        run: |
+          publish=false
+          if [ "$EVENT" = push ] && [ "$REF_TYPE" = tag ]; then
+            version=$(scripts/release/version.sh "$REF_NAME")
+            tag=$REF_NAME
+            publish=true
+          else
+            version=$(scripts/release/version.sh)
+            tag=v$version
+            # Only publishes if someone unchecked "test mode" by hand; any other value is a test.
+            if [ "$EVENT" = workflow_dispatch ] && [ "$TEST_MODE" = false ]; then
+              scripts/release/version.sh "$tag" >/dev/null
+              publish=true
+            fi
+          fi
+          # SemVer: with a suffix (`-rc.1`) it is a prerelease.
+          case "$version" in
+            *-*) prerelease=true ;;
+            *) prerelease=false ;;
+          esac
+          if [ "$publish" = true ] && [ "$HAS_KEY" != true ]; then
+            echo "::error title=Missing updater key::The release needs the TAURI_SIGNING_PRIVATE_KEY secret (the updater's minisign key) to sign the packages. How to create and store it: docs/dev/release.md#updater-key"
+            exit 1
+          fi
+          if [ "$publish" = true ] && [ "$HAS_MACOS_IDENTITY" != true ]; then
+            echo "::error title=Missing macOS signing identity::The release needs the MACOS_SIGNING_CERTIFICATE and MACOS_SIGNING_CERTIFICATE_PASSWORD secrets (the stable self-signed identity): without them the Mac build would be ad hoc and every update would ask for Accessibility and Input Monitoring again. Create them once with scripts/release/make-macos-identity.sh; see docs/dev/release.md#macos-signing-identity"
+            exit 1
+          fi
+          {
+            echo "version=$version"
+            echo "tag=$tag"
+            echo "publish=$publish"
+            echo "prerelease=$prerelease"
+          } >> "$GITHUB_OUTPUT"
+          if [ "$publish" = true ]; then
+            echo "Release: $tag (prerelease: $prerelease)" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Test mode: $tag, artifacts only (no release)" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      # STATUS.md up to date with docs/tasks/ before publishing (T-192). Only for a real release:
+      # dry runs and PRs would fail on any task that is open mid-work.
+      - if: steps.mode.outputs.publish == 'true'
+        run: scripts/ci/status.sh
+      - name: Notes
+        env:
+          VERSION: ${{ steps.mode.outputs.version }}
+        run: |
+          scripts/release/notes.sh --version "$VERSION" --to HEAD > notes.md
+          cat notes.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: notes
+          path: notes.md
+          if-no-files-found: error
+
+  # Same as the `dmg (macos-latest)` job in CI (T-070), plus the updater package
+  # (`Tandem.app.tar.gz` and its signature), code-signed with the stable identity (T-348;
+  # a disposable one in test mode).
+  macos:
+    name: dmg (macos-latest)
+    needs: prepare
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: apps/tandem-ui/package.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/tandem-ui/pnpm-lock.yaml
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: bundle
+      - run: pnpm install --frozen-lockfile
+        working-directory: apps/tandem-ui
+      - name: Throwaway key (test mode without secret)
+        if: needs.prepare.outputs.publish != 'true'
+        working-directory: apps/tandem-ui
+        run: |
+          pnpm tauri signer generate --ci -w "$RUNNER_TEMP/test_mode.key" >/dev/null
+          echo "TEST_KEY=$(cat "$RUNNER_TEMP/test_mode.key")" >> "$GITHUB_ENV"
+      # The code-signing identity in a keychain that only lives for this job. Its SHA-1 goes in
+      # APPLE_SIGNING_IDENTITY, which Tauri passes to `codesign -s` for the app and tandemd.
+      - name: Signing identity
+        env:
+          PUBLISH: ${{ needs.prepare.outputs.publish }}
+          CERTIFICATE: ${{ secrets.MACOS_SIGNING_CERTIFICATE }}
+          CERTIFICATE_PASSWORD: ${{ secrets.MACOS_SIGNING_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          keychain="$RUNNER_TEMP/tandem-signing.keychain-db"
+          if [ "$PUBLISH" = true ]; then
+            if [ -z "$CERTIFICATE" ] || [ -z "$CERTIFICATE_PASSWORD" ]; then
+              echo "::error title=Missing macOS signing identity::MACOS_SIGNING_CERTIFICATE and MACOS_SIGNING_CERTIFICATE_PASSWORD are required for a release (docs/dev/release.md#macos-signing-identity)"
+              exit 1
+            fi
+            id=$(mktemp -d)
+            printf '%s' "$CERTIFICATE" | base64 --decode > "$id/identity.p12"
+            printf '%s' "$CERTIFICATE_PASSWORD" > "$id/password"
+            sha1=$(scripts/macos/keychain.sh import "$id/identity.p12" "$id/password" "$keychain")
+            rm -rf "$id"
+            echo "Signed with the stable identity $sha1" >> "$GITHUB_STEP_SUMMARY"
+          else
+            sha1=$(scripts/macos/keychain.sh disposable "$keychain")
+            echo "Test mode: signed with a disposable identity ($sha1)" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "APPLE_SIGNING_IDENTITY=$sha1" >> "$GITHUB_ENV"
+      - name: Build
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY || env.TEST_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY && secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
+        run: scripts/macos/bundle.sh --config src-tauri/tauri.updater.json
+      # TCC keeps the grants only if the next version satisfies this one's designated
+      # requirement: a second version signed with the same identity must, and so must the
+      # updater package, which also must not carry the quarantine attribute.
+      - name: Same designated requirement across versions
+        run: |
+          set -euo pipefail
+          app=$(echo target/*-apple-darwin/release/bundle/macos/Tandem.app)
+          scripts/macos/dr-check.sh all "$APPLE_SIGNING_IDENTITY" "$app" "$app.tar.gz" | tee dr.txt
+          { echo '```'; grep -E '^ *=> ' dr.txt | sort -u; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - name: Remove the signing keychain
+        if: always()
+        run: scripts/macos/keychain.sh remove "$RUNNER_TEMP/tandem-signing.keychain-db"
+      # upload-artifact keeps the folders from the first wildcard onward
+      # (`aarch64-apple-darwin/release/...`): it is copied separately so everything ends up at the root.
+      - name: Gather
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir dist
+          bundle=$(echo target/*-apple-darwin/release/bundle)
+          arch=$(basename "$(dirname "$(dirname "$bundle")")" | cut -d- -f1)
+          cp "$bundle"/dmg/Tandem_*.dmg dist/
+          package="dist/Tandem_${VERSION}_${arch}.app.tar.gz"
+          cp "$bundle/macos/Tandem.app.tar.gz" "$package"
+          cp "$bundle/macos/Tandem.app.tar.gz.sig" "$package.sig"
+          ls -la dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installer-macos
+          path: dist/*
+          if-no-files-found: error
+
+  # Same as the `installer (windows)` job in CI (T-071), with the install and
+  # uninstall test: an installer that was not tested is never published. With the updater signature, the
+  # installer itself is the package the updater downloads.
+  windows:
+    name: installer (windows)
+    needs: prepare
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: apps/tandem-ui/package.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/tandem-ui/pnpm-lock.yaml
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: installer
+      - run: pnpm install --frozen-lockfile
+        working-directory: apps/tandem-ui
+      - name: Throwaway key (test mode without secret)
+        if: needs.prepare.outputs.publish != 'true'
+        shell: bash
+        working-directory: apps/tandem-ui
+        run: |
+          pnpm tauri signer generate --ci -w "$RUNNER_TEMP/test_mode.key" >/dev/null
+          echo "TEST_KEY=$(cat "$RUNNER_TEMP/test_mode.key")" >> "$GITHUB_ENV"
+      - name: Build the installer
+        id: build
+        shell: pwsh
+        env:
+          TANDEM_UPDATER_ARTIFACTS: '1'
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY || env.TEST_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY && secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
+        run: ./tools/windows/installer/build-installer.ps1
+      - name: Test install and uninstall
+        shell: pwsh
+        run: ./tools/windows/installer/test-installer.ps1 -Installer "${{ steps.build.outputs.installer }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installer-windows
+          path: |
+            ${{ steps.build.outputs.installer }}
+            ${{ steps.build.outputs.installer }}.sig
+          if-no-files-found: error
+
+  # Gathers everything, checks there is exactly one package of each kind with its signature, generates the
+  # checksums and `latest.json`. The `tandem-<version>` artifact is what would be published.
+  artifacts:
+    name: checksums and latest.json
+    needs: [prepare, macos, windows]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts/release
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: installer-*
+          path: dist
+          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: notes
+      - name: Checksums
+        working-directory: dist
+        run: |
+          shopt -s nullglob
+          ls -la
+          dmg=(Tandem_*.dmg) exe=(Tandem_*-setup.exe) app=(Tandem_*.app.tar.gz)
+          [ ${#dmg[@]} -eq 1 ] || { echo "expected one .dmg: ${dmg[*]}" >&2; exit 1; }
+          [ ${#exe[@]} -eq 1 ] || { echo "expected one -setup.exe: ${exe[*]}" >&2; exit 1; }
+          [ ${#app[@]} -eq 1 ] || { echo "expected one .app.tar.gz: ${app[*]}" >&2; exit 1; }
+          sha256sum "${dmg[0]}" "${exe[0]}" "${app[0]}" > SHA256SUMS.txt
+          sha256sum -c SHA256SUMS.txt
+          { echo '```'; cat SHA256SUMS.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - name: latest.json
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          REPO: ${{ github.repository }}
+        run: |
+          shopt -s nullglob
+          app=(dist/Tandem_*.app.tar.gz) exe=(dist/Tandem_*-setup.exe)
+          # The name carries the runner's architecture (`aarch64` today, see docs/dev/release.md).
+          arch=$(basename "${app[0]}" .app.tar.gz); arch=${arch##*_}
+          scripts/release/latest-json.sh --version "$VERSION" --repo "$REPO" --tag "$TAG" \
+            --notes notes.md "darwin-$arch=${app[0]}" "windows-x86_64=${exe[0]}" > dist/latest.json
+          { echo '```json'; cat dist/latest.json; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tandem-${{ needs.prepare.outputs.version }}
+          path: |
+            dist/*
+            notes.md
+          if-no-files-found: error
+
+  release:
+    name: release
+    needs: [prepare, artifacts]
+    if: needs.prepare.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: tandem-${{ needs.prepare.outputs.version }}
+      - name: Create the draft release and publish it
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          PRERELEASE: ${{ needs.prepare.outputs.prerelease }}
+          TAG_PUSH: ${{ github.event_name == 'push' }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "a release $TAG already exists: delete it (if it is a draft) and run the workflow again" >&2
+            exit 1
+          fi
+          # With a pushed tag, the release is that tag's. By hand, the v<version> tag is created by
+          # GitHub on this commit when publishing.
+          extra=()
+          [ "$TAG_PUSH" = true ] && extra+=(--verify-tag)
+          [ "$PRERELEASE" = true ] && extra+=(--prerelease)
+          # First as a draft with everything uploaded: the updater never sees a half-finished release.
+          gh release create "$TAG" --draft "${extra[@]}" --target "$GITHUB_SHA" \
+            --title "Tandem $VERSION" --notes-file notes.md \
+            dist/Tandem_*.dmg dist/Tandem_*-setup.exe dist/Tandem_*.app.tar.gz dist/*.sig \
+            dist/latest.json dist/SHA256SUMS.txt
+          if [ "$PRERELEASE" = true ]; then
+            echo "Prerelease $TAG as a draft: publish it by hand after testing it" >> "$GITHUB_STEP_SUMMARY"
+          else
+            gh release edit "$TAG" --draft=false --latest
+            echo "Published $TAG: the updater sees it right away" >> "$GITHUB_STEP_SUMMARY"
+          fi

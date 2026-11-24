@@ -1,0 +1,63 @@
+<script lang="ts">
+  // Component gallery (only in builds with demo mode): the harness compares its computed
+  // styles with those of the same elements in the mockups (`scripts/style-parity.ts`).
+  import Bar from "./ui/Bar.svelte";
+  import Button from "./ui/Button.svelte";
+  import Card from "./ui/Card.svelte";
+  import Chip from "./ui/Chip.svelte";
+  import Kbd from "./ui/Kbd.svelte";
+  import Ring from "./ui/Ring.svelte";
+  import Segmented from "./ui/Segmented.svelte";
+  import Switch from "./ui/Switch.svelte";
+
+  const three = [
+    { value: "i", label: "Start" },
+    { value: "c", label: "Center" },
+    { value: "f", label: "End" },
+  ];
+  const two = [
+    { value: "a", label: "MacBook Pro", icon: "laptop" as const, iconColor: "#7aa7e6", accent: "#4f7cbc" },
+    { value: "b", label: "PC-Desktop", icon: "tower" as const, iconColor: "#a99be8", accent: "#6a5fa6" },
+  ];
+</script>
+
+<div class="gal">
+  <div data-part="btn-md"><Button icon="check">Button</Button></div>
+  <div data-part="btn-pri"><Button icon="check" variant="pri">Primary</Button></div>
+  <!-- The 38 px of the headers (V3-Arrangement, V3-Network, V3-Machine…). -->
+  <div data-part="btn-38"><Button icon="cursor" style="--btn-h:38px;--btn-px:15px">Test crossing</Button></div>
+  <div data-part="btn-pri-38"><Button icon="check" variant="pri" style="--btn-h:38px;--btn-px:15px">Save</Button></div>
+  <div data-part="btn-ghost"><Button icon="x" variant="ghost">Ghost</Button></div>
+  <div data-part="btn-sm"><Button icon="check" size="sm">Small</Button></div>
+  <div data-part="btn-pri-sm"><Button icon="plus" variant="pri" size="sm">New scene</Button></div>
+  <div data-part="btn-ghost-ic-sm"><Button icon="trash" variant="ghost" size="sm" iconOnly label="Forget" /></div>
+  <div data-part="btn-danger"><Button icon="trash" variant="danger" size="sm" style="--btn-h:34px;--btn-px:13px">Danger</Button></div>
+  <div data-part="btn-xl"><Button icon="arrow-right" variant="pri" size="xl">Large</Button></div>
+  <div data-part="seg-md"><Segmented options={three} value="c" label="Alignment" /></div>
+  <div data-part="seg-lg"><Segmented options={two} value="b" label="Machine" size="lg" /></div>
+  <div data-part="sw-on"><Switch checked={true} label="Powered on" /></div>
+  <div data-part="sw-off"><Switch checked={false} label="Powered off" /></div>
+  <div data-part="chip"><Chip dot={false}>Work</Chip></div>
+  <div data-part="chip-count"><Chip count dot={false}>3</Chip></div>
+  <div data-part="card"><Card>Card</Card></div>
+  <div data-part="card-link"><Card href="#card">Link card</Card></div>
+  <div data-part="kbd"><Kbd>⌃⌥1</Kbd></div>
+  <div data-part="kbd-raised"><Kbd raised>⌃⌥1</Kbd></div>
+  <div data-part="bar"><Bar percent={50} color="#7aa7e6" /></div>
+  <div data-part="ring"><Ring value={0.5} color="#6cc59a" /></div>
+</div>
+
+<style>
+  .gal {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    padding: 24px;
+    font-family: "Inter", system-ui, sans-serif;
+    font-size: 14px;
+    color: #e8e8eb;
+  }
+  .gal > div {
+    width: 300px;
+  }
+</style>

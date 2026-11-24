@@ -1,0 +1,28 @@
+[package]
+name = "tandem-sim"
+description = "Desk simulation for tests: two agents in one process with simulated backends and injected faults"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+monitor-ddc.workspace = true
+tandem-core = { path = "../tandem-core" }
+tandem-input = { path = "../tandem-input" }
+tandem-link = { path = "../tandem-link" }
+tandem-monitor = { path = "../tandem-monitor" }
+tandem-proto = { path = "../tandem-proto" }
+tandemd = { path = "../tandemd" }
+tempfile.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["io-util", "macros", "rt", "sync", "time", "test-util"] }
+tracing.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+tandem-peripherals = { path = "../tandem-peripherals" }
+tracing-subscriber = { workspace = true, features = ["env-filter", "fmt"] }
+
+[lints]
+workspace = true

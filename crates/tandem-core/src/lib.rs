@@ -1,16 +1,47 @@
-//! Núcleo de Tandem, independiente de la plataforma.
+//! Tandem core, platform independent.
 //!
-//! - [`model`]: máquinas, monitores, entradas y la configuración del escritorio.
-//! - [`state`]: el estado observado (quién muestra qué) y el modo de la pantalla integrada.
-//! - [`plan`]: cómo pasar de un estado a otro como una lista ordenada de pasos.
-//! - [`txn`]: ejecución transaccional de un plan, con vuelta atrás si un paso falla.
+//! - [`model`]: the two sides (`A`/`B`, by public key), which machine is each and the
+//!   shared desk ([`Desk`]).
+//! - [`desk`]: how it is edited (patches), synchronized (last one wins) and undone the
+//!   desk.
+//! - [`legacy`]: Spanish identifiers saved before T-209, migrated when reading.
+//! - [`data`]: the cap on data over Wi-Fi (`[data]` of the desk).
+//! - [`state`]: the observed state (which machines are on).
+//! - [`plan`]: powering on and off as an ordered list of steps.
+//! - [`txn`]: transactional execution of a plan, with rollback.
+//! - [`monitor`]: the inputs of a compatible monitor.
+//! - [`link`]: a shared monitor's link state: what it shows, its cables and its power (T-349).
+//! - [`scene`]: scenes (D6) and how they are applied.
 
+pub mod data;
+pub mod desk;
+pub mod legacy;
+pub mod link;
 pub mod model;
+pub mod monitor;
 pub mod plan;
+pub mod scene;
 pub mod state;
 pub mod txn;
 
-pub use model::{Config, DdcProfile, Input, Machine, MonitorConfig, MonitorId};
-pub use plan::{Mode, Plan, Step};
-pub use state::{BuiltinDisplay, State};
+pub use data::{DEFAULT_WIFI_CAP_PERCENT, DataPrefs, DataPrefsError};
+pub use desk::{
+    BuiltinDisplays, BuiltinMode, DeskHistory, DeskPatch, DeskStamp, DeskVersion, HISTORY_LEN,
+    HistoryEntry, InputPrefs, Modules, PatchError, Shortcuts, UndoError, valid_color,
+};
+pub use link::{
+    CableState, Cables, LinkState, MonitorLink, OFF_AFTER, PowerSample, PowerState, PowerTracker,
+    live_power, own_cable,
+};
+pub use model::{
+    Align, Arrangement, Config, DEFAULT_COLORS, Desk, Machine, MachineInfo, Machines, Os, PALETTE,
+    Scale, ScreenSpec, Side, default_color,
+};
+pub use monitor::{
+    CableEnd, DisplayKey, Inputs, MonitorCable, MonitorInput, is_engine_screen, learn_screens,
+    link_screens, screen_outdated,
+};
+pub use plan::{Abilities, Plan, PlanError, Step};
+pub use scene::{MonitorId, Scene, default_scenes};
+pub use state::{Powered, State};
 pub use txn::{Executor, TxnError, TxnReport, run};

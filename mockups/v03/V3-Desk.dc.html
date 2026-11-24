@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tandem v0.3: desk</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0e0f12}
+.nav{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:9px;color:#a3a6af;text-decoration:none;font-size:13.5px;min-height:20px}
+.nav:hover{background:#17181c;color:#e8e8eb}
+.nav.on{background:#1c1d22;color:#e8e8eb}
+.navh{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#80838d;padding:14px 10px 6px}
+.card{background:#15161a;border:1px solid #25272d;border-radius:14px;padding:16px;animation:up .45s cubic-bezier(.2,.8,.2,1) both;position:relative;overflow:hidden}
+.h3{margin:0;font-size:13px;font-weight:600;color:#e8e8eb}
+.mut{color:#9a9da6}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:4px 9px;border-radius:999px;border:1px solid #31343b;font-size:12px;color:#c4c6cc;white-space:nowrap}
+.bar{height:6px;border-radius:3px;background:#24262c;overflow:hidden}
+.bar span{display:block;height:100%;border-radius:3px;animation:grow 1.1s cubic-bezier(.2,.8,.2,1) both}
+.mono{font-family:'JetBrains Mono',ui-monospace,monospace}
+.btn{font:inherit;font-size:13px;padding:8px 14px;border-radius:9px;border:1px solid #31343b;background:#1b1c21;color:#e8e8eb;cursor:pointer;min-height:36px}
+.ib{width:32px;height:32px;border-radius:8px;display:grid;place-items:center;color:#9a9da6;text-decoration:none;transition:background .2s,color .2s}
+.ib:hover{background:#1f2026;color:#e8e8eb}
+.kbd{font-family:'JetBrains Mono',monospace;font-size:11px;color:#9a9da6;border:1px solid #31343b;border-radius:5px;padding:1px 5px}
+.mcard{display:flex;flex-direction:column;gap:14px;text-decoration:none;color:inherit;padding-bottom:0;transition:border-color .25s,transform .25s}
+.mcard:hover{border-color:#3a3d45;transform:translateY(-2px)}
+.spark{margin:4px -16px 0;display:block}
+.spark path.ln{stroke-dasharray:600;stroke-dashoffset:600;animation:dr 1.8s ease-out .2s forwards}
+.on-dot{width:7px;height:7px;border-radius:50%;background:#6cc59a;animation:pl 2s ease-in-out infinite}
+.link{display:flex;align-items:center;gap:18px;padding:18px 22px}
+.node{display:flex;align-items:center;gap:10px;flex:none}
+.nicon{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;background:#111215;border:1px solid #2a2c33}
+.flow{stroke-dasharray:2 10;stroke-linecap:round;animation:fl 1s linear infinite}
+.flow.r{animation-direction:reverse;animation-duration:1.3s}
+.scene{font:inherit;text-align:left;cursor:pointer;background:#111215;border:1px solid #25272d;border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:10px;color:#e8e8eb;min-height:44px;transition:border-color .25s,background .25s,transform .2s}
+.scene:hover{border-color:#4a4e58}
+.scene:active{transform:scale(.98)}
+.thumb{height:46px;border-radius:6px;padding:3px;background:#0b0c0e;border:1px solid #2a2c33;box-sizing:border-box}
+.thumb div{width:100%;height:100%;border-radius:3px;transition:background .5s}
+.desk{position:absolute;box-sizing:border-box;border-radius:8px;padding:5px;background:#0b0c0e;border:1px solid #2f3239}
+.desk .w{width:100%;height:100%;border-radius:4px;position:relative;display:flex;align-items:flex-end;padding:8px 10px;box-sizing:border-box;font-size:11.5px;color:#d4d6dc}
+.curdot{position:absolute;left:16%;top:56%;width:10px;height:10px;margin:-5px 0 0 -5px;border-radius:50%;background:#e8e8eb;box-shadow:0 0 0 4px rgba(232,232,235,.14),0 0 18px rgba(232,232,235,.35);animation:cur 7s cubic-bezier(.45,0,.3,1) infinite;z-index:2}
+.edge{position:absolute;left:calc(32.6% - 1px);top:36%;width:2px;height:35.8%;border-radius:2px;background:#e8e8eb;opacity:0;animation:eg 7s ease-in-out infinite;z-index:1}
+@keyframes up{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+@keyframes grow{from{width:0}}
+@keyframes dr{to{stroke-dashoffset:0}}
+@keyframes fl{to{stroke-dashoffset:-24}}
+@keyframes cur{0%{left:16%;top:56%}22%{left:25%;top:52%}38%{left:40%;top:48%}62%{left:63%;top:30%}80%{left:80%;top:55%}100%{left:16%;top:56%}}
+@keyframes eg{0%,30%{opacity:0}34%{opacity:.9}48%{opacity:0}100%{opacity:0}}
+@keyframes pl{0%,100%{box-shadow:0 0 0 0 rgba(108,197,154,.55)}50%{box-shadow:0 0 0 5px rgba(108,197,154,0)}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}.spark path.ln{stroke-dashoffset:0}}
+</style>
+</helmet>
+<div style="width:100%;min-height:860px;display:flex;flex-wrap:wrap;font-family:'Inter',system-ui,sans-serif;color:#e8e8eb;font-size:14px;background:#0e0f12">
+  <nav aria-label="Main" style="flex:1 1 220px;max-width:240px;box-sizing:border-box;padding:16px 12px;border-right:1px solid #1f2126;display:flex;flex-direction:column;gap:2px;background:#0b0c0e">
+    <div style="display:flex;align-items:center;gap:9px;padding:4px 10px 14px;font-weight:650;font-size:15px"><svg width="20" height="20" viewBox="0 0 32 32" fill="none" aria-hidden="true"><circle cx="11.5" cy="16" r="8" stroke="#7aa7e6" stroke-width="2.4"></circle><circle cx="20.5" cy="16" r="8" stroke="#a99be8" stroke-width="2.4"></circle></svg>Tandem</div>
+    <a class="nav on" href="V3-Desk.dc.html" aria-current="page"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"></rect><rect x="14" y="3" width="7" height="7" rx="1.5"></rect><rect x="3" y="14" width="7" height="7" rx="1.5"></rect><rect x="14" y="14" width="7" height="7" rx="1.5"></rect></svg>Desk</a>
+    <a class="nav" href="V3-Compute.dc.html"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M3 12h4M17 12h4"></path><rect x="7" y="8" width="10" height="8" rx="4"></rect></svg>Tunnels<span style="flex:1"></span><span class="chip" style="padding:1px 7px;font-size:11px">3</span></a>
+    <a class="nav" href="V3-Monitors.dc.html"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"></rect><path d="M9 20h6M12 16v4"></path></svg>Monitors</a>
+    <a class="nav" href="V3-Arrangement.dc.html"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="2" y="7" width="9" height="10" rx="1.5"></rect><rect x="13" y="5" width="9" height="14" rx="1.5"></rect></svg>Arrangement</a>
+    <a class="nav" href="V3-Network.dc.html"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="5" cy="12" r="2.5"></circle><circle cx="19" cy="12" r="2.5"></circle><path d="M7.5 12h9"></path></svg>Network</a>
+    <div class="navh">Machines</div>
+    <a class="nav" href="F-MachineMac.dc.html"><span style="width:8px;height:8px;border-radius:50%;background:#7aa7e6"></span>MacBook Pro</a>
+    <a class="nav" href="V3-Machine.dc.html"><span style="width:8px;height:8px;border-radius:50%;background:#a99be8"></span>PC-Desktop</a>
+    <a class="nav" href="F-AddHost.dc.html"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>Add machine</a>
+    <span style="flex:1"></span>
+    <a class="nav" href="F-Settings.dc.html"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"></path></svg>Settings</a>
+  </nav>
+
+  <main style="flex:999 1 640px;min-width:0;box-sizing:border-box;padding:20px 28px 28px;display:flex;flex-direction:column;gap:16px">
+    <header style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <h1 style="margin:0;font-size:20px;font-weight:650">Desk</h1>
+      <span style="flex:1"></span>
+      <a href="F-Palette.dc.html" class="btn" style="display:flex;align-items:center;gap:10px;min-width:260px;color:#9a9da6;text-decoration:none;box-sizing:border-box"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>Search or run…<span style="flex:1"></span><span class="kbd">⌘K</span></a>
+    </header>
+
+    <section aria-label="Machines" style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px">
+      <a href="F-MachineMac.dc.html" class="card mcard">
+        <div style="display:flex;align-items:center;gap:10px">
+          <span class="nicon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#7aa7e6" stroke-width="1.8" aria-hidden="true"><rect x="4" y="5" width="16" height="11" rx="1.5"></rect><path d="M2 19h20"></path></svg></span>
+          <div style="display:flex;flex-direction:column;gap:2px"><b style="font-weight:600">MacBook Pro</b><span class="mut" style="font-size:12px">macOS · M5</span></div>
+          <span style="flex:1"></span><span class="on-dot"></span>
+        </div>
+        <div style="display:grid;grid-template-columns:44px minmax(0,1fr) 92px;gap:8px 10px;align-items:center;font-size:12px">
+          <span class="mut">CPU</span><div class="bar"><span style="width:18%;background:#7aa7e6"></span></div><span class="mono mut" style="text-align:right">18 %</span>
+          <span class="mut">RAM</span><div class="bar"><span style="width:52%;background:#7aa7e6"></span></div><span class="mono mut" style="text-align:right">12.4/24 GB</span>
+          <span class="mut">GPU</span><div class="bar"><span style="width:6%;background:#7aa7e6"></span></div><span class="mono mut" style="text-align:right">6 %</span>
+        </div>
+        <svg class="spark" viewBox="0 0 300 54" width="calc(100% + 32px)" height="54" preserveAspectRatio="none" aria-hidden="true">
+          <defs><linearGradient id="gm" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#7aa7e6" stop-opacity=".28"></stop><stop offset="1" stop-color="#7aa7e6" stop-opacity="0"></stop></linearGradient></defs>
+          <path d="M0 40 L25 38 L50 42 L75 34 L100 37 L125 30 L150 36 L175 33 L200 39 L225 31 L250 35 L275 32 L300 36 L300 54 L0 54Z" fill="url(#gm)"></path>
+          <path class="ln" d="M0 40 L25 38 L50 42 L75 34 L100 37 L125 30 L150 36 L175 33 L200 39 L225 31 L250 35 L275 32 L300 36" fill="none" stroke="#7aa7e6" stroke-width="1.5"></path>
+        </svg>
+      </a>
+      <a href="V3-Machine.dc.html" class="card mcard" style="animation-delay:.06s">
+        <div style="display:flex;align-items:center;gap:10px">
+          <span class="nicon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#a99be8" stroke-width="1.8" aria-hidden="true"><rect x="6" y="3" width="12" height="18" rx="2"></rect><circle cx="12" cy="15" r="2.5"></circle><path d="M9 7h6"></path></svg></span>
+          <div style="display:flex;flex-direction:column;gap:2px"><b style="font-weight:600">PC-Desktop</b><span class="mut" style="font-size:12px">Windows + WSL · RTX 5080</span></div>
+          <span style="flex:1"></span><span class="on-dot"></span>
+        </div>
+        <div style="display:grid;grid-template-columns:44px minmax(0,1fr) 92px;gap:8px 10px;align-items:center;font-size:12px">
+          <span class="mut">CPU</span><div class="bar"><span style="width:64%;background:#a99be8"></span></div><span class="mono mut" style="text-align:right">64 %</span>
+          <span class="mut">RAM</span><div class="bar"><span style="width:71%;background:#a99be8"></span></div><span class="mono mut" style="text-align:right">17.1/24 GB</span>
+          <span class="mut">VRAM</span><div class="bar"><span style="width:88%;background:#d9a75a"></span></div><span class="mono mut" style="text-align:right">14.1/16 GB</span>
+        </div>
+        <svg class="spark" viewBox="0 0 300 54" width="calc(100% + 32px)" height="54" preserveAspectRatio="none" aria-hidden="true">
+          <defs><linearGradient id="gp" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#a99be8" stop-opacity=".3"></stop><stop offset="1" stop-color="#a99be8" stop-opacity="0"></stop></linearGradient></defs>
+          <path d="M0 30 L25 26 L50 22 L75 18 L100 20 L125 14 L150 16 L175 12 L200 15 L225 10 L250 13 L275 11 L300 12 L300 54 L0 54Z" fill="url(#gp)"></path>
+          <path class="ln" d="M0 30 L25 26 L50 22 L75 18 L100 20 L125 14 L150 16 L175 12 L200 15 L225 10 L250 13 L275 11 L300 12" fill="none" stroke="#a99be8" stroke-width="1.5"></path>
+        </svg>
+      </a>
+    </section>
+
+    <a href="V3-Network.dc.html" class="card link" aria-label="Link between MacBook Pro and PC-Desktop: USB-C, 9.4 gigabits, 0.3 milliseconds" style="text-decoration:none;color:inherit;animation-delay:.16s">
+      <span class="node"><span style="width:10px;height:10px;border-radius:50%;background:#7aa7e6"></span><span style="font-size:13px">MacBook Pro</span></span>
+      <svg viewBox="0 0 600 40" preserveAspectRatio="none" style="flex:1;min-width:0;height:40px" aria-hidden="true">
+        <defs><linearGradient id="lk" x1="0" x2="1"><stop offset="0" stop-color="#7aa7e6"></stop><stop offset="1" stop-color="#a99be8"></stop></linearGradient></defs>
+        <line x1="0" y1="14" x2="600" y2="14" stroke="#24262c" stroke-width="2"></line>
+        <line class="flow" x1="0" y1="14" x2="600" y2="14" stroke="url(#lk)" stroke-width="3"></line>
+        <line x1="0" y1="30" x2="600" y2="30" stroke="#24262c" stroke-width="1.5" stroke-dasharray="3 6"></line>
+        <line class="flow r" x1="0" y1="30" x2="600" y2="30" stroke="#a99be8" stroke-opacity=".35" stroke-width="1.5"></line>
+      </svg>
+      <span class="node"><span style="font-size:13px">PC-Desktop</span><span style="width:10px;height:10px;border-radius:50%;background:#a99be8"></span></span>
+      <span style="width:1px;align-self:stretch;background:#25272d"></span>
+      <span style="display:flex;flex-direction:column;gap:2px;flex:none;min-width:130px">
+        <span style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600"><svg width="13" height="13" viewBox="0 0 24 24" fill="#7aa7e6" aria-hidden="true"><path d="M13 2 4 14h7l-1 8 9-12h-7z"></path></svg>USB-C</span>
+        <span class="mono mut" style="font-size:11.5px">9.4 Gbps · 0.3 ms</span>
+      </span>
+      <span style="display:flex;flex-direction:column;gap:2px;flex:none;min-width:110px">
+        <span style="font-size:13px;font-weight:600">Input</span>
+        <span class="mono mut" style="font-size:11.5px">p99 1.9 ms</span>
+      </span>
+    </a>
+
+    <section style="display:flex;gap:14px;flex-wrap:wrap;flex:1">
+      <div class="card" style="flex:1.3 1 440px;min-width:0;display:flex;flex-direction:column;gap:12px;animation-delay:.2s">
+        <div style="display:flex;align-items:center;gap:8px"><h2 class="h3">Live desktops</h2><span style="flex:1"></span><a href="V3-Arrangement.dc.html" class="ib" aria-label="Edit arrangement" title="Edit arrangement"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"></path><path d="m13.5 6.5 4 4"></path></svg></a></div>
+        <div style="flex:1;min-height:230px;border-radius:10px;background-color:#0b0c0e;background-image:radial-gradient(#17181c 1px,transparent 1px);background-size:18px 18px;border:1px solid #1f2126;overflow:hidden;display:flex;align-items:center;justify-content:center;padding:8px">
+          <div role="img" aria-label="To scale: 14-inch MacBook Pro to the left of the 34-inch ultrawide monitor, which shows PC-Desktop. The cursor moves between the two." style="position:relative;width:100%;aspect-ratio:133/55">
+            <div class="desk" style="left:7.5%;top:36%;width:22.9%;height:35.8%"><div class="w" style="background:linear-gradient(160deg,#34496a,#1d2738)">MacBook Pro</div></div>
+            <div style="position:absolute;left:6%;top:71.8%;width:25.9%;height:2.6%;background:#1c1d22;border-radius:0 0 6px 6px"></div>
+            <div class="desk" style="left:32.6%;top:10.9%;width:60%;height:60.9%"><div class="w" style="background:linear-gradient(160deg,#463d63,#241f33)">34" · PC-Desktop</div></div>
+            <div style="position:absolute;left:60.4%;top:71.8%;width:4.5%;height:9%;background:#1c1d22"></div>
+            <div style="position:absolute;left:55.1%;top:80.8%;width:15%;height:2.6%;background:#1c1d22;border-radius:3px"></div>
+            <span class="edge"></span>
+            <span class="curdot"></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" style="flex:1 1 340px;min-width:0;display:flex;flex-direction:column;gap:12px;animation-delay:.24s">
+        <div style="display:flex;align-items:center;gap:4px"><h2 class="h3">Scenes</h2><span style="flex:1"></span><a href="F-NewScene.dc.html" class="ib" aria-label="New scene" title="New scene"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></a><a href="V3-Monitors.dc.html" class="ib" aria-label="Edit scenes" title="Edit scenes"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"></path><path d="m13.5 6.5 4 4"></path></svg></a></div>
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <sc-for list="{{scenes}}" as="s" hint-placeholder-count="3">
+            <button type="button" class="scene" onClick="{{s.pick}}" style="{{s.style}}" aria-pressed="{{s.pressed}}">
+              <span style="display:flex;align-items:center;gap:12px;width:100%">
+                <span class="thumb" style="width:84px;flex:none"><div style="{{s.wall}}"></div></span>
+                <span style="display:flex;flex-direction:column;gap:3px;min-width:0;flex:1"><b style="font-weight:600;font-size:13.5px">{{s.name}}</b><span class="mut" style="font-size:12px;white-space:nowrap">{{s.desc}}</span></span>
+                <span class="kbd">{{s.key}}</span>
+              </span>
+            </button>
+          </sc-for>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":860}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { active: 'work' }; }
+  renderVals() {
+    const mac = 'linear-gradient(160deg,#34496a,#1d2738)';
+    const pc = 'linear-gradient(160deg,#463d63,#241f33)';
+    const list = [
+      { id: 'work', name: 'Work', key: '⌃⌥1', desc: '34" shows PC-Desktop', w: pc },
+      { id: 'mac', name: 'MacBook only', key: '⌃⌥2', desc: '34" shows MacBook Pro', w: mac },
+      { id: 'pc', name: 'Game', key: '⌃⌥3', desc: '34" shows PC-Desktop', w: pc }
+    ];
+    return {
+      scenes: list.map((s) => {
+        const on = s.id === this.state.active;
+        return { ...s, pressed: on ? 'true' : 'false', wall: 'background:' + s.w,
+          style: on ? 'border-color:#7aa7e6;background:#16202e' : '',
+          pick: () => this.setState({ active: s.id }) };
+      })
+    };
+  }
+}
+</script>
+</body>
+</html>

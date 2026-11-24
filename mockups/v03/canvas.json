@@ -1,0 +1,480 @@
+{
+  "v": 3,
+  "attachments": {},
+  "boards": {
+    "F-AddHost.dc.html": {
+      "expand": "fill",
+      "h": 860,
+      "is_interactive": true,
+      "page": "flows",
+      "title": "v0.3 · Add machine · desk side",
+      "w": 1280,
+      "x": 0,
+      "y": 1280
+    },
+    "F-Settings.dc.html": {
+      "expand": "fill",
+      "h": 860,
+      "is_interactive": true,
+      "page": "flows",
+      "title": "v0.3 · Settings",
+      "w": 1280,
+      "x": 0,
+      "y": 3840
+    },
+    "F-Setup1.dc.html": {
+      "expand": "fill",
+      "h": 860,
+      "is_interactive": true,
+      "page": "flows",
+      "title": "v0.3 · Setup 1 · This machine",
+      "w": 1280,
+      "x": 0,
+      "y": 0
+    },
+    "F-Setup3.dc.html": {
+      "expand": "fill",
+      "h": 860,
+      "is_interactive": true,
+      "page": "flows",
+      "title": "v0.3 · Setup 3 · Permissions",
+      "w": 1280,
+      "x": 2720,
+      "y": 0
+    },
+    "F-Setup4.dc.html": {
+      "expand": "fill",
+      "h": 860,
+      "is_interactive": true,
+      "page": "flows",
+      "title": "v0.3 · Setup 4 · Keyboard and mouse",
+      "w": 1280,
+      "x": 4080,
+      "y": 0
+    },
+    "F-Setup5.dc.html": {
+      "expand": "fill",
+      "h": 860,
+      "is_interactive": true,
+      "page": "flows",
+      "title": "v0.3 · Setup 5 · Arrangement and crossing test",
+      "w": 1280,
+      "x": 5440,
+      "y": 0
+    },
+    "F-Setup6.dc.html": {
+      "expand": "fill",
+      "h": 860,
+      "is_interactive": true,
+      "page": "flows",
+      "title": "v0.3 · Setup 6 · Done",
+      "w": 1280,
+      "x": 6800,
+      "y": 0
+    },
+    "F-Notices.dc.html": {
+      "expand": "fill",
+      "h": 860,
+      "is_interactive": true,
+      "page": "flows",
+      "title": "v0.3 · Notices and notifications",
+      "w": 1280,
+      "x": 4080,
+      "y": 2560
+    },
+    "F-ClaudeMCP.dc.html": {
+      "expand": "fill",
+      "h": 860,
+      "is_interactive": true,
+      "page": "flows",
+      "title": "v0.3 · Tunnels · What Claude sees (MCP)",
+      "w": 1280,
+      "x": 1360,
+      "y": 1280
+    },
+    "F-MachineMac.dc.html": {
+      "expand": "fill",
+      "h": 860,
+      "is_interactive": true,
+      "page": "flows",
+      "title": "v0.3 · Machine · MacBook Pro",
+      "w": 1280,
+      "x": 1360,
+      "y": 3840
+    },
+    "F-NewScene.dc.html": {
+      "expand": "fill",
+      "h": 860,
+      "is_interactive": true,
+      "page": "flows",
+      "title": "v0.3 · Scenes · New scene",
+      "w": 1280,
+      "x": 0,
+      "y": 2560
+    },
+    "F-Palette.dc.html": {
+      "expand": "fill",
+      "h": 860,
+      "is_interactive": true,
+      "page": "flows",
+      "title": "v0.3 · Palette ⌘K",
+      "w": 1280,
+      "x": 2720,
+      "y": 3840
+    },
+    "F-CrossingTest.dc.html": {
+      "expand": "fill",
+      "h": 860,
+      "is_interactive": true,
+      "page": "flows",
+      "title": "v0.3 · Arrangement · Crossing test",
+      "w": 1280,
+      "x": 1360,
+      "y": 2560
+    },
+    "F-Transactions.dc.html": {
+      "expand": "fill",
+      "h": 860,
+      "is_interactive": true,
+      "page": "flows",
+      "title": "v0.3 · Scene and power in progress",
+      "w": 1280,
+      "x": 2720,
+      "y": 2560
+    },
+    "Today-Setup.dc.html": {
+      "expand": "fill",
+      "h": 800,
+      "page": "today",
+      "title": "Today · Setup (step 3)",
+      "w": 1280,
+      "x": 1360,
+      "y": 0
+    },
+    "Today-Shortcuts.dc.html": {
+      "expand": "fill",
+      "h": 860,
+      "page": "today",
+      "title": "Today · Global shortcuts",
+      "w": 1280,
+      "x": 1360,
+      "y": 1280
+    },
+    "Today-Tray.dc.html": {
+      "h": 520,
+      "page": "today",
+      "title": "Today · Tray / menu bar",
+      "w": 380,
+      "x": 4080,
+      "y": 0
+    },
+    "Today-Pairing.dc.html": {
+      "expand": "fill",
+      "h": 800,
+      "page": "today",
+      "title": "Today · Pair",
+      "w": 1280,
+      "x": 2720,
+      "y": 0
+    },
+    "Today-States.dc.html": {
+      "expand": "fill",
+      "h": 860,
+      "page": "today",
+      "title": "Today · No agent and progress",
+      "w": 1280,
+      "x": 2720,
+      "y": 1280
+    },
+    "Today-Permissions.dc.html": {
+      "expand": "fill",
+      "h": 860,
+      "page": "today",
+      "title": "Today · Permissions",
+      "w": 1280,
+      "x": 0,
+      "y": 1280
+    },
+    "Main.dc.html": {
+      "expand": "fill",
+      "h": 800,
+      "page": "today",
+      "title": "Today · Main scene",
+      "w": 1280,
+      "x": 0,
+      "y": 0
+    },
+    "V3-Arrangement.dc.html": {
+      "expand": "fill",
+      "h": 860,
+      "is_interactive": true,
+      "page": "v03",
+      "title": "v0.3 · Desk arrangement",
+      "w": 1280,
+      "x": 0,
+      "y": 1280
+    },
+    "V3-Setup.dc.html": {
+      "expand": "fill",
+      "h": 860,
+      "page": "flows",
+      "title": "v0.3 · Setup 2 · Your desk",
+      "w": 1280,
+      "x": 1360,
+      "y": 0
+    },
+    "V3-Tray.dc.html": {
+      "h": 600,
+      "page": "v03",
+      "title": "v0.3 · Menu bar",
+      "w": 380,
+      "x": 4080,
+      "y": 1280
+    },
+    "V3-Compute.dc.html": {
+      "expand": "fill",
+      "h": 860,
+      "is_interactive": true,
+      "page": "v03",
+      "title": "v0.3 · Tunnels",
+      "w": 1280,
+      "x": 1360,
+      "y": 0
+    },
+    "V3-States.dc.html": {
+      "expand": "fill",
+      "h": 860,
+      "page": "v03",
+      "title": "v0.3 · Trouble states",
+      "w": 1280,
+      "x": 0,
+      "y": 2560
+    },
+    "V3-Machine.dc.html": {
+      "expand": "fill",
+      "h": 860,
+      "is_interactive": true,
+      "page": "v03",
+      "title": "v0.3 · Machine: modules, environments, resources",
+      "w": 1280,
+      "x": 2720,
+      "y": 0
+    },
+    "V3-Monitors.dc.html": {
+      "expand": "fill",
+      "h": 860,
+      "is_interactive": true,
+      "page": "v03",
+      "title": "v0.3 · Monitors and scenes",
+      "w": 1280,
+      "x": 4080,
+      "y": 0
+    },
+    "V3-Desk.dc.html": {
+      "expand": "fill",
+      "h": 860,
+      "is_interactive": true,
+      "page": "v03",
+      "title": "v0.3 · Desk (home)",
+      "w": 1280,
+      "x": 0,
+      "y": 0
+    },
+    "V3-Network.dc.html": {
+      "expand": "fill",
+      "h": 860,
+      "is_interactive": true,
+      "page": "v03",
+      "title": "v0.3 · Network and links",
+      "w": 1280,
+      "x": 1360,
+      "y": 1280
+    }
+  },
+  "createdOnFiles": {
+    "at": "2026-11-16T20:00:00Z",
+    "v": 1
+  },
+  "designSystems": [],
+  "launch": {
+    "page": "v03",
+    "view": "canvas"
+  },
+  "noteOrder": [
+    "tHoy",
+    "sHoy",
+    "t1",
+    "t2",
+    "t3",
+    "sDec",
+    "sQ",
+    "tHoy2",
+    "f1",
+    "f2",
+    "f3",
+    "f4",
+    "fN"
+  ],
+  "notes": {
+    "f1": {
+      "kind": "title1",
+      "maxW": 8080,
+      "page": "flows",
+      "text": "Step-by-step setup (1 → 6)",
+      "w": 240,
+      "x": 0,
+      "y": -300
+    },
+    "f2": {
+      "kind": "title1",
+      "maxW": 2640,
+      "page": "flows",
+      "text": "Add machine and what Claude sees",
+      "w": 240,
+      "x": 0,
+      "y": 980
+    },
+    "f3": {
+      "kind": "title1",
+      "maxW": 5360,
+      "page": "flows",
+      "text": "Scenes, crossing test, progress and notices",
+      "w": 240,
+      "x": 0,
+      "y": 2260
+    },
+    "f4": {
+      "kind": "title1",
+      "maxW": 4000,
+      "page": "flows",
+      "text": "Settings, MacBook and command palette",
+      "w": 240,
+      "x": 0,
+      "y": 3540
+    },
+    "fN": {
+      "fill": "blue",
+      "page": "flows",
+      "text": "How to view it\n\n• Play button on each screen: buttons and tabs work.\n• Animations respect the system “reduce motion” setting.\n• Desktop only: there is no phone version (decided).",
+      "w": 420,
+      "x": 8160,
+      "y": 0
+    },
+    "sDec": {
+      "fill": "green",
+      "page": "v03",
+      "text": "Decisions these screens reflect\n\n• A desk of N machines (2 today), each by its id and name. No fixed “Mac/PC” in the code: the icon comes from the detected OS.\n• Side navigation: Desk · Tunnels · Monitors · Network · Arrangement, plus one page per machine.\n• Each machine announces modules with a state and a reason (nothing is hidden without explanation).\n• Tunnels: Claude opens a tunnel from one machine to another and does anything inside (commands, processes, files, ports). It survives the link.\n• Monitors with a single standard: one owner per monitor, input confirmed by the firmware and “unsupported” visible.\n• Scenes instead of fixed modes.\n• All configuration from the UI.\n• Keyboard and mouse with no owner: they work from any machine and Tandem follows the one you use.\n• Tunnels are read-only in the UI: Claude manages them over MCP; the app shows them.\n• Buttons: a single system (fixed height, icon always, glow, elevation and focus). Screens at real scale.",
+      "w": 440,
+      "x": 5440,
+      "y": 0
+    },
+    "sHoy": {
+      "fill": "gray",
+      "page": "today",
+      "text": "What is shown today\n\n• Two fixed cards: “Mac” on the left, “PC” on the right.\n• Monitors and modes greyed out (“coming soon”), since T-092.\n• Services (SSH, folders, RTX 5080, files) locked: “requires cable”.\n• 4-step setup designed for exactly two machines.\n\nUnderlying problem: the structure assumes two machines and one OS per side. There is no room for compute, resources or a third machine.",
+      "w": 420,
+      "x": 4540,
+      "y": 0
+    },
+    "sQ": {
+      "fill": "orange",
+      "page": "v03",
+      "text": "Questions for later\n\n1. Trust with N machines: does a new machine join with a single code and the others accept it, or is each pair paired?\n3. Configuration conflicts: does the most recent version win per section, or is the user asked?\n4. Missing modules: are they shown off with their reason (as drawn) or hidden?\n5. Side navigation (proposed) or a single live scene as today, with panels?\n6. Accent per machine: do you pick it or is it assigned automatically?\n8. ⌘K palette: does it also launch jobs written in natural language for Claude, or only Tandem commands?",
+      "w": 440,
+      "x": 5440,
+      "y": 700
+    },
+    "t1": {
+      "kind": "title1",
+      "maxW": 5360,
+      "page": "v03",
+      "text": "v0.3 redesign: main screens",
+      "w": 240,
+      "x": 0,
+      "y": -300
+    },
+    "t2": {
+      "kind": "title1",
+      "maxW": 4460,
+      "page": "v03",
+      "text": "Settings, network, setup and tray",
+      "w": 240,
+      "x": 0,
+      "y": 980
+    },
+    "t3": {
+      "kind": "title1",
+      "maxW": 1280,
+      "page": "v03",
+      "text": "Trouble states",
+      "w": 240,
+      "x": 0,
+      "y": 2260
+    },
+    "tHoy": {
+      "kind": "title1",
+      "maxW": 4460,
+      "page": "today",
+      "text": "The app today (develop, v0.2)",
+      "w": 240,
+      "x": 0,
+      "y": -300
+    },
+    "tHoy2": {
+      "kind": "title1",
+      "maxW": 4000,
+      "page": "today",
+      "text": "Today: the remaining screens",
+      "w": 240,
+      "x": 0,
+      "y": 980
+    }
+  },
+  "order": [
+    "Main.dc.html",
+    "Today-Setup.dc.html",
+    "Today-Pairing.dc.html",
+    "Today-Tray.dc.html",
+    "V3-Desk.dc.html",
+    "V3-Compute.dc.html",
+    "V3-Machine.dc.html",
+    "V3-Monitors.dc.html",
+    "V3-Arrangement.dc.html",
+    "V3-Network.dc.html",
+    "V3-Setup.dc.html",
+    "V3-Tray.dc.html",
+    "V3-States.dc.html",
+    "F-Setup1.dc.html",
+    "F-Setup3.dc.html",
+    "F-Setup4.dc.html",
+    "F-Setup5.dc.html",
+    "F-Setup6.dc.html",
+    "F-AddHost.dc.html",
+    "F-ClaudeMCP.dc.html",
+    "F-NewScene.dc.html",
+    "F-CrossingTest.dc.html",
+    "F-Transactions.dc.html",
+    "F-Notices.dc.html",
+    "F-Settings.dc.html",
+    "F-MachineMac.dc.html",
+    "F-Palette.dc.html",
+    "Today-Permissions.dc.html",
+    "Today-Shortcuts.dc.html",
+    "Today-States.dc.html"
+  ],
+  "pages": [
+    {
+      "id": "today",
+      "name": "Today (develop)"
+    },
+    {
+      "id": "v03",
+      "name": "v0.3 redesign"
+    },
+    {
+      "id": "flows",
+      "name": "v0.3 flows"
+    }
+  ],
+  "title": "Tandem — current UI and v0.3 redesign"
+}

@@ -1,0 +1,618 @@
+/* Setup styles (`F-Setup1`…`F-Setup6`). They are unscoped because the six steps share them;
+   all hang from `.wiz` and their names carry the `wz-` prefix. The animations are
+   turned off by the global `prefers-reduced-motion` rule: none leaves an element invisible
+   (the circle and the mark of step 6 are drawn with the stroke already complete, like the mockup). */
+.wiz .wz-head {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.wiz .wz-head h1 {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 650;
+}
+.wiz .wz-lead {
+  margin: 0;
+  line-height: 1.55;
+  max-width: 560px;
+}
+.wiz .wz-mut {
+  color: #9a9da6;
+}
+.wiz .wz-mono {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+}
+.wiz .wz-fill {
+  flex: 1;
+}
+.wiz .wz-sm {
+  font-size: 12.5px;
+}
+.wiz .wz-xs {
+  font-size: 12px;
+}
+.wiz .wz-sbtn {
+  --btn-h: 36px;
+  --btn-px: 14px;
+  --btn-fs: 13px;
+  --btn-r: 10px;
+  --btn-gap: 9px;
+}
+/* "Install" (`F-Setup1`): 34 tall and the arrow slightly lower, like the mockup. */
+.wiz .wz-inst {
+  --btn-h: 34px;
+  --btn-px: 13px;
+  --btn-gap: 9px;
+}
+.wiz .wz-inst svg {
+  transform: translateY(2px);
+}
+/* "Go to desk" (`F-Setup6`): a bit bigger, enters last and breathes. */
+.wiz .wz-fin {
+  --btn-h: 46px;
+  --btn-px: 22px;
+  --btn-r: 12px;
+  animation:
+    wz-up 0.45s 1.6s both,
+    wz-glow 2.6s 2.2s ease-in-out infinite;
+}
+@keyframes wz-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(122, 167, 230, 0.35);
+  }
+  50% {
+    box-shadow: 0 0 0 7px rgba(122, 167, 230, 0);
+  }
+}
+/* `F-Setup5`: the icon of its buttons moves in 0.3 s (the others, 0.25 s). */
+.wiz .body.arrange .btn svg {
+  transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+/* `F-Setup3` and `F-Setup5`: all their buttons also animate opacity (ACCEPTANCE G7). */
+.wiz .body.tight .btn {
+  transition:
+    transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1),
+    border-color 0.18s,
+    box-shadow 0.18s,
+    opacity 0.3s;
+}
+/* The "Continue" button animates its opacity (`F-Setup3`, `F-Setup5`): .45 while something is missing. */
+.wiz .wz-next {
+  transition:
+    opacity 0.3s,
+    transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1),
+    border-color 0.18s,
+    box-shadow 0.18s;
+}
+.wiz .wz-next.wait {
+  opacity: 0.45;
+}
+@keyframes wz-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes wz-fdi {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes wz-sp {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes wz-pl {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(217, 167, 90, 0.5);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(217, 167, 90, 0);
+  }
+}
+@keyframes wz-pop {
+  from {
+    transform: scale(0.3);
+  }
+  to {
+    transform: scale(1);
+  }
+}
+@keyframes wz-fl {
+  to {
+    stroke-dashoffset: -24;
+  }
+}
+@keyframes wz-popy {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes wz-gl {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(108, 197, 154, 0.6);
+  }
+  50% {
+    box-shadow: 0 0 14px 4px rgba(108, 197, 154, 0.35);
+  }
+}
+@keyframes wz-mvx {
+  0% {
+    left: var(--p0);
+    opacity: 0;
+  }
+  15% {
+    opacity: 1;
+  }
+  70% {
+    left: var(--p1);
+    opacity: 1;
+  }
+  100% {
+    left: var(--p2);
+    opacity: 0;
+  }
+}
+@keyframes wz-mvy {
+  0% {
+    top: var(--p0);
+    opacity: 0;
+  }
+  15% {
+    opacity: 1;
+  }
+  70% {
+    top: var(--p1);
+    opacity: 1;
+  }
+  100% {
+    top: var(--p2);
+    opacity: 0;
+  }
+}
+@keyframes wz-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+/* Step 1 */
+.wiz .wz-sw {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  cursor: pointer;
+  padding: 0;
+  box-sizing: border-box;
+  transition: transform 0.2s;
+}
+.wiz .wz-sw:hover {
+  transform: scale(1.1);
+}
+.wiz .wz-sw:focus-visible {
+  outline: 2px solid #7aa7e6;
+  outline-offset: 2px;
+}
+.wiz .wz-input {
+  font: inherit;
+  font-size: 15px;
+  color: #e8e8eb;
+  background: #111215;
+  border: 1px solid #31343b;
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+.wiz .wz-input:focus-visible {
+  outline: 2px solid #7aa7e6;
+  outline-offset: 1px;
+}
+.wiz .wz-list {
+  border-radius: 14px;
+  background: #15161a;
+  border: 1px solid #25272d;
+  overflow: hidden;
+}
+.wiz .wz-list > .wz-lt {
+  padding: 12px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.wiz .wz-lt i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  transition: background 0.3s;
+}
+.wiz .wz-chk {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 14px;
+  border-top: 1px solid #1f2126;
+  font-size: 13.5px;
+  animation: wz-up 0.45s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.wiz .wz-ok {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #1e3a2e;
+  display: grid;
+  place-items: center;
+  flex: none;
+}
+.wiz .wz-off {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1.5px dashed #6a6d76;
+  box-sizing: border-box;
+  flex: none;
+}
+.wiz .wz-spin {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid #31343b;
+  border-top-color: #7aa7e6;
+  animation: wz-sp 0.8s linear infinite;
+  flex: none;
+  margin: 2px;
+}
+/* Step 2 */
+.wiz .wz-opt {
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  flex: 1 1 240px;
+  min-width: 0;
+  padding: 16px;
+  border-radius: 12px;
+  border: 1px solid #31343b;
+  background: #15161a;
+  color: #e8e8eb;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 44px;
+  transition:
+    border-color 0.25s,
+    background 0.25s,
+    transform 0.2s,
+    box-shadow 0.25s;
+}
+.wiz .wz-opt:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.3);
+}
+.wiz .wz-opt[aria-checked="true"] {
+  border-color: #7aa7e6;
+  background: #16202e;
+}
+.wiz .wz-opt:focus-visible {
+  outline: 2px solid #7aa7e6;
+  outline-offset: 2px;
+}
+.wiz .wz-oi {
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
+  display: grid;
+  place-items: center;
+  background: #1b1c21;
+  border: 1px solid #2a2c33;
+  margin-bottom: 4px;
+  transition: background 0.25s;
+}
+.wiz .wz-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px;
+  border-radius: 14px;
+  background: #15161a;
+  border: 1px solid #25272d;
+  animation: wz-fdi 0.35s ease-out;
+}
+.wiz .wz-pt {
+  font-size: 13px;
+  font-weight: 600;
+}
+.wiz .wz-found {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid;
+}
+.wiz .wz-found.ok {
+  border-color: #2c4a3c !important;
+  background: #121a16 !important;
+}
+.wiz .wz-col {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.wiz .wz-col b {
+  font-weight: 600;
+}
+.wiz .wz-code {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.wiz .wz-dg {
+  width: 46px;
+  height: 58px;
+  border-radius: 10px;
+  background: #111215;
+  border: 1px solid #31343b;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 26px;
+  color: #e8e8eb;
+  text-align: center;
+  box-sizing: border-box;
+  padding: 0;
+}
+.wiz .wz-dg:focus-visible {
+  outline: 2px solid #7aa7e6;
+  outline-offset: 1px;
+}
+.wiz .wz-dg.bad {
+  border-color: #e07a6f;
+}
+.wiz .wz-note {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.wiz .wz-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+/* Step 3 */
+.wiz .wz-perm {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  padding: 16px;
+  border-radius: 12px;
+  border: 1px solid #25272d;
+  background: #15161a;
+  transition:
+    border-color 0.4s,
+    background 0.4s;
+}
+.wiz .wz-perm.granted {
+  border-color: #2c4a3c;
+  background: #121a16;
+}
+.wiz .wz-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  margin-top: 4px;
+  flex: none;
+  transition: background 0.4s;
+  background: #4a4d55;
+}
+.wiz .wz-dot.wait {
+  background: #d9a75a;
+  animation: wz-pl 1.6s ease-in-out infinite;
+}
+.wiz .wz-dot.got {
+  background: #6cc59a;
+  animation: wz-pop 0.4s cubic-bezier(0.2, 1.6, 0.4, 1);
+}
+.wiz .wz-tick {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: #1e3a2e;
+  flex: none;
+  animation: wz-pop 0.4s cubic-bezier(0.2, 1.6, 0.4, 1);
+}
+/* Step 4 */
+.wiz .wz-mc {
+  flex: 1 1 260px;
+  min-width: 0;
+  padding: 20px;
+  border-radius: 16px;
+  border: 1px solid #25272d;
+  background: #15161a;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  animation: wz-up 0.45s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.wiz .wz-dev {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13.5px;
+  animation: wz-up 0.4s ease-out both;
+}
+.wiz .wz-flow {
+  stroke-dasharray: 4 8;
+  animation: wz-fl 0.9s linear infinite;
+}
+/* Step 5 */
+.wiz .wz-canvas {
+  position: relative;
+  height: 290px;
+  border-radius: 14px;
+  border: 1px solid #1f2126;
+  background-color: #0b0c0e;
+  background-image: radial-gradient(#1c1e23 1px, transparent 1px);
+  background-size: 20px 20px;
+  overflow: hidden;
+}
+.wiz .wz-scr {
+  position: absolute;
+  border-radius: 8px;
+  border: 1.5px solid;
+  padding: 10px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: flex-end;
+  font-size: 12.5px;
+}
+.wiz .wz-scr.drag {
+  cursor: grab;
+  touch-action: none;
+}
+.wiz .wz-scr.drag:focus-visible {
+  outline: 2px solid #7aa7e6;
+  outline-offset: 2px;
+}
+.wiz .wz-edge {
+  position: absolute;
+  border-radius: 2px;
+  transition:
+    background 0.4s,
+    box-shadow 0.4s;
+}
+.wiz .wz-edge.glow {
+  animation: wz-gl 1.4s ease-in-out infinite;
+}
+.wiz .wz-cur {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #e8e8eb;
+  box-shadow: 0 0 0 5px rgba(232, 232, 235, 0.14);
+}
+.wiz .wz-cur.go.x {
+  top: 150px;
+  animation: wz-mvx 2.2s cubic-bezier(0.5, 0, 0.3, 1) infinite;
+}
+.wiz .wz-cur.go.y {
+  left: 50%;
+  animation: wz-mvy 2.2s cubic-bezier(0.5, 0, 0.3, 1) infinite;
+}
+.wiz .wz-verdict {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  /* The mockup row keeps the height of its simulation buttons. */
+  min-height: 36px;
+  animation: wz-popy 0.3s ease-out;
+}
+.wiz .wz-banner {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 14px 16px;
+  border-radius: 12px;
+  animation: wz-popy 0.35s ease-out;
+  flex-wrap: wrap;
+}
+.wiz .wz-banner.ok {
+  background: #121a16;
+  border: 1px solid #2c4a3c;
+}
+.wiz .wz-banner.warn {
+  background: #1e1a12;
+  border: 1px solid #5a4a2c;
+  color: #e6c48f;
+}
+/* Step 6 */
+.wiz .wz-ring {
+  stroke-dasharray: 240;
+  stroke-dashoffset: 240;
+  animation: wz-draw 1s cubic-bezier(0.6, 0, 0.2, 1) forwards;
+}
+.wiz .wz-tickd {
+  stroke-dasharray: 60;
+  stroke-dashoffset: 60;
+  animation: wz-draw 0.5s 0.8s ease-out forwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .wiz .wz-ring,
+  .wiz .wz-tickd {
+    stroke-dashoffset: 0;
+  }
+}
+.wiz .wz-sum {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-top: 1px solid #1f2126;
+  font-size: 13.5px;
+  animation: wz-up 0.45s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.wiz .wz-sum.first {
+  border-top: 0;
+}
+.wiz .wz-mcp {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px;
+  border-radius: 12px;
+  border: 1px dashed #31343b;
+  animation: wz-up 0.45s 1.4s both;
+}
+.wiz .wz-copy {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid #2e3138;
+  background: #18191d;
+  color: #9a9da6;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  padding: 0;
+  transition:
+    color 0.2s,
+    border-color 0.2s,
+    transform 0.2s;
+}
+.wiz .wz-copy:hover {
+  color: #e8e8eb;
+  border-color: #41454e;
+  transform: translateY(-1px);
+}
+.wiz .wz-copy:focus-visible {
+  outline: 2px solid #7aa7e6;
+  outline-offset: 2px;
+}
+/* The service row keeps the height of the mockup's one (which carries "Install"). */
+.wiz .wz-chk.service {
+  min-height: 57px;
+  box-sizing: border-box;
+  padding-top: 11px;
+  padding-bottom: 11px;
+}

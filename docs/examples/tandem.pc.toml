@@ -1,0 +1,94 @@
+# tandem.toml of a Windows PC. It lives in %APPDATA%\Tandem\tandem.toml (or wherever
+# `tandemd --config` says). Validate it with `tandemd --check-config <file>`.
+#
+# It does not need to be written by hand: if it does not exist, tandemd generates it at
+# startup with an empty desk (T-082), and everything is configured from the UI (DECISIONS
+# D4). This example shows every option.
+#
+# It is the other half of the desk in tandem.mac.toml: the desk ([machines], [[screens]],
+# [arrangement]) is the same; `machine`, the addresses of the other machine and how to
+# wake it change. Because of the keys, in this example the PC ended up as `b`.
+#
+# The v0.2 format, with `mac`/`pc` sides, still loads: it is translated on its own
+# (examples in docs/examples/v0.2/).
+
+machine = "b"
+
+[network]
+port = 52000
+# Where it listens while pairing (default: port + 1).
+# pairing_port = 52001
+# The other machine on each direct link (DESIGN §6). The home LAN is discovered through mDNS.
+peers = [
+    { kind = "usb4", addr = "10.77.1.1:52000" },
+    { kind = "ethernet", addr = "10.77.2.1:52000" },
+]
+
+[input]
+# Where the keyboard and mouse are at startup (`a` or `b`), until the hub decides.
+keyboard = "a"
+
+# The keyboard and mouse that travel on the USB-C hub, by VID:PID. The keyboard is on the
+# machine where they show up. Without this section the roles do not change by themselves.
+[input.hub]
+keyboard = "046d:c33f"
+mouse = "046d:c539"
+
+# Cmd↔Ctrl between macOS and Windows is already the default (between two identical systems
+# nothing is remapped); to change it, one table per direction with the eight modifiers, for
+# example [input.remap.win_to_mac] control_left = "meta_left", ...
+
+[machines.a]
+os = "macos"
+name = "MacBook Pro"
+color = "#7aa7e6"
+
+[machines.b]
+os = "windows"
+name = "Tower"
+color = "#a99be8"
+
+# The screen arrangement (DESIGN §7): the same as on the other machine.
+[[screens]]
+machine = "b"
+id = "34"
+x = 0
+y = 0
+width = 3440
+height = 1440
+scale = 1.0
+
+[[screens]]
+machine = "b"
+id = "32"
+x = 3440
+y = 0
+width = 3840
+height = 2160
+# Windows at 150 %: the arrangement carries the scale of each screen.
+scale = 1.5
+
+[[screens]]
+machine = "a"
+id = "34"
+x = 0
+y = 0
+width = 3440
+height = 1440
+
+# Which side of B A is on (left, right, up, down) and how they line up (start, center, end).
+# Without this section, A is to the left of B and the whole edge crosses.
+[arrangement]
+a_side = "left"
+align = "center"
+
+# Locks the cursor on the machine where it is (KeyboardEvent.code names, all at the same
+# time). ScrollLock on a PC keyboard reaches macOS as F14 and counts the same.
+[shortcuts]
+lock = ["ScrollLock"]
+
+# Keyboard and mouse: Cmd↔Ctrl between macOS and Windows, and dragging files. Sharing the
+# clipboard is a module of each machine: turn it off with `[modules.<side>] clipboard = false`.
+[prefs]
+cmd_ctrl = true
+drag_files = true

@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Scene and power in progress</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0e0f12}
+.mut{color:#9a9da6}
+.mono{font-family:'JetBrains Mono',ui-monospace,monospace}
+.btn{font:inherit;font-size:13px;padding:8px 14px;border-radius:9px;border:1px solid #31343b;background:#1b1c21;color:#e8e8eb;cursor:pointer;min-height:38px}
+.card{background:#15161a;border:1px solid #25272d;border-radius:14px;padding:18px;display:flex;flex-direction:column;gap:12px;min-width:0}
+.h{margin:0;font-size:14.5px;font-weight:600}
+.s{display:flex;align-items:center;gap:12px;font-size:13.5px;padding:7px 0}
+.i{width:18px;height:18px;border-radius:50%;flex:none;box-sizing:border-box;display:grid;place-items:center}
+.run{border:2px solid #31343b;border-top-color:#d9a75a;animation:sp .8s linear infinite}
+.done{background:#1e3a2e}
+.bad{background:#3a1e1e}
+.todo{border:1.5px solid #31343b}
+.back{border:2px solid #31343b;border-top-color:#9cc0f0;animation:sp .8s linear infinite reverse}
+.wave{position:absolute;left:50%;top:50%;width:40px;height:40px;margin:-20px;border-radius:50%;border:2px solid #d9a75a;animation:wv 1.8s ease-out infinite}
+.wave.b{animation-delay:.6s}.wave.c{animation-delay:1.2s}
+.meter{height:10px;border-radius:5px;background:#24262c;overflow:hidden}
+.meter span{display:block;height:100%;width:0;background:linear-gradient(90deg,#7aa7e6,#a99be8);animation:fl 3s cubic-bezier(.2,.8,.2,1) forwards}
+@keyframes sp{to{transform:rotate(360deg)}}
+@keyframes wv{from{transform:scale(.5);opacity:.9}to{transform:scale(3.4);opacity:0}}
+@keyframes fl{to{width:94%}}
+@keyframes up{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+@keyframes cnt{from{content:"0"}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important}.meter span{width:94%}}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:36px;min-height:0;padding:0 13px;box-sizing:border-box;flex:none;align-self:center;white-space:nowrap;font:inherit;font-size:12.5px;font-weight:500;line-height:1;border-radius:10px;border:1px solid #2e3138;background:linear-gradient(180deg,#1f2025,#18191d);color:#e8e8eb;cursor:pointer;text-decoration:none;box-shadow:inset 0 1px 0 rgba(255,255,255,.05),0 1px 2px rgba(0,0,0,.3);transition:transform .18s cubic-bezier(.2,.8,.2,1),border-color .18s,box-shadow .18s;position:relative;overflow:hidden}
+.btn svg{width:15px;height:15px;flex:none;transition:transform .3s cubic-bezier(.2,.8,.2,1)}
+.btn:hover{border-color:#41454e;transform:translateY(-1px);box-shadow:inset 0 1px 0 rgba(255,255,255,.06),0 6px 16px rgba(0,0,0,.35)}
+.btn:hover svg{transform:scale(1.14)}
+.btn:hover svg.rf{transform:rotate(-180deg)}
+.btn:active{transform:scale(.97)}
+.btn:focus-visible{outline:2px solid #7aa7e6;outline-offset:2px}
+.btn.sim{border-style:dashed}
+.btn.danger{color:#f0b1aa;border-color:#5a3532;background:linear-gradient(180deg,#24191a,#1c1516)}
+.card{animation:up .45s cubic-bezier(.2,.8,.2,1) both;transition:transform .25s,border-color .25s}
+.card:hover{transform:translateY(-2px);border-color:#3a3d45}
+.s{animation:up .35s ease-out both}
+</style>
+</helmet>
+<div style="width:100%;min-height:860px;box-sizing:border-box;padding:28px 32px;display:flex;flex-direction:column;gap:16px;font-family:'Inter',system-ui,sans-serif;color:#e8e8eb;font-size:14px;background:#0e0f12">
+  <div style="display:flex;flex-direction:column;gap:4px"><h1 style="margin:0;font-size:20px;font-weight:650">Changes in progress</h1><span class="mut" style="font-size:12.5px">Everything that touches another machine is a transaction: visible steps, a time limit and rollback if something fails.</span></div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:14px">
+
+    <section class="card" aria-live="polite">
+      <div style="display:flex;align-items:center;gap:8px"><h2 class="h">Applying the scene “Game”</h2><span style="flex:1"></span><span class="mono mut" style="font-size:12px">{{elapsed}}</span></div>
+      <sc-for list="{{steps}}" as="s" hint-placeholder-count="4">
+        <div class="s" style="{{s.rowStyle}}"><span class="{{s.icon}}"></span><span>{{s.t}}</span><span style="flex:1"></span><span class="mut" style="font-size:12px">{{s.d}}</span></div>
+      </sc-for>
+      <p style="margin:0;font-size:13px;{{msgStyle}}">{{msg}}</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" class="btn sim" onClick="{{ok}}"><svg viewBox="0 0 24 24" fill="none" stroke="#6cc59a" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="m5 12 5 5L20 7"></path></svg>Simulate success</button><button type="button" class="btn sim" onClick="{{fail}}"><svg viewBox="0 0 24 24" fill="none" stroke="#e07a6f" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"></path></svg>Simulate failure</button><button type="button" class="btn sim" onClick="{{reset}}" aria-label="Restart" title="Restart"><svg class="rf" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M20 11a8 8 0 0 0-14.9-3M4 13a8 8 0 0 0 14.9 3"></path><path d="M20 4v4h-4M4 20v-4h4"></path></svg></button></div>
+    </section>
+
+    <section class="card">
+      <h2 class="h">Powering on PC-Desktop</h2>
+      <div style="position:relative;height:150px;display:grid;place-items:center">
+        <span class="wave"></span><span class="wave b"></span><span class="wave c"></span>
+        <span style="width:54px;height:54px;border-radius:50%;background:#1b1c21;border:1px solid #5a4a2c;display:grid;place-items:center;position:relative"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#d9a75a" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 3v8"></path><path d="M6.3 6.8a8 8 0 1 0 11.4 0"></path></svg></span>
+      </div>
+      <div class="s"><span class="i done"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#6cc59a" stroke-width="3" aria-hidden="true"><path d="m4 12 5 5L20 6"></path></svg></span>Wake-on-LAN sent from MacBook Pro<span style="flex:1"></span><span class="mut" style="font-size:12px">every 5 s</span></div>
+      <div class="s"><span class="i run"></span>Waiting for its agent to answer<span style="flex:1"></span><span class="mono mut" style="font-size:12px">0:18 / 2:00</span></div>
+      <div class="s mut"><span class="i todo"></span>Add it back to the desk</div>
+      <div style="display:flex;gap:8px"><button type="button" class="btn danger"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"></rect></svg>Stop waiting</button></div>
+    </section>
+
+    <section class="card">
+      <h2 class="h">Measuring the USB-C link</h2>
+      <span class="mut" style="font-size:12.5px">3 s test over the data path. It does not slow the keyboard or mouse.</span>
+      <div style="display:flex;align-items:baseline;gap:8px;padding:12px 0"><b class="mono" style="font-size:40px;font-weight:500;animation:up .5s ease-out">9.4</b><span style="font-size:16px">Gbps</span><span style="flex:1"></span><span class="mono mut" style="font-size:12.5px">0.3 ms</span></div>
+      <div class="meter" role="img" aria-label="9.4 of 10 Gbps"><span></span></div>
+      <div style="display:flex;justify-content:space-between" class="mono mut"><span style="font-size:11px">0</span><span style="font-size:11px">USB4 20 Gbps link</span></div>
+      <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;font-size:12.5px;padding-top:6px">
+        <span class="mut">Ethernet</span><span class="mono">no cable</span>
+        <span class="mut">Wi-Fi</span><span class="mono">410 Mbps · 3.8 ms</span>
+      </div>
+    </section>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":860}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { s: 'run' }; }
+  renderVals() {
+    const s = this.state.s;
+    const ok = (d) => ({ icon: 'i done', d });
+    const check = '';
+    let steps, msg, msgStyle, elapsed;
+    if (s === 'run') {
+      steps = [{ t: 'Save the current state', ...ok('done') }, { t: '34" → PC-Desktop (DP)', icon: 'i run', d: 'waiting for the monitor' }, { t: 'Mouse: take the 34" off the MacBook', icon: 'i todo', d: '' }];
+      msg = 'The monitor confirms each change; nothing is guessed.'; msgStyle = 'color:#9a9da6'; elapsed = '1.2 s';
+    } else if (s === 'ok') {
+      steps = [{ t: 'Save the current state', ...ok('done') }, { t: '34" → PC-Desktop (DP)', ...ok('confirmed · 1.8 s') },{ t: 'Mouse: take the 34" off the MacBook', ...ok('done') }];
+      msg = 'Scene “Game” active.'; msgStyle = 'color:#9fd8b9'; elapsed = '2.3 s';
+    } else {
+      steps = [{ t: 'Save the current state', ...ok('done') }, { t: '34" → PC-Desktop (DP)', icon: 'i bad', d: 'the monitor said: change failed', rowStyle: 'color:#f0b1aa' }, { t: 'Rolling back to the previous state', icon: 'i back', d: '34" → MacBook Pro' }];
+      msg = 'There was no DisplayPort signal. Everything goes back to how it was; nothing was left half done.'; msgStyle = 'color:#e6c48f'; elapsed = '3.0 s';
+    }
+    return {
+      steps: steps.map((x) => ({ rowStyle: '', ...x })), msg, msgStyle, elapsed,
+      ok: () => this.setState({ s: 'ok' }), fail: () => this.setState({ s: 'fail' }), reset: () => this.setState({ s: 'run' })
+    };
+  }
+}
+</script>
+</body>
+</html>

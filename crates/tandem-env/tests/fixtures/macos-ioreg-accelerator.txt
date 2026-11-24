@@ -1,0 +1,12 @@
++-o AGXAcceleratorG16X  <class AGXAcceleratorG16X, id 0x100000a1c, registered, matched, active, busy 0 (0 ms), retain 47>
+    {
+      "IOGLBundleName" = "AppleMetalOpenGLRenderer"
+      "IOClass" = "AGXAcceleratorG16X"
+      "CFBundleIdentifier" = "com.apple.AGXG16X"
+      "IOProviderClass" = "AppleARMIODevice"
+      "model" = "Apple M4 Pro"
+      "PerformanceStatistics" = {"In use system memory (driver)"=0,"Alloc system memory"=1588477952,"Tiler Utilization %"=4,"recoveryCount"=0,"lastRecoveryTime"=0,"Renderer Utilization %"=5,"TiledSceneBytes"=1048576,"SplitSceneCount"=0,"Allocated PB Size"=1179648,"In use system memory"=1203765248,"Device Utilization %"=6}
+      "gpu-core-count" = 20
+      "IOMatchCategory" = "IOAccelerator"
+    }
+

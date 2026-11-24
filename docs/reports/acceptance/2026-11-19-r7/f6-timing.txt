@@ -1,0 +1,13 @@
+# Round 7, F6 re-timing on develop 22674c3 (T-310). Three fresh macOS+Windows pairs, each:
+# setup.sh -> px.mjs (USB4 127.0.0.2, Ethernet 127.0.0.3, Wi-Fi 127.0.0.4) -> netcfg.mjs -> t3.mjs
+# -> f6a.mjs, f6b.mjs (official F6) -> f6fail.mjs <tag> 25 (cut at a random phase, agent snapshot polled every 20 ms).
+# (The raw results.jsonl was lost when the machine rebooted mid-round; these lines are the console output.)
+
+r7a f6b: cutting the primary path: input moves to the next one in < 1 s — 521 ms; Network: "switched to Ethernet in 0.6 s"; primary takes input back; Measure bandwidth 41.2 MB/s (USB4), 42.5 MB/s (Ethernet)
+r7a f6fail 25: 614, 520, 440, 518, 562, 560, 563, 578, 509, 575, 554, 499, 454, 541, 521, 609, 605, 610, 521, 599, 497, 531, 464, 530, 446; >= 1 s: 0/25; max 614
+r7b f6b: 486 ms; Network: "switched to Ethernet in 0.6 s"; primary takes input back
+r7b f6fail 25: 610, 492, 468, 510, 487, 597, 601, 533, 553, 598, 461, 541, 510, 598, 530, 574, 442, 553, 574, 505, 552, 551, 559, 512, 512; >= 1 s: 0/25; max 610
+r7c f6b: 541 ms; Network: "switched to Ethernet in 0.6 s"; primary takes input back
+r7c f6fail 25: 452, 426, 577, 538, 424, 486, 565, 530, 527, 449, 553, 579, 600, 482, 487, 465, 420, 572, 378, 573, 598, 489, 575, 425, 461; >= 1 s: 0/25; max 600
+
+Total: 78 timed cuts (3 f6b + 75 f6fail), 0 at 1 s or more, range 378-614 ms (round 6: 8 of 43 over 1 s, worst 1271 ms).

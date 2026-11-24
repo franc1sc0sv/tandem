@@ -1,0 +1,24 @@
+[package]
+name = "tandem-workspace"
+description = "Per-tunnel workspaces: the repo travels as a bundle plus a patch and comes back as a branch"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+getrandom.workspace = true
+tandem-files = { path = "../tandem-files" }
+tandem-proto = { path = "../tandem-proto" }
+tandem-tunnel = { path = "../tandem-tunnel" }
+thiserror.workspace = true
+tokio = { workspace = true, features = ["rt", "sync", "time"] }
+tracing.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+tandem-core = { path = "../tandem-core" }
+tempfile.workspace = true
+tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread", "sync", "time"] }
+
+[lints]
+workspace = true

@@ -1,0 +1,86 @@
+<script lang="ts">
+  // Step 4 (`F-Setup4`): keyboard and mouse with no owner. Each machine lists what it has and marks
+  // "Activity detected" when it receives a key or a movement: the agent hears it (each
+  // machine on its own) and, on this one, the window too.
+  import { onDestroy, onMount } from "svelte";
+  import { useStore } from "../../lib/context";
+  import { NO_ACTIVITY, deviceRows, heard, type Activity } from "../../lib/wizard";
+  import type { Machine } from "../../lib/model";
+
+  const store = useStore();
+  const desk = $derived(store.desk);
+  const ids: Machine[] = $derived(desk.here === "a" ? ["a", "b"] : ["b", "a"]);
+  let activity: Activity = $state({ ...NO_ACTIVITY });
+  let stop: (() => void) | null = null;
+  let gone = false;
+  // A key that arrives before the probe is armed is reported when it is armed: the agent would ignore it before.
+  let armed = false;
+  let pending = false;
+
+  onMount(() => {
+    store.watchKeyProbe((m) => (activity = heard(activity, m))).then(
+      (off) => {
+        if (gone) return off();
+        stop = off;
+        armed = true;
+        if (pending) void store.reportHeardKey();
+      },
+      () => {
+        // Without an agent probe: the activity this window sees remains.
+      },
+    );
+  });
+  onDestroy(() => {
+    gone = true;
+    stop?.();
+  });
+
+  // The window's first activity is reported to the agent: that is how the other machine sees it.
+  const here = () => {
+    if (!activity[desk.here]) {
+      if (armed) void store.reportHeardKey();
+      else pending = true;
+    }
+    activity = heard(activity, desk.here);
+  };
+  // The browser also emits a `pointermove` without displacement when the layout changes under a
+  // still pointer: that is not activity.
+  const moved = (e: PointerEvent) => {
+    if (e.movementX !== 0 || e.movementY !== 0) here();
+  };
+</script>
+
+<svelte:window onkeydown={here} onpointermove={moved} />
+
+<div class="wz-head">
+  <span class="wz-mut wz-sm">Step 4 of 6</span>
+  <h1>Keyboard and mouse</h1>
+  <p class="wz-mut wz-lead" style="max-width:600px">Use the keyboard and mouse of any machine. Tandem follows the one you are using.</p>
+</div>
+<div style="display:flex;gap:16px;flex-wrap:wrap;align-items:stretch">
+  {#each ids as id, n (id)}
+    {@const m = desk.machines[id]}
+    {@const devs = deviceRows(m)}
+    {#if n === 1}
+      <svg width="70" height="40" viewBox="0 0 70 40" aria-hidden="true" style="align-self:center;flex:none"
+        ><path class="wz-flow" d="M2 14h66" stroke={desk.machines[ids[0]]?.color ?? "#7aa7e6"} stroke-width="2" fill="none"></path><path class="wz-flow" d="M68 26H2" stroke={m?.color ?? "#a99be8"} stroke-width="2" fill="none"></path></svg
+      >
+    {/if}
+    <div class="wz-mc" style="animation-delay:{n === 0 ? 0 : 0.1}s" role="group" aria-label={m?.name ?? "Machine"}>
+      <span style="display:flex;align-items:center;gap:8px;font-weight:600"><span style="width:8px;height:8px;border-radius:50%;background:{m?.color ?? '#9a9da6'}"></span>{m?.name ?? "Other machine"}</span>
+      {#each devs as d, i (d.name)}
+        <div class="wz-dev" style="animation-delay:{((n === 0 ? 0.2 : 0.8) + 0.2 * i).toFixed(1)}s">
+          <span class="wz-ok"
+            ><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#6cc59a" stroke-width="3" aria-hidden="true"><path d="m4 12 5 5L20 6"></path></svg></span
+          >{d.via ? `${d.name} ` : d.name}{#if d.via}<span class="wz-mut wz-xs">{d.via}</span>{/if}
+        </div>
+      {:else}
+        <div class="wz-dev" style="animation-delay:0.8s"><span class="wz-off"></span><span class="wz-mut">No keyboard or mouse right now</span></div>
+        <p class="wz-mut wz-note" style="animation:wz-up 0.4s 1s both">If you plug the hub in here, it detects it on its own.</p>
+      {/each}
+      {#if activity[id]}
+        <div class="wz-dev" style="color:#9fd8b9"><span class="wz-ok"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#6cc59a" stroke-width="3" aria-hidden="true"><path d="m4 12 5 5L20 6"></path></svg></span>Activity detected</div>
+      {/if}
+    </div>
+  {/each}
+</div>
