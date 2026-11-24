@@ -550,7 +550,7 @@
     "mockup": "V3-Monitors",
     "screen": {
       "name": "screen",
-      "similarity": 1,
+      "similarity": 0.9999,
       "worstTile": 0.9893,
       "min": {
         "similarity": 0.99,
@@ -572,7 +572,7 @@
     "mockup": "V3-Monitors--input-mac",
     "screen": {
       "name": "screen",
-      "similarity": 1,
+      "similarity": 0.9999,
       "worstTile": 0.9893,
       "min": {
         "similarity": 0.99,
