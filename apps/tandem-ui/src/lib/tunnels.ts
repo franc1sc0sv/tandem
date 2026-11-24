@@ -3,7 +3,7 @@
 // Read-only (D9): nothing here stops or opens tunnels.
 
 import type { Machine } from "./model";
-import type { OutputChunk, OutputCursor, ProcessRow, TunnelView } from "./store/types";
+import type { LiveChunk, OutputChunk, OutputCursor, ProcessRow, TunnelView } from "./store/types";
 
 // ---------------------------------------------------------------------------------------
 // What arrives from the app core (`ProjectItem[]`, `OutputItem`, `TransferItem`).
@@ -39,6 +39,20 @@ export interface OutputWire {
   stderr: string;
   next_stdout: number;
   next_stderr: number;
+  done: boolean;
+}
+
+/** New output of the watched process (`tandem_ui::tunnels::LiveOutputItem`). */
+export interface LiveOutputWire {
+  tunnel: string;
+  process: ProcessWire;
+  pty: boolean;
+  from_stdout: number;
+  from_stderr: number;
+  next_stdout: number;
+  next_stderr: number;
+  /** Raw bytes (stdout then stderr), base64. */
+  data: string;
   done: boolean;
 }
 
@@ -260,6 +274,10 @@ export function pickProcess(rows: ProcessRow[], wanted: number | null): ProcessR
 /** Those that are running, in the order they were launched (that of their ids: stable between queries). */
 export const runningOf = (rows: ProcessRow[]): ProcessRow[] => rows.filter((p) => p.state === "running").sort((a, b) => a.id - b.id);
 
+/** The running ones plus the chosen one if it already ended: its last output stays on screen. */
+export const listedOf = (rows: ProcessRow[], chosen: number | null): ProcessRow[] =>
+  rows.filter((p) => p.state === "running" || p.id === chosen).sort((a, b) => a.id - b.id);
+
 // ---------------------------------------------------------------------------------------
 // Live output.
 
@@ -286,4 +304,35 @@ export function machineLine(m: { id: Machine; power: string; detail: string }, t
   if (m.power !== "on") return "off";
   const busy = tunnels.filter((t) => t.to === m.id && t.state === "busy").length;
   return busy > 0 ? countTunnels(busy) : m.detail;
+}
+
+// ---------------------------------------------------------------------------------------
+// Pushed output (the terminal view).
+
+/** Base64 to bytes, without going through a string per character. */
+export function decodeBase64(b64: string): Uint8Array {
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+export function liveChunk(o: LiveOutputWire): LiveChunk {
+  return {
+    bytes: decodeBase64(o.data),
+    from: { stdout: o.from_stdout, stderr: o.from_stderr },
+    next: { stdout: o.next_stdout, stderr: o.next_stderr },
+    done: o.done,
+    pty: o.pty,
+  };
+}
+
+/**
+ * Whether a pushed piece goes after what the view already has. The agent pushes exactly the
+ * continuation of the cursor, so this only drops a stale piece: one from a previous watch that
+ * arrives after the view restarted it (its end is not past the cursor). A piece that starts later
+ * (output discarded on the other machine while nobody read it) is still shown.
+ */
+export function continues(at: OutputCursor, c: LiveChunk): boolean {
+  return c.next.stdout + c.next.stderr > at.stdout + at.stderr && c.from.stdout >= at.stdout && c.from.stderr >= at.stderr;
 }

@@ -2,7 +2,7 @@
 
 import type { Action, ActionResult, AdminView, Bindings, Machine, Notice, Permission, ResourceSample, SetupView, ShortcutsView, Snapshot } from "./model";
 import type { NetworkWire } from "./network";
-import type { ProjectWire, TransferWire } from "./tunnels";
+import type { LiveOutputWire, ProjectWire, TransferWire } from "./tunnels";
 import type { UpdateView } from "./updates";
 
 export interface Bridge {
@@ -19,6 +19,8 @@ export interface Bridge {
   onTunnels(cb: (t: ProjectWire[]) => void): Promise<void>;
   /** Progress of the tunnels' file copies (T-106). */
   onTransfer(cb: (t: TransferWire) => void): Promise<void>;
+  /** New output of the watched process (only after `watch_output`). */
+  onOutput?(cb: (o: LiveOutputWire) => void): Promise<void>;
   /** What happened with a request made from outside the window (global shortcut, tray menu). */
   onMessage(cb: (text: string) => void): Promise<void>;
   shortcuts(): Promise<ShortcutsView>;
@@ -64,6 +66,7 @@ const RESOURCES_EVENT = "agent-resources";
 const NETWORK_EVENT = "agent-network";
 const TUNNELS_EVENT = "agent-tunnels";
 const TRANSFER_EVENT = "agent-transfer";
+const OUTPUT_EVENT = "agent-output";
 const MESSAGE_EVENT = "ui-message";
 const SHORTCUTS_EVENT = "ui-shortcuts";
 const UPDATE_EVENT = "ui-update";
@@ -92,6 +95,9 @@ export async function tauriBridge(): Promise<Bridge> {
     },
     onTransfer: async (cb) => {
       await listen<TransferWire>(TRANSFER_EVENT, (e) => cb(e.payload));
+    },
+    onOutput: async (cb) => {
+      await listen<LiveOutputWire>(OUTPUT_EVENT, (e) => cb(e.payload));
     },
     onMessage: async (cb) => {
       await listen<string>(MESSAGE_EVENT, (e) => cb(e.payload));

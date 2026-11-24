@@ -16,8 +16,8 @@ import { gbpsOf, measuredText, networkFromWire, primaryOf } from "../network";
 import { deskScreens, monitorsUi } from "../monitors";
 import { sceneView } from "../scenes";
 import { grantTo, permissionState } from "../permissions";
-import type { ActResult, Capability, CursorEvent, DeskChange, DeskView, FilesView, EnvView, HardwareView, LinkKind, LiveView, MachineView, ModuleView, NetworkView, OutputChunk, OutputCursor, PairActionKind, PermissionsView, PrefsView, ProcessRow, Source, Topic, TransferView, TunnelView } from "./types";
-import { addTransfer, newMemory, outputChunk, processRow, tunnelsFromWire, type Memory, type ProjectWire } from "../tunnels";
+import type { ActResult, Capability, CursorEvent, DeskChange, DeskView, FilesView, EnvView, HardwareView, LinkKind, LiveChunk, LiveView, MachineView, ModuleView, NetworkView, OutputChunk, OutputCursor, PairActionKind, PermissionsView, PrefsView, ProcessRow, Source, Topic, TransferView, TunnelView } from "./types";
+import { addTransfer, liveChunk, newMemory, outputChunk, processRow, tunnelsFromWire, type LiveOutputWire, type Memory, type ProjectWire } from "../tunnels";
 import type { UpdateView } from "../updates";
 import { EMPTY_NETWORK } from "./types";
 
@@ -666,6 +666,35 @@ export class LiveSource implements Source {
     const r = await this.bridge.act({ kind: "processes", tunnel });
     if (r.kind === "processes") return r.processes.map(processRow);
     throw new Error(r.kind === "rejected" || r.kind === "unavailable" ? r.reason : "the agent did not answer with processes");
+  }
+
+  /** Only a core that forwards the output event can push it. */
+  get pushesOutput(): boolean {
+    return this.bridge.onOutput !== undefined;
+  }
+
+  /** The single listener of the output event, and who receives it now (one watch per window). */
+  private outputBound: Promise<void> | null = null;
+  private outputListener: ((o: LiveOutputWire) => void) | null = null;
+
+  async watchOutput(tunnel: string, process: number, from: OutputCursor, onChunk: (c: LiveChunk) => void): Promise<() => void> {
+    this.outputBound ??= Promise.resolve(this.bridge.onOutput?.((o) => this.outputListener?.(o)));
+    await this.outputBound;
+    const mine = (o: LiveOutputWire) => {
+      if (o.tunnel === tunnel && o.process.id === process) onChunk(liveChunk(o));
+    };
+    this.outputListener = mine;
+    const r = await this.bridge.act({ kind: "watch_output", tunnel, process, stdout: from.stdout, stderr: from.stderr });
+    if (r.kind !== "done") {
+      if (this.outputListener === mine) this.outputListener = null;
+      throw new Error(r.kind === "rejected" || r.kind === "unavailable" ? r.reason : "the agent did not accept the watch");
+    }
+    return () => {
+      // Another view may have taken over in the meantime: only the current one stops it.
+      if (this.outputListener !== mine) return;
+      this.outputListener = null;
+      void Promise.resolve(this.bridge.act({ kind: "stop_output" })).catch(() => {});
+    };
   }
 
   async output(tunnel: string, process: number, from: OutputCursor): Promise<OutputChunk> {

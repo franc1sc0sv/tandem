@@ -11,7 +11,7 @@ import { dragNotice } from "../drag";
 import { HOME, SCREEN_TOPICS, formatHash, parseHash, sameRoute, type Route } from "../routes";
 import { EMPTY_DESK, deskFromError } from "./live";
 import { changeToast, demoNotices, deskEvents, monitorNotices, transferToast, type LinkMemo, type ToastSpec, type ToastTone } from "../notices";
-import type { ActResult, Capability, CursorEvent, DeskView, FilesView, LinkKind, OutputChunk, OutputCursor, PairActionKind, ProcessRow, Source, Topic } from "./types";
+import type { ActResult, Capability, CursorEvent, DeskView, FilesView, LinkKind, LiveChunk, OutputChunk, OutputCursor, PairActionKind, ProcessRow, Source, Topic } from "./types";
 import { updatedResult, type UpdateView } from "../updates";
 import type { Arrangement } from "../arrangement";
 import type { CrossSample } from "../crossing";
@@ -205,6 +205,17 @@ export class Store implements CommandContext {
   /** The output of a process from a cursor. */
   output(tunnel: string, process: number, from: OutputCursor): Promise<OutputChunk> {
     return this.source.output(tunnel, process, from);
+  }
+
+  /** Whether the source pushes output (otherwise it is asked for with `output`). */
+  get pushesOutput(): boolean {
+    return this.source.watchOutput !== undefined && (this.source.pushesOutput ?? true);
+  }
+
+  /** A process's output pushed as it arrives, until the returned function is called. */
+  watchOutput(tunnel: string, process: number, from: OutputCursor, onChunk: (c: LiveChunk) => void): Promise<() => void> {
+    if (!this.source.watchOutput) return Promise.reject(new Error("this source does not push output"));
+    return this.source.watchOutput(tunnel, process, from, onChunk);
   }
 
   private nowMs(): number {

@@ -249,6 +249,17 @@ export interface OutputCursor {
   stderr: number;
 }
 
+/** A piece of pushed output: raw bytes that continue exactly where `from` says. */
+export interface LiveChunk {
+  bytes: Uint8Array;
+  from: OutputCursor;
+  next: OutputCursor;
+  /** The process ended and this was the last piece. */
+  done: boolean;
+  /** It runs in a terminal: the bytes carry escape sequences and their own line ends. */
+  pty: boolean;
+}
+
 /** What a process's output adds from a cursor. */
 export interface OutputChunk {
   text: string;
@@ -519,6 +530,13 @@ export interface Source {
   processes(tunnel: string): Promise<ProcessRow[]>;
   /** The output of a process from `from` (T-104). */
   output(tunnel: string, process: number, from: OutputCursor): Promise<OutputChunk>;
+  /**
+   * The output of a process pushed as it arrives, from `from`, until the returned function is
+   * called. Without it the screen falls back to asking with `output`.
+   */
+  watchOutput?(tunnel: string, process: number, from: OutputCursor, onChunk: (c: LiveChunk) => void): Promise<() => void>;
+  /** Whether `watchOutput` works with this source right now (by default, if it exists). */
+  readonly pushesOutput?: boolean;
   /** What this source can do today (the real agent has no scenes or modules yet). */
   can(what: Capability): boolean;
   stop(): void;

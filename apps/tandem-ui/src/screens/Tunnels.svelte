@@ -6,8 +6,9 @@
   import { DEFAULT_COLOR } from "../lib/machines";
   import type { Machine } from "../lib/model";
   import type { ProcessRow, TunnelView } from "../lib/store/types";
-  import { EMPTY_OUTPUT, appendOutput, bytesLabel, elapsed, emptyLabel, groupByProject, latencyLabel, pickProcess, pickTunnel, processesLabel, ratio, runningOf, shortLabels, statusText, summary, tubeSpeed, type Output } from "../lib/tunnels";
+  import { bytesLabel, elapsed, emptyLabel, groupByProject, latencyLabel, listedOf, pickProcess, pickTunnel, processesLabel, ratio, shortLabels, statusText, summary, tubeSpeed } from "../lib/tunnels";
   import Card from "../ui/Card.svelte";
+  import TerminalView from "./TerminalView.svelte";
 
   const store = useStore();
   const desk = $derived(store.desk);
@@ -24,11 +25,17 @@
   let chosen: Record<string, number> = $state({});
   let now = $state(store.now());
 
+  // What the effects below depend on: plain values, which only change when the selection does.
+  // `sel` itself is a new object with every desk update (state, link, resources...): effects
+  // that read it re-ran on each one, emptied the list and the output and fetched them again from
+  // zero, which is what made the view flicker.
+  const selId = $derived(sel?.id ?? null);
+  const selOpen = $derived(sel !== null && sel.state !== "closed");
+
   let rows: ProcessRow[] = $state([]);
-  const running = $derived(runningOf(rows));
+  const running = $derived(listedOf(rows, selId === null ? null : (chosen[selId] ?? null)));
   const proc = $derived(sel ? pickProcess(running, chosen[sel.id] ?? null) : null);
-  let output: Output = $state(EMPTY_OUTPUT);
-  let body: HTMLElement | undefined = $state();
+  const procId = $derived(proc?.id ?? null);
 
   const machine = (id: Machine) => desk.machines[id];
   const color = (id: Machine) => machine(id)?.color ?? DEFAULT_COLOR[id];
@@ -57,10 +64,10 @@
 
   // The process list of the chosen tunnel, on choosing it and every second and a half.
   $effect(() => {
-    const id = sel?.id;
-    const state = sel?.state;
+    const id = selId;
+    const open = selOpen;
     rows = [];
-    if (!id || state === "closed") return;
+    if (!id || !open) return;
     let alive = true;
     const load = async () => {
       try {
@@ -78,37 +85,6 @@
     };
   });
 
-  // The output of the chosen process from the start, and then the new part every second.
-  $effect(() => {
-    const id = sel?.id;
-    const pid = proc?.id;
-    output = EMPTY_OUTPUT;
-    if (!id || pid === undefined) return;
-    let alive = true;
-    let cursor = EMPTY_OUTPUT.cursor;
-    const pull = async () => {
-      try {
-        const chunk = await store.output(id, pid, cursor);
-        if (!alive) return;
-        cursor = chunk.next;
-        if (chunk.text !== "") output = appendOutput(output, chunk);
-      } catch {
-        // Same as the list: it is retried on the next cycle.
-      }
-    };
-    void pull();
-    const t = setInterval(pull, 1000);
-    return () => {
-      alive = false;
-      clearInterval(t);
-    };
-  });
-
-  // If the viewer was at the end, the new output follows.
-  $effect(() => {
-    void output.text;
-    if (body && body.scrollHeight - body.scrollTop - body.clientHeight < 40) body.scrollTop = body.scrollHeight;
-  });
 
   const pick = (t: TunnelView) => (wanted = t.id);
   const toggle = (name: string) => (folded = { ...folded, [name]: !folded[name] });
@@ -216,14 +192,16 @@
           <div class="pwrap">
             {#if running.length > 0 && proc}
               <div class="plist" role="listbox" aria-label="Running processes">
-                <div class="plh"><span class="spin" style="width:9px;height:9px"></span>{processesLabel(running.length)}</div>
+                <div class="plh"><span class="spin" style="width:9px;height:9px"></span>{processesLabel(running.filter((p) => p.state === "running").length)}</div>
                 {#each running as q, i (q.id)}
                   <button type="button" role="option" class="prow" aria-selected={q.id === proc.id} onclick={() => (chosen[sel.id] = q.id)} style="animation-delay:{i * 0.04}s"><span class="spin"></span><span class="mono pc">{q.command}</span><span class="mono mut since">{elapsed(now - q.startedAt)}</span></button>
                 {/each}
               </div>
               <div class="pout">
                 <div class="poh"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9a9da6" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="m5 8 4 4-4 4M12 16h7"></path></svg><span class="mono cmd">{proc.command}</span><span class="mono mut since">{proc.pid === null ? "" : `pid ${proc.pid} · `}{elapsed(now - proc.startedAt)}</span></div>
-                <div class="mono pbody" bind:this={body}>{output.text}<span class="caret"></span></div>
+                {#key `${selId}:${procId}`}
+                  <TerminalView tunnel={sel.id} process={proc.id} />
+                {/key}
               </div>
             {:else}
               <div class="pempty">
@@ -805,25 +783,6 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .pbody {
-    flex: 1;
-    min-height: 0;
-    overflow: auto;
-    padding: 12px 14px;
-    font-size: 12px;
-    line-height: 1.7;
-    color: #c4c6cc;
-    white-space: pre-wrap;
-    background: #0a0b0d;
-  }
-  .caret {
-    display: inline-block;
-    width: 7px;
-    height: 14px;
-    background: #c4c6cc;
-    vertical-align: -2px;
-    animation: tu-bl 1s steps(1) infinite;
-  }
   .pempty {
     grid-column: 1 / -1;
     display: flex;
@@ -908,11 +867,6 @@
     }
     50% {
       box-shadow: 0 0 0 5px rgba(169, 155, 232, 0);
-    }
-  }
-  @keyframes tu-bl {
-    50% {
-      opacity: 0;
     }
   }
 </style>
