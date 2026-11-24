@@ -38,7 +38,8 @@ pub use model::{
     Scale, ScreenSpec, Side, default_color,
 };
 pub use monitor::{
-    CableEnd, DisplayKey, Inputs, MonitorCable, MonitorInput, learn_screens, link_screens,
+    CableEnd, DisplayKey, Inputs, MonitorCable, MonitorInput, is_engine_screen, learn_screens,
+    link_screens, screen_outdated,
 };
 pub use plan::{Abilities, Plan, PlanError, Step};
 pub use scene::{MonitorId, Scene, default_scenes};

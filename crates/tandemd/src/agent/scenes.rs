@@ -304,17 +304,19 @@ impl Agent {
     }
 
     /// This machine's end of each cable gets the screen the monitor is here (T-340), from the
-    /// EDID identity of the monitor (channel or not) and of each screen. An end that already
-    /// names a screen is kept: the user may have declared it. Not with `[[screens]]` declared
+    /// EDID identity of the monitor (channel or not) and of each screen. An engine id that no
+    /// longer matches (the screens were renumbered) is replaced; a name a person gave is kept. Not with `[[screens]]` declared
     /// for this machine: their ids are the user's, not the `screen-N` the engine reads.
     fn learn_screens(&self) {
         let me = self.machine();
         let links = self.monitors.screen_links();
         let pending = |d: &Config| {
             d.screens_of(me).next().is_none()
-                && d.cables
-                    .iter()
-                    .any(|c| c.end(me).screen.is_none() && links.contains_key(&c.monitor))
+                && d.cables.iter().any(|c| {
+                    links
+                        .get(&c.monitor)
+                        .is_some_and(|s| tandem_core::screen_outdated(c, me, s))
+                })
         };
         if links.is_empty() || !pending(&self.desk()) {
             return;
