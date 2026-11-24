@@ -1,11 +1,17 @@
 //! Pausing data when input falls behind (DESIGN §6).
 //!
 //! Pure logic: the input latency samples and the time arrive as arguments.
-//! The p99 is computed over a sliding window; if it exceeds the target for
-//! [`GuardConfig::trip`] in a row, data is paused. It resumes when the p99 has been below a fraction of the target for
-//! [`GuardConfig::hold`] (hysteresis: without it,
-//! resuming would raise latency again and data would go in jerks). Without input
-//! there is nothing to protect: an empty window counts as low latency.
+//! The p99 is computed over a sliding window; if it stays clearly over the target
+//! ([`GuardConfig::trip_percent`]) for [`GuardConfig::trip`] in a row, data is paused.
+//! It resumes when the p99 has been back within [`GuardConfig::resume_percent`] of the
+//! target for [`GuardConfig::hold`], and in any case after [`GuardConfig::max_pause`];
+//! after a pause data runs for at least [`GuardConfig::cooldown`] before another.
+//!
+//! The pause is a short emergency brake, not a state: the input latency it measures runs
+//! from capture to injection, so it also carries what the two systems take, which no
+//! pause of the tunnels can lower. Before the bounds, a cable whose p99 sat at 4.25 ms
+//! against a 4 ms target kept the tunnels stopped for over an hour (2026-11-24). Without
+//! input there is nothing to protect: an empty window counts as low latency.
 
 use std::collections::VecDeque;
 use std::time::Duration;
@@ -23,6 +29,12 @@ pub struct GuardConfig {
     pub hold: Duration,
     /// Below this % of the target the latency is considered to have dropped.
     pub resume_percent: u32,
+    /// Above this % of the target the p99 counts as over it.
+    pub trip_percent: u32,
+    /// The longest a pause lasts.
+    pub max_pause: Duration,
+    /// How long data runs after a pause before another one can start.
+    pub cooldown: Duration,
 }
 
 impl Default for GuardConfig {
@@ -31,7 +43,10 @@ impl Default for GuardConfig {
             window: Duration::from_secs(1),
             trip: Duration::from_secs(2),
             hold: Duration::from_secs(1),
-            resume_percent: 75,
+            resume_percent: 100,
+            trip_percent: 150,
+            max_pause: Duration::from_secs(2),
+            cooldown: Duration::from_secs(10),
         }
     }
 }
@@ -55,6 +70,10 @@ pub struct LatencyGuard {
     since: Option<Instant>,
     /// The p99 of the last evaluation.
     last_p99: Option<Duration>,
+    /// When the current pause started.
+    paused_at: Option<Instant>,
+    /// When the last pause ended: no new one before the cooldown.
+    resumed_at: Option<Instant>,
 }
 
 impl LatencyGuard {
@@ -66,6 +85,8 @@ impl LatencyGuard {
             paused: false,
             since: None,
             last_p99: None,
+            paused_at: None,
+            resumed_at: None,
         }
     }
 
@@ -93,6 +114,8 @@ impl LatencyGuard {
         self.samples.clear();
         self.since = None;
         self.last_p99 = None;
+        self.paused_at = None;
+        self.resumed_at = None;
         std::mem::take(&mut self.paused).then_some(Transition::Resume { p99: None })
     }
 
@@ -137,7 +160,11 @@ impl LatencyGuard {
     pub fn evaluate(&mut self, now: Instant) -> Option<Transition> {
         let p99 = self.p99(now);
         self.last_p99 = p99;
+        let elapsed = |t: Option<Instant>| t.map(|t| now.saturating_duration_since(t));
         if self.paused {
+            if elapsed(self.paused_at).is_some_and(|d| d >= self.config.max_pause) {
+                return Some(self.resume(now, p99));
+            }
             let threshold = self.target * self.config.resume_percent / 100;
             if p99.is_some_and(|p| p > threshold) {
                 self.since = None;
@@ -147,11 +174,14 @@ impl LatencyGuard {
             if now.saturating_duration_since(since) < self.config.hold {
                 return None;
             }
-            self.paused = false;
-            self.since = None;
-            Some(Transition::Resume { p99 })
+            Some(self.resume(now, p99))
         } else {
-            let Some(p99) = p99.filter(|p| *p > self.target) else {
+            if elapsed(self.resumed_at).is_some_and(|d| d < self.config.cooldown) {
+                self.since = None;
+                return None;
+            }
+            let threshold = self.target * self.config.trip_percent / 100;
+            let Some(p99) = p99.filter(|p| *p > threshold) else {
                 self.since = None;
                 return None;
             };
@@ -160,9 +190,18 @@ impl LatencyGuard {
                 return None;
             }
             self.paused = true;
+            self.paused_at = Some(now);
             self.since = None;
             Some(Transition::Pause { p99 })
         }
+    }
+
+    fn resume(&mut self, now: Instant, p99: Option<Duration>) -> Transition {
+        self.paused = false;
+        self.paused_at = None;
+        self.resumed_at = Some(now);
+        self.since = None;
+        Transition::Resume { p99 }
     }
 }
 
@@ -226,21 +265,87 @@ mod tests {
     }
 
     #[test]
-    fn pauses_after_2_s_above_and_resumes_with_hysteresis() {
+    fn pauses_after_2_s_well_above_and_resumes_with_hysteresis() {
         let t0 = Instant::now();
         let mut g = LatencyGuard::new(GuardConfig::default(), TARGET);
         assert!(run(&mut g, t0, 0, 3000, |_| ms(5)).is_empty());
-        // From 3 s the latency is 30 ms. The p99 exceeds the target when the slow ones
-        // are more than 1 % of the window (11 of 1001, at 3010 ms), and 2 s later, pause.
-        let out = run(&mut g, t0, 3000, 6000, |_| ms(30));
-        assert_eq!(out, vec![(5010, Transition::Pause { p99: ms(30) })]);
+        // Over the target but within the margin (30 ms is 150 % of 20): no pause.
+        assert!(run(&mut g, t0, 3000, 8000, |_| ms(30)).is_empty());
+        // From 8 s the latency is 40 ms. The p99 goes over the margin when the slow ones
+        // are more than 1 % of the window (11 of 1001, at 8010 ms), and 2 s later, pause.
+        let out = run(&mut g, t0, 8000, 10_500, |_| ms(40));
+        assert_eq!(out, vec![(10_010, Transition::Pause { p99: ms(40) })]);
         assert!(g.is_paused());
-        // At 18 ms it is below the target but not below 75 %: it stays paused.
-        assert!(run(&mut g, t0, 6000, 9000, |_| ms(18)).is_empty());
-        // At 10 ms: the p99 drops when 10 slow ones remain in the window (at 9990 ms), and
-        // one more second is needed.
-        let out = run(&mut g, t0, 9000, 12000, |_| ms(10));
-        assert_eq!(out, vec![(10990, Transition::Resume { p99: Some(ms(10)) })]);
+        // At 10 ms: the p99 drops when 10 slow ones remain in the window (at 11490 ms), and
+        // one more second is needed, which is past the longest pause: it resumes at 2 s.
+        let out = run(&mut g, t0, 10_500, 13_000, |_| ms(10));
+        assert_eq!(out, vec![(12_010, Transition::Resume { p99: Some(ms(10)) })]);
+    }
+
+    #[test]
+    fn it_resumes_once_back_within_the_target_for_the_hold() {
+        let t0 = Instant::now();
+        let config = GuardConfig {
+            max_pause: Duration::from_secs(60),
+            ..GuardConfig::default()
+        };
+        let mut g = LatencyGuard::new(config, TARGET);
+        let out = run(&mut g, t0, 0, 2100, |_| ms(50));
+        assert_eq!(out, vec![(2000, Transition::Pause { p99: ms(50) })]);
+        // At 25 ms it is still over the target: it stays paused.
+        assert!(run(&mut g, t0, 2100, 6000, |_| ms(25)).is_empty());
+        // At 18 ms it is within the target: the window clears at 6990 ms, plus the hold.
+        let out = run(&mut g, t0, 6000, 9000, |_| ms(18));
+        assert_eq!(out, vec![(7990, Transition::Resume { p99: Some(ms(18)) })]);
+    }
+
+    /// The log of 2026-11-24: a cable link (target 4 ms) whose input p99 sat a fraction of
+    /// a millisecond over the target paused the tunnels for minutes, even for an hour.
+    #[test]
+    fn a_p99_a_fraction_over_the_target_does_not_pause() {
+        let t0 = Instant::now();
+        let mut g = LatencyGuard::new(GuardConfig::default(), ms(4));
+        let out = run(&mut g, t0, 0, 30_000, |_| Duration::from_micros(4_250));
+        assert!(out.is_empty(), "{out:?}");
+        assert!(!g.is_paused());
+    }
+
+    /// Input that stays late does not keep data stopped: each pause is short, and after
+    /// one data runs for a while before the next.
+    #[test]
+    fn a_pause_is_short_and_data_runs_between_pauses() {
+        let t0 = Instant::now();
+        let config = GuardConfig::default();
+        let mut g = LatencyGuard::new(config, TARGET);
+        let out = run(&mut g, t0, 0, 60_000, |_| ms(100));
+        assert!(!out.is_empty());
+        let mut paused_ms = 0;
+        let mut paused_since = None;
+        for (t, tr) in &out {
+            match tr {
+                Transition::Pause { .. } => {
+                    if let Some(prev) = out
+                        .iter()
+                        .rev()
+                        .find(|(at, x)| at < t && matches!(x, Transition::Resume { .. }))
+                    {
+                        let gap = ms(t - prev.0);
+                        assert!(gap >= config.cooldown, "paused again after {gap:?}");
+                    }
+                    paused_since = Some(*t);
+                }
+                Transition::Resume { .. } => {
+                    let since = paused_since.take().expect("a resume without a pause");
+                    let lasted = ms(t - since);
+                    assert!(lasted <= config.max_pause + ms(10), "paused {lasted:?}");
+                    paused_ms += t - since;
+                }
+            }
+        }
+        if let Some(since) = paused_since {
+            paused_ms += 60_000 - since;
+        }
+        assert!(paused_ms * 4 < 60_000, "data paused {paused_ms} ms of 60 s");
     }
 
     #[test]
@@ -297,18 +402,18 @@ mod tests {
             }
         }
 
-        /// If all input exceeds the target, the pause arrives between 2 s and 2 s plus
-        /// the evaluation step, and only once.
+        /// If all input exceeds the target by the margin, the pause arrives between 2 s and
+        /// 2 s plus the evaluation step, and only once before the longest pause ends it.
         #[test]
         fn above_it_pauses_at_2_s(
-            over in 21u64..500,
+            over in 31u64..500,
             step in 1u64..100,
         ) {
             let t0 = Instant::now();
             let mut g = LatencyGuard::new(GuardConfig::default(), TARGET);
             let mut pauses = Vec::new();
             let mut t = 0;
-            while t <= 4000 {
+            while t < 4000 {
                 let now = t0 + ms(t);
                 g.record(now, ms(over));
                 if let Some(tr) = g.evaluate(now) {
