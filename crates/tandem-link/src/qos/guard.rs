@@ -279,7 +279,10 @@ mod tests {
         // At 10 ms: the p99 drops when 10 slow ones remain in the window (at 11490 ms), and
         // one more second is needed, which is past the longest pause: it resumes at 2 s.
         let out = run(&mut g, t0, 10_500, 13_000, |_| ms(10));
-        assert_eq!(out, vec![(12_010, Transition::Resume { p99: Some(ms(10)) })]);
+        assert_eq!(
+            out,
+            vec![(12_010, Transition::Resume { p99: Some(ms(10)) })]
+        );
     }
 
     #[test]
