@@ -154,12 +154,16 @@ pub fn start(
 fn start_monitors(agent: &Arc<Agent>) {
     match monitor_ddc::system_bus() {
         Ok(bus) => {
-            let core = tandem_monitor::LocalMonitors::new(
+            let mut core = tandem_monitor::LocalMonitors::new(
                 bus,
                 Arc::new(monitor_ddc::SystemClock::new()),
                 tandem_monitor::local::system_wall(),
                 tandem_monitor::LocalConfig::default(),
             );
+            // Displays the DDC bus does not enumerate are still announced by their EDID (T-351).
+            if let Some(edids) = tandem_input::displays::system_edids() {
+                core = core.with_system_edids(Arc::new(edids));
+            }
             // The task lives as long as the agent: it ends on its own when it is dropped.
             drop(agent.start_monitors(core, crate::monitors::MonitorTimes::default(), false));
             // A display plugged in, unplugged, turned on or off: rescan now (T-349).

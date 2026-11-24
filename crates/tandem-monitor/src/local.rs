@@ -21,9 +21,9 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use monitor_ddc::{
-    CapabilityWord, Clock, DdcBus, DdcError, Event, EventCursor, EventKind, Incompatibility, Input,
-    InputCodes, Link, LinkConfig, MonitorHandle, MonitorInfo, PROFILES, Probe, StandardMonitor,
-    VCP_INPUT, VCP_LIVE, VCP_POWER, Verdict, profile_for,
+    CapabilityWord, Clock, DdcBus, DdcError, Edid, Event, EventCursor, EventKind, Incompatibility,
+    Input, InputCodes, Link, LinkConfig, MonitorHandle, MonitorInfo, PROFILES, Probe,
+    StandardMonitor, VCP_INPUT, VCP_LIVE, VCP_POWER, Verdict, host_input, profile_for,
 };
 use tandem_core::{DisplayKey, MonitorInput};
 use tandem_proto::{
@@ -40,6 +40,21 @@ pub const NOT_OWNER: &str = "this machine is not the owner of the monitor";
 
 /// The machine's time, in Unix milliseconds.
 pub type WallClock = Arc<dyn Fn() -> u64 + Send + Sync>;
+
+/// The EDID of every external display the system lists, with or without a DDC/CI channel
+/// (T-351): what the DDC bus does not enumerate (a USB-C to HDMI adapter without DDC/CI) is still
+/// announced, without a channel.
+pub type SystemEdids = Arc<dyn Fn() -> Vec<Vec<u8>> + Send + Sync>;
+
+/// The handle of a monitor known only from the system's EDID list: it has no channel, so it is
+/// never opened and never reaches the bus.
+const NO_HANDLE: MonitorHandle = MonitorHandle(u64::MAX);
+
+/// Which input of the monitor this machine's cable goes to: the E-EDID 1.4 interface type or, in
+/// an older EDID (both the 34" and the G5 give 1.3 on HDMI), the model's per-input product id.
+fn via(info: &MonitorInfo, edid: &Edid) -> Option<MonitorInput> {
+    edid_input(edid.raw()).or_else(|| host_input(info).map(crate::to_core))
+}
 
 /// The monitor input through which this EDID arrives, according to the E-EDID 1.4 interface
 /// type (byte 20: digital, bits 0–3: `2`/`3` HDMI, `5` DisplayPort). Each input has its own
@@ -165,6 +180,7 @@ pub struct LocalMonitors {
     entries: BTreeMap<String, Entry>,
     /// Cursors the previous owners reported, for the next [`LocalMonitors::set_owned`].
     handover: BTreeMap<String, MonitorCursor>,
+    edids: Option<SystemEdids>,
 }
 
 impl std::fmt::Debug for LocalMonitors {
@@ -189,7 +205,15 @@ impl LocalMonitors {
             cfg,
             entries: BTreeMap::new(),
             handover: BTreeMap::new(),
+            edids: None,
         }
+    }
+
+    /// Also announces, without a channel, every display in the system's EDID list that the bus
+    /// does not enumerate (T-351).
+    pub fn with_system_edids(mut self, edids: SystemEdids) -> Self {
+        self.edids = Some(edids);
+        self
     }
 
     fn link(&self, handle: MonitorHandle) -> Link {
@@ -280,14 +304,55 @@ impl LocalMonitors {
                         name,
                         compat,
                         latency_ms,
-                        via: edid_input(edid.raw()),
+                        via: via(&info, edid),
                     },
                     reader,
                 },
             );
         }
+        self.add_system_edids(&mut next);
         self.entries = next;
         Ok(self.channels())
+    }
+
+    /// The displays of the system's EDID list that the bus did not enumerate: present without a
+    /// channel, like a monitor that does not answer the probe (T-340, T-351).
+    fn add_system_edids(&self, next: &mut BTreeMap<String, Entry>) {
+        let Some(edids) = &self.edids else { return };
+        for raw in edids() {
+            let Ok(edid) = Edid::parse(&raw) else {
+                continue;
+            };
+            let id = edid.monitor_id().to_string();
+            if next.contains_key(&id) {
+                continue;
+            }
+            let name = edid
+                .name()
+                .map_or_else(|| edid.manufacturer().to_owned(), str::to_owned);
+            tracing::debug!(monitor = %id, "seen only in the system's display list: no DDC channel");
+            let info = MonitorInfo {
+                handle: NO_HANDLE,
+                description: name.clone(),
+                edid: Some(edid.clone()),
+            };
+            next.insert(
+                id.clone(),
+                Entry {
+                    handle: NO_HANDLE,
+                    model: Model::of(&info),
+                    key: DisplayKey::from_edid(edid.raw()),
+                    channel: MonitorChannel {
+                        id,
+                        name,
+                        compat: MonitorCompat::NoChannel,
+                        latency_ms: 0,
+                        via: via(&info, &edid),
+                    },
+                    reader: None,
+                },
+            );
+        }
     }
 
     /// The same monitor with another number: it is opened again (another probe, reads only) and
@@ -749,6 +814,70 @@ mod tests {
         );
         // The probe only reads.
         assert!(sets(&r.bus, r.std).is_empty() && sets(&r.bus, r.factory).is_empty());
+    }
+
+    /// T-351: the G5 behind a USB-C to HDMI adapter: the system lists its EDID but the DDC bus does
+    /// not enumerate it. It is announced without a channel, with the id the PC computes, and it is
+    /// never opened; a monitor the bus already lists is not announced twice.
+    #[test]
+    fn a_display_only_the_system_lists_is_announced_without_a_channel() {
+        let clock = FakeClock::new();
+        let bus = FakeBus::new(clock.clone());
+        bus.add(FakeMonitorConfig::new(Personality::Standard));
+        let lc34 = bus.monitors().unwrap()[0].edid.clone().unwrap();
+        let g5 = test_edid("SAM", 0x748A, "Odyssey G5", "FAKE0000009");
+        let listed = vec![lc34.raw().to_vec(), g5.clone(), vec![0; 10]];
+        let mut local = LocalMonitors::new(
+            Arc::new(bus.clone()),
+            Arc::new(clock.clone()),
+            Arc::new(|| 0),
+            LocalConfig::default(),
+        )
+        .with_system_edids(Arc::new(move || listed.clone()));
+        let chans = local.scan().unwrap();
+        assert_eq!(chans.len(), 2, "{chans:?}");
+        let id = Edid::parse(&g5).unwrap().monitor_id().to_string();
+        let only = chans.iter().find(|c| c.id == id).unwrap();
+        assert_eq!(only.compat, MonitorCompat::NoChannel);
+        assert_eq!(only.name, "Odyssey G5");
+        assert_eq!(
+            only.via,
+            Some(MonitorInput::Hdmi),
+            "from its HDMI product id"
+        );
+        assert!(local.keys().contains_key(&id), "it links to its screen");
+        let all: BTreeSet<String> = chans.iter().map(|c| c.id.clone()).collect();
+        local.set_owned(&all);
+        assert!(!local.reading().contains(&id));
+        assert!(local.switch(&id, MonitorInput::Hdmi).is_err());
+        assert!(local.switch_unowned(&id, MonitorInput::Hdmi).is_err());
+        assert!(local.read_direct(&all).iter().all(|r| r.id != id));
+        // The 34" stays the bus's, with its channel.
+        assert!(chans.iter().any(|c| c.compat.is_compatible()));
+    }
+
+    /// Both monitors give an EDID 1.3 on HDMI, which does not say the interface: the input comes
+    /// from the model's per-input product id (`monitor-ddc`'s `HOST_PORTS`).
+    #[test]
+    fn an_old_edid_gets_its_input_from_the_product_id() {
+        let clock = FakeClock::new();
+        let bus = FakeBus::new(clock.clone());
+        let mut silent = FakeMonitorConfig::new(Personality::Disconnected);
+        silent.edid = test_edid("SAM", 0x7119, "LC34G55T", "FAKE0000004");
+        bus.add(silent);
+        let mut unknown = FakeMonitorConfig::new(Personality::Disconnected);
+        unknown.edid = test_edid("ABC", 0x0001, "Other", "FAKE0000005");
+        bus.add(unknown);
+        let mut local = LocalMonitors::new(
+            Arc::new(bus),
+            Arc::new(clock),
+            Arc::new(|| 0),
+            LocalConfig::default(),
+        );
+        let chans = local.scan().unwrap();
+        let via = |name: &str| chans.iter().find(|c| c.name == name).unwrap().via;
+        assert_eq!(via("LC34G55T"), Some(MonitorInput::Hdmi));
+        assert_eq!(via("Other"), None);
     }
 
     /// T-340: the 34" only answers DDC on the input it shows. The machine on the other input

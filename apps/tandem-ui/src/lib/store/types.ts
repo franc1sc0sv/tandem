@@ -7,7 +7,7 @@
 
 import type { Arrangement, LayoutView } from "../arrangement";
 import type { CrossSample } from "../crossing";
-import type { AdminView, Bindings, CableStateJson, Machine, MonitorInput, Notice, Os, PairingView, PeerView, Permission, PowerStateJson, SceneJson, SetupView, ShortcutsView, TxnView, DragStatus } from "../model";
+import type { AdminView, Bindings, BuiltinMode, CableStateJson, Machine, MonitorInput, Notice, Os, PairingView, PeerView, Permission, PowerStateJson, SceneJson, SetupView, ShortcutsView, TxnView, DragStatus } from "../model";
 import type { PermissionState } from "../permissions";
 import type { UpdateView } from "../updates";
 
@@ -110,6 +110,8 @@ export interface MachineView {
   inputDevices?: { name: string; via?: string }[];
   /** Only on the other machine: the MAC with which this one wakes it (T-159); `mac: null` = cannot. */
   wake?: { mac: string | null } | null;
+  /** Only on a Mac: what it does with its built-in display while an external one is on (T-351). */
+  builtinDisplay?: BuiltinMode;
 }
 
 export type LinkKind = "usb4" | "ethernet" | "wifi";
@@ -422,6 +424,8 @@ export interface Source {
   start(onDesk: (d: DeskView) => void, onChange?: (c: DeskChange) => void, onTransfer?: (t: TransferView) => void): Promise<void>;
   /** Shared keyboard and mouse: the whole pair is sent. */
   setPrefs(p: { cmdCtrl: boolean; dragFiles: boolean }): Promise<ActResult>;
+  /** What the Mac `machine` does with its built-in display (T-351). */
+  setBuiltinDisplay(machine: Machine, mode: BuiltinMode): Promise<ActResult>;
   /** The desk lock shortcut (empty = no shortcut). */
   setLockShortcut(lock: string[]): Promise<ActResult>;
   /** "Undo" the other machine's change: returns the desk to version `rev`. */

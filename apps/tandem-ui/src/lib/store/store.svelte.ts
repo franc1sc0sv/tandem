@@ -3,7 +3,7 @@
 
 import type { CommandContext } from "../commands";
 import { shouldOpen as pairingShouldOpen } from "../pairing";
-import type { AdminView, Machine, MonitorInput, SceneJson } from "../model";
+import type { AdminView, BuiltinMode, Machine, MonitorInput, SceneJson } from "../model";
 import { feedRun, running, viewOf, type Names, type Run, type RunView } from "../txn";
 import { machineName } from "../machines";
 import type { Bindings, DragStatus, Permission, ShortcutsView } from "../model";
@@ -620,6 +620,10 @@ export class Store implements CommandContext {
 
   setPrefs(p: { cmdCtrl: boolean; dragFiles: boolean }): Promise<ActResult> {
     return this.report(this.source.setPrefs(p));
+  }
+
+  setBuiltinDisplay(machine: Machine, mode: BuiltinMode): Promise<ActResult> {
+    return this.report(this.source.setBuiltinDisplay(machine, mode));
   }
 
   setLockShortcut(lock: string[]): Promise<ActResult> {

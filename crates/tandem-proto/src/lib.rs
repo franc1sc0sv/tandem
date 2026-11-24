@@ -153,6 +153,8 @@ mod tests {
     /// it was going to be v47, but T-350 landed earlier.
     /// `Step::MonitorPower` and `UiCommand::MonitorPower` (monitor standby and wake by command,
     /// protocol 3 firmware) bump to v49.
+    /// T-351 (`DeskPatch::BuiltinDisplay` and the desk's `builtin_display`, the Mac's built-in
+    /// display mode) bumps to v49.
     #[test]
     fn version_stays_above_the_one_from_t084() {
         assert_eq!(PROTOCOL_VERSION, 49);

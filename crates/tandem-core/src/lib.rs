@@ -26,8 +26,8 @@ pub mod txn;
 
 pub use data::{DEFAULT_WIFI_CAP_PERCENT, DataPrefs, DataPrefsError};
 pub use desk::{
-    DeskHistory, DeskPatch, DeskStamp, DeskVersion, HISTORY_LEN, HistoryEntry, InputPrefs, Modules,
-    PatchError, Shortcuts, UndoError, valid_color,
+    BuiltinDisplays, BuiltinMode, DeskHistory, DeskPatch, DeskStamp, DeskVersion, HISTORY_LEN,
+    HistoryEntry, InputPrefs, Modules, PatchError, Shortcuts, UndoError, valid_color,
 };
 pub use link::{
     CableState, Cables, LinkState, MonitorLink, OFF_AFTER, PowerSample, PowerState, PowerTracker,
