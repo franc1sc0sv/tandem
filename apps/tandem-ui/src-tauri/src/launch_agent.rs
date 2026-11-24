@@ -421,6 +421,9 @@ pub mod system {
     use super::Launchd;
 
     const LAUNCHCTL: &str = "/bin/launchctl";
+    /// How long a `bootout` may take: the agent restores the displays it turned off and saves its
+    /// state before it exits.
+    const BOOTOUT_WAIT: Duration = Duration::from_secs(15);
 
     pub struct SystemLaunchd {
         domain: String,
@@ -479,18 +482,29 @@ pub mod system {
 
         fn bootout(&self, label: &str) -> Result<(), String> {
             let target = format!("{}/{label}", self.domain);
-            if self.run(&["bootout", target.as_str()]).is_err() && self.is_loaded(label) {
-                return Err(format!("could not stop {target}"));
+            if self.run(&["bootout", target.as_str()]).is_err() && !self.is_loaded(label) {
+                return Ok(());
+            }
+            // `bootout` returns before the agent has finished exiting (it restores the displays it
+            // turned off and saves its state first): wait until launchd has let the service go,
+            // or the `bootstrap` that follows fails ("Bootstrap failed: 5") and leaves no agent.
+            let deadline = std::time::Instant::now() + BOOTOUT_WAIT;
+            while self.is_loaded(label) {
+                if std::time::Instant::now() >= deadline {
+                    return Err(format!("could not stop {target}"));
+                }
+                std::thread::sleep(Duration::from_millis(200));
             }
             Ok(())
         }
 
         fn bootstrap(&self, plist: &Path) -> Result<(), String> {
+            const BOOTSTRAP_ATTEMPTS: u32 = 20;
             let plist = plist.to_string_lossy();
             // Right after a `bootout`, launchd may take a while to release the service
             // ("Bootstrap failed: 5"): retry a couple of times.
             let mut last = String::new();
-            for attempt in 0..4 {
+            for attempt in 0..BOOTSTRAP_ATTEMPTS {
                 if attempt > 0 {
                     std::thread::sleep(Duration::from_millis(500));
                 }
