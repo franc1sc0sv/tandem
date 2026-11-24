@@ -847,6 +847,11 @@ pub enum Action {
         monitor: String,
         input: MonitorInput,
     },
+    /// Put a monitor in standby (`on = false`) or wake it, by command.
+    MonitorPower {
+        monitor: String,
+        on: bool,
+    },
     /// Create a scene (T-116); without `id` one is derived from the name.
     AddScene {
         scene: Scene,
@@ -962,6 +967,7 @@ impl From<Action> for UiCommand {
             Action::MeasureLink { path } => UiCommand::MeasureLink { path: path.into() },
             Action::ApplyScene { id } => UiCommand::ApplyScene { id },
             Action::SwitchMonitor { monitor, input } => UiCommand::SwitchMonitor { monitor, input },
+            Action::MonitorPower { monitor, on } => UiCommand::MonitorPower { monitor, on },
             Action::AddScene { scene } => UiCommand::EditDesk {
                 patch: DeskPatch::AddScene(scene),
             },
@@ -2781,6 +2787,13 @@ mac = "aa:bb:cc:dd:ee:ff"
             UiCommand::SwitchMonitor {
                 monitor: "m-1".into(),
                 input: MonitorInput::Hdmi
+            }
+        );
+        assert_eq!(
+            read(serde_json::json!({ "kind": "monitor_power", "monitor": "m-1", "on": false })),
+            UiCommand::MonitorPower {
+                monitor: "m-1".into(),
+                on: false
             }
         );
         let scene = serde_json::json!({ "id": "game", "name": "Game", "monitors": [["m-1", "b"]] });

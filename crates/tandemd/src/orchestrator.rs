@@ -82,6 +82,10 @@ pub trait MonitorControl: Send + Sync {
     fn confirmed(&self, _monitor: &str, _input: MonitorInput) -> Option<Vec<MonitorReport>> {
         None
     }
+    /// Puts `monitor` in standby or wakes it here (this machine is the owner).
+    fn power<'a>(&'a self, monitor: &'a str, _on: bool) -> StepFuture<'a> {
+        Box::pin(async move { Err(format!("{monitor}: {NO_OWNER}")) })
+    }
 }
 
 /// The machines' displays of each monitor (T-341, [`crate::displays`]).
@@ -172,7 +176,7 @@ pub fn target(step: &Step) -> Option<Machine> {
         // A powered-off machine cannot turn itself on: the Wake-on-LAN comes from the other.
         Step::PowerOn { machine } => Some(machine.other()),
         Step::PowerOff { machine } => Some(*machine),
-        Step::SwitchMonitor { .. } => None,
+        Step::SwitchMonitor { .. } | Step::MonitorPower { .. } => None,
         // Scene ones are done by whoever applies it ([`Orchestrator::run_scene`]).
         Step::ShowMachine { .. } | Step::Arrange { .. } | Step::Geometry => None,
         Step::DisplayOn { machine, .. } => Some(*machine),
@@ -195,6 +199,8 @@ pub fn describe(step: &Step) -> String {
         Step::DisplayOn { monitor, machine } => {
             format!("turn on the display of monitor {monitor} on machine {machine}")
         }
+        Step::MonitorPower { monitor, on: true } => format!("wake monitor {monitor}"),
+        Step::MonitorPower { monitor, on: false } => format!("put monitor {monitor} in standby"),
     }
 }
 
@@ -245,7 +251,10 @@ impl StepTimeouts {
             Step::SwitchMonitor { .. } => self.monitor,
             // A scene's monitor is a `SwitchMonitor` of the owner (T-111).
             Step::ShowMachine { .. } => self.monitor,
-            Step::Arrange { .. } | Step::Geometry | Step::DisplayOn { .. } => self.step,
+            Step::Arrange { .. }
+            | Step::Geometry
+            | Step::DisplayOn { .. }
+            | Step::MonitorPower { .. } => self.step,
         }
     }
 }
@@ -358,6 +367,11 @@ impl Orchestrator {
                 let direct = monitors.is_some_and(|m| m.direct(monitor));
                 Ok(if direct { self.me() } else { owner })
             }
+            // Only the owner talks to the monitor: no direct power while it is unreachable.
+            Step::MonitorPower { monitor, .. } => self
+                .monitors()
+                .and_then(|m| m.owner(monitor))
+                .ok_or_else(|| format!("{}: {NO_OWNER}", describe(step))),
             s if s.is_scene() => Err(format!("{}: {SCENE_ONLY}", describe(step))),
             _ => target(step).ok_or_else(|| describe(step)),
         }
@@ -597,6 +611,10 @@ impl Orchestrator {
                     self.confirmed(step);
                     Ok(())
                 }
+                None => Err(format!("{}: {NO_OWNER}", describe(step))),
+            },
+            Step::MonitorPower { monitor, on } => match self.monitors() {
+                Some(m) => m.power(monitor, *on).await,
                 None => Err(format!("{}: {NO_OWNER}", describe(step))),
             },
             _ => self.local.execute(step).await,

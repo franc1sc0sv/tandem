@@ -131,6 +131,14 @@
             </div>
           </div>
           <Segmented size="lg" label="Which machine shows the {spoken(m.name)}" options={options(m)} value={selected(m)} onchange={(v) => pick(m, v)} />
+          {#if m.owner && m.link?.kind !== "off" && m.link?.kind !== "unplugged"}
+            {@const asleep = m.link?.kind === "standby"}
+            <div class="power">
+              <Button icon="power" size="sm" iconSize={15} variant={asleep ? undefined : "ghost"} onclick={() => store.monitorPower(m.id, asleep)}
+                >{asleep ? "Wake" : "Standby"}</Button
+              >
+            </div>
+          {/if}
           {#if m.events.length > 0}
             <div class="events">
               {#each m.events as e, k (`${e.at}-${e.text}-${k}`)}
@@ -245,6 +253,11 @@
     display: flex;
     gap: 6px;
     flex-wrap: wrap;
+  }
+  .power {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 10px;
   }
   .events {
     display: flex;

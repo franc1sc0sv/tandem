@@ -727,6 +727,12 @@ pub enum UiCommand {
         monitor: String,
         input: MonitorInput,
     },
+    /// Put a monitor in standby (`on = false`) or wake it, done by its owner (answered with
+    /// [`Reply::Accepted`]).
+    MonitorPower {
+        monitor: String,
+        on: bool,
+    },
     /// Rescan the environments of `machine`; what is found arrives in
     /// [`AgentToUi::Machines`] (T-105).
     Rescan {
@@ -1283,6 +1289,10 @@ pub(crate) mod samples {
                 monitor: "lc34g55t-0a1b2c3d".into(),
                 machine: Machine::B,
             },
+            Step::MonitorPower {
+                monitor: "lc34g55t-0a1b2c3d".into(),
+                on: false,
+            },
         ]
     }
 
@@ -1295,6 +1305,7 @@ pub(crate) mod samples {
             Step::Arrange { .. } => 4,
             Step::Geometry => 5,
             Step::DisplayOn { .. } => 6,
+            Step::MonitorPower { .. } => 7,
         }
     }
 
@@ -1820,6 +1831,10 @@ pub(crate) mod samples {
                 monitor: "lc34g55t-0a1b2c3d".into(),
                 input: MonitorInput::DisplayPort,
             },
+            UiCommand::MonitorPower {
+                monitor: "lc34g55t-0a1b2c3d".into(),
+                on: true,
+            },
             UiCommand::Rescan {
                 machine: Machine::A,
             },
@@ -1990,6 +2005,7 @@ pub(crate) mod samples {
             UiCommand::SetWol { .. } => 44,
             UiCommand::SyntheticMotion { .. } => 45,
             UiCommand::CheckLocalNetwork => 46,
+            UiCommand::MonitorPower { .. } => 47,
         }
     }
 
@@ -2491,11 +2507,11 @@ mod tests {
 
     #[test]
     fn samples_cover_every_variant() {
-        covers(&steps(), step_arm, 7);
+        covers(&steps(), step_arm, 8);
         covers(&hellos(), |h| peer_arm(&h.peer), 4);
         covers(&control(), control_arm, 25);
         let cmds: Vec<_> = ui_requests().into_iter().map(|r| r.command).collect();
-        covers(&cmds, ui_command_arm, 47);
+        covers(&cmds, ui_command_arm, 48);
         covers(&modules(), |m| module_state_arm(&m.state), 3);
         covers(&to_ui(), to_ui_arm, 21);
         covers(&monitor_event_kinds(), monitor_event_kind_arm, 10);

@@ -33,6 +33,10 @@ enum StepWire {
         monitor: String,
         machine: Machine,
     },
+    MonitorPower {
+        monitor: String,
+        on: bool,
+    },
 }
 
 impl From<&Step> for StepWire {
@@ -54,6 +58,10 @@ impl From<&Step> for StepWire {
                 monitor: monitor.clone(),
                 machine: *machine,
             },
+            Step::MonitorPower { monitor, on } => StepWire::MonitorPower {
+                monitor: monitor.clone(),
+                on: *on,
+            },
         }
     }
 }
@@ -68,6 +76,7 @@ impl From<StepWire> for Step {
             StepWire::Arrange { layout } => Step::Arrange { layout },
             StepWire::Geometry => Step::Geometry,
             StepWire::DisplayOn { monitor, machine } => Step::DisplayOn { monitor, machine },
+            StepWire::MonitorPower { monitor, on } => Step::MonitorPower { monitor, on },
         }
     }
 }

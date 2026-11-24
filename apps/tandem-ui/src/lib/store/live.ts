@@ -397,6 +397,10 @@ export class LiveSource implements Source {
     return result(await this.bridge.act({ kind: "switch_monitor", monitor, input }));
   }
 
+  async monitorPower(monitor: string, on: boolean): Promise<ActResult> {
+    return result(await this.bridge.act({ kind: "monitor_power", monitor, on }));
+  }
+
   async saveScene(scene: SceneJson, isNew: boolean): Promise<ActResult> {
     const r = result(await this.bridge.act(isNew ? { kind: "add_scene", scene } : { kind: "edit_scene", scene }));
     return r.ok ? { ok: true, text: `Scene “${scene.name}” saved` } : r;

@@ -330,3 +330,56 @@ async fn without_monitors_the_module_says_why() {
     );
     assert!(d.agent(Machine::A).monitors().is_empty());
 }
+
+fn powered(id: &str, on: bool) -> impl Fn(&[MonitorView]) -> bool + '_ {
+    move |v| view(v, id).is_some_and(|m| m.report.as_ref().and_then(|r| r.power_on) == Some(on))
+}
+
+/// The 32" G5 with its production image (protocol 3, MCCS `0x60` values): switched from the Mac's
+/// UI by its owner with the G5's own values, then put in standby and woken by command.
+#[tokio::test(start_paused = true)]
+async fn a_protocol_3_g5_switches_with_its_values_and_sleeps_and_wakes_by_command() {
+    let d = desk_with(FakeMonitorConfig::g5_p3()).await;
+    let sim = d.monitors().unwrap().clone();
+    let g5 = sim.id(STD).to_owned();
+
+    let run = d
+        .switch_monitor(Machine::A, &g5, MonitorInput::Hdmi)
+        .await
+        .unwrap();
+    assert_eq!(run.outcome(), Some(Outcome::Committed), "{:#?}", run.events);
+    assert!(
+        sets(&d, STD).contains(&(Machine::B, VCP_INPUT, 0x11)),
+        "the owner sends the G5's HDMI value: {:?}",
+        sets(&d, STD)
+    );
+
+    let run = d.monitor_power(Machine::A, &g5, false).await.unwrap();
+    assert_eq!(run.outcome(), Some(Outcome::Committed), "{:#?}", run.events);
+    assert!(sets(&d, STD).contains(&(Machine::B, 0xD6, 4)));
+    for m in Machine::ALL {
+        d.wait_monitors(m, "standby", powered(&g5, false))
+            .await
+            .unwrap();
+    }
+
+    let run = d.monitor_power(Machine::A, &g5, true).await.unwrap();
+    assert_eq!(run.outcome(), Some(Outcome::Committed), "{:#?}", run.events);
+    assert!(sets(&d, STD).contains(&(Machine::B, 0xD6, 1)));
+    for m in Machine::ALL {
+        d.wait_monitors(m, "awake", powered(&g5, true))
+            .await
+            .unwrap();
+    }
+}
+
+/// A monitor whose firmware cannot be woken by command (protocol 2) is never put to sleep.
+#[tokio::test(start_paused = true)]
+async fn a_monitor_without_power_wake_refuses_standby() {
+    let d = desk_with(FakeMonitorConfig::new(Personality::Standard)).await;
+    let sim = d.monitors().unwrap().clone();
+    let std = sim.id(STD).to_owned();
+    let run = d.monitor_power(Machine::A, &std, false).await.unwrap();
+    assert_ne!(run.outcome(), Some(Outcome::Committed), "{:#?}", run.events);
+    assert!(!sets(&d, STD).iter().any(|(_, code, _)| *code == 0xD6));
+}

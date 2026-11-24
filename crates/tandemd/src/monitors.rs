@@ -542,6 +542,18 @@ impl MonitorControl for MonitorHub {
         })
     }
 
+    fn power<'a>(&'a self, monitor: &'a str, on: bool) -> StepFuture<'a> {
+        Box::pin(async move {
+            let id = monitor.to_owned();
+            let r = self
+                .with_core(move |c| c.power(&id, on))
+                .await
+                .unwrap_or_else(|| Err(NO_DDC.to_owned()));
+            self.wake.notify_one();
+            r
+        })
+    }
+
     fn confirmed(&self, monitor: &str, input: MonitorInput) -> Option<Vec<MonitorReport>> {
         let mine = {
             let mut dir = lock(&self.dir);

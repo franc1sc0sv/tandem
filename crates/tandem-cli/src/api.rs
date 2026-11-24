@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
-use tandem_core::{LinkState, Machine, MonitorLink};
+use tandem_core::{LinkState, Machine, MonitorInput, MonitorLink};
 use tandem_proto::files::Direction;
 use tandem_proto::{
     ExecSpec, MonitorView, OutputCursor, ProcessId, Project, Reply, Tunnel, TunnelProcess,
@@ -261,6 +261,55 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Api<S> {
             "machines" => self.machines().await,
             "resources" => self.resources(&a).await,
             "monitors" => self.monitors().await,
+            "monitor_switch" => {
+                let monitor = self
+                    .monitor_id(a.str("monitor").unwrap_or_default())
+                    .await?;
+                let input = match a
+                    .str("input")
+                    .map(|s| s.trim().to_ascii_lowercase())
+                    .as_deref()
+                {
+                    Some("dp" | "displayport" | "display_port") => MonitorInput::DisplayPort,
+                    Some("hdmi") => MonitorInput::Hdmi,
+                    other => {
+                        return Err(ToolError::Args(format!(
+                            "`{}` is not an input: use `dp` or `hdmi`",
+                            other.unwrap_or_default()
+                        )));
+                    }
+                };
+                match self
+                    .ask(UiCommand::SwitchMonitor {
+                        monitor: monitor.clone(),
+                        input,
+                    })
+                    .await?
+                {
+                    Reply::Done | Reply::Accepted { .. } => Ok(
+                        json!({"monitor": monitor, "input": input.to_string(), "requested": true}),
+                    ),
+                    r => Err(unexpected(&r)),
+                }
+            }
+            "monitor_power" => {
+                let monitor = self
+                    .monitor_id(a.str("monitor").unwrap_or_default())
+                    .await?;
+                let on = a.flag("on");
+                match self
+                    .ask(UiCommand::MonitorPower {
+                        monitor: monitor.clone(),
+                        on,
+                    })
+                    .await?
+                {
+                    Reply::Done | Reply::Accepted { .. } => {
+                        Ok(json!({"monitor": monitor, "on": on, "requested": true}))
+                    }
+                    r => Err(unexpected(&r)),
+                }
+            }
             "tunnels" => match self.ask(UiCommand::GetTunnels).await? {
                 Reply::Tunnels(groups) => {
                     let groups: Vec<Value> = groups
@@ -436,6 +485,34 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Api<S> {
     }
 
     /// The monitors with their derived link (T-349).
+    /// The id of the one monitor whose id or name starts with `query` (case-insensitive).
+    async fn monitor_id(&mut self, query: &str) -> Result<String, ToolError> {
+        let views = match self.ask(UiCommand::GetMonitors).await? {
+            Reply::Monitors(v) => v,
+            r => return Err(unexpected(&r)),
+        };
+        let q = query.trim().to_ascii_lowercase();
+        if let Some(v) = views.iter().find(|v| v.id == q) {
+            return Ok(v.id.clone());
+        }
+        let hits: Vec<&str> = views
+            .iter()
+            .filter(|v| {
+                !q.is_empty()
+                    && (v.id.starts_with(&q) || v.name.to_ascii_lowercase().starts_with(&q))
+            })
+            .map(|v| v.id.as_str())
+            .collect();
+        match hits.as_slice() {
+            [one] => Ok((*one).to_owned()),
+            [] => Err(ToolError::Args(format!("no monitor matches `{query}`"))),
+            many => Err(ToolError::Args(format!(
+                "`{query}` matches several monitors: {}",
+                many.join(", ")
+            ))),
+        }
+    }
+
     async fn monitors(&mut self) -> Result<Value, ToolError> {
         let views = match self.ask(UiCommand::GetMonitors).await? {
             Reply::Monitors(v) => v,

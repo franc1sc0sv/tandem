@@ -1336,6 +1336,7 @@ impl Agent {
             UiCommand::SwitchMonitor { monitor, input } => {
                 self.start_switch_monitor(monitor, input)
             }
+            UiCommand::MonitorPower { monitor, on } => self.start_monitor_power(monitor, on),
             UiCommand::Rescan { machine } => self.rescan_machine(machine),
             // The subscription belongs to the connection: the IPC handles it ([`Agent::watch_resources`]).
             UiCommand::WatchResources { .. } => {

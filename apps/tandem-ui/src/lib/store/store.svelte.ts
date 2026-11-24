@@ -297,6 +297,16 @@ export class Store implements CommandContext {
     return this.change({ title: `Changing the input of ${m?.name ?? monitor}`, doneText: "Input changed." }, () => this.source.switchMonitor(monitor, input));
   }
 
+  /** Standby or wake of a monitor by command, done by its owner. */
+  monitorPower(monitor: string, on: boolean): Promise<ActResult> {
+    const m = this.desk.monitors.find((x) => x.id === monitor);
+    const name = m?.name ?? monitor;
+    return this.change(
+      { title: on ? `Waking ${name}` : `Putting ${name} to sleep`, doneText: on ? `${name} is on.` : `${name} is in standby.` },
+      () => this.source.monitorPower(monitor, on),
+    );
+  }
+
   /**
    * A change that runs as a transaction. If the reply names the transaction and its `started`
    * has not arrived yet, the window expects it (T-250): the reply is not proof that the progress

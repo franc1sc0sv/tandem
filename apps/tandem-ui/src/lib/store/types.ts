@@ -435,6 +435,8 @@ export interface Source {
   applyScene(id: string): Promise<ActResult>;
   /** Change the input of a compatible monitor: a transaction with the firmware verdict. */
   switchMonitor(monitor: string, input: MonitorInput): Promise<ActResult>;
+  /** Put a monitor in standby (`on` false) or wake it, by command; refused if its firmware cannot be woken. */
+  monitorPower(monitor: string, on: boolean): Promise<ActResult>;
   /** Create (`isNew`) or save a scene in the shared desk: it reaches the other machine. */
   saveScene(scene: SceneJson, isNew: boolean): Promise<ActResult>;
   /** Forget an incompatible monitor that is no longer there. */

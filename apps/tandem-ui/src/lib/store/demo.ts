@@ -926,6 +926,22 @@ export class DemoSource implements Source {
     return { ok: true };
   }
 
+  async monitorPower(id: string, on: boolean): Promise<ActResult> {
+    const m = this.desk.monitors.find((x) => x.id === id);
+    if (!m) return { ok: false, reason: "That monitor is not known" };
+    if (!m.compat.ok) return { ok: false, reason: `${m.name} is not supported: nothing is written to it` };
+    this.runTxn(
+      [{ step: "monitor_power", monitor: id, on }],
+      () =>
+        this.set({
+          ...this.desk,
+          monitors: this.desk.monitors.map((x) => (x.id === id ? { ...x, link: on ? undefined : { kind: "standby", machine: null, power: "standby", cables: x.link?.cables ?? { a: "unknown", b: "unknown" } } } : x)),
+        } as DeskView),
+      () => {},
+    );
+    return { ok: true };
+  }
+
   /** The real input of a monitor changed (by the requested change or by the scene). */
   private setMonitor(id: string, input: MonitorInput, shows: Machine | null): void {
     const monitors = this.desk.monitors.map((m) => {

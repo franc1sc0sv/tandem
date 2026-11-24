@@ -76,6 +76,39 @@ pub const TOOLS: &[Tool] = &[
         params: &[],
     },
     Tool {
+        name: "monitor_switch",
+        desc: "Switches a shared monitor's input and waits for the firmware's verdict (rolled back if it fails). \
+               Refused when that input's cable is unplugged.",
+        params: &[
+            p(
+                "monitor",
+                Ty::Str,
+                true,
+                "Monitor id from `monitors`, or the start of its name",
+            ),
+            p("input", Ty::Str, true, "`dp` (DisplayPort) or `hdmi`"),
+        ],
+    },
+    Tool {
+        name: "monitor_power",
+        desc: "Puts a shared monitor in standby (`on` false) or wakes it (`on` true), by command. \
+               Only monitors whose firmware can be woken by command accept it.",
+        params: &[
+            p(
+                "monitor",
+                Ty::Str,
+                true,
+                "Monitor id from `monitors`, or the start of its name",
+            ),
+            p(
+                "on",
+                Ty::Bool,
+                true,
+                "true wakes it, false puts it in standby",
+            ),
+        ],
+    },
+    Tool {
         name: "tunnels",
         desc: "Open tunnels grouped by project, with their running processes.",
         params: &[],
@@ -315,6 +348,8 @@ mod tests {
             "machines",
             "resources",
             "monitors",
+            "monitor_switch",
+            "monitor_power",
             "tunnels",
             "tunnel_open",
             "tunnel_close",

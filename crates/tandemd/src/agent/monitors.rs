@@ -109,6 +109,28 @@ impl Agent {
         let what = format!("set {input} on {}", view.name);
         self.start_plan(&what, move |_| Ok(Plan::switch_monitor(monitor, input)))
     }
+
+    /// [`tandem_proto::UiCommand::MonitorPower`]: standby or wake by command, done by the owner.
+    pub(super) fn start_monitor_power(self: &Arc<Self>, monitor: String, on: bool) -> Reply {
+        let Some(view) = self.monitors().into_iter().find(|v| v.id == monitor) else {
+            return Reply::Rejected(format!("monitor {monitor} is not seen"));
+        };
+        if !view.compat.is_compatible() {
+            return Reply::Rejected(format!(
+                "{} is not compatible: it is shown, but not controlled",
+                view.name
+            ));
+        }
+        if view.owner.is_none() {
+            return Reply::Rejected(format!("{}: {NO_OWNER}", view.name));
+        }
+        let what = if on {
+            format!("wake {}", view.name)
+        } else {
+            format!("put {} in standby", view.name)
+        };
+        self.start_plan(&what, move |_| Ok(Plan::monitor_power(monitor, on)))
+    }
 }
 
 async fn monitor_loop(agent: Weak<Agent>, times: MonitorTimes) {

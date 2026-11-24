@@ -273,6 +273,8 @@ export type Step =
   | { step: "power_on"; machine: Machine }
   | { step: "power_off"; machine: Machine }
   | { step: "switch_monitor"; monitor: string; input: "display_port" | "hdmi" }
+  /** Standby (`on` false) or wake of a monitor by command. */
+  | { step: "monitor_power"; monitor: string; on: boolean }
   /** Scene steps (T-100): which machine shows a monitor, the arrangement and the geometry. */
   | { step: "show_machine"; monitor: string; machine: Machine }
   | { step: "arrange"; layout: unknown }
@@ -366,6 +368,8 @@ export type Action =
   | { kind: "apply_scene"; id: string }
   /** Change the input of a compatible monitor, with the firmware verdict (T-110). */
   | { kind: "switch_monitor"; monitor: string; input: MonitorInput }
+  /** Put a monitor in standby (`on` false) or wake it, by command. */
+  | { kind: "monitor_power"; monitor: string; on: boolean }
   | { kind: "add_scene"; scene: SceneJson }
   | { kind: "edit_scene"; scene: SceneJson }
   /** The processes of a tunnel, including those that ended recently (T-114); `tunnel` is the text id. */
