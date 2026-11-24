@@ -567,11 +567,16 @@ mod imp {
         #[test]
         fn arguments_are_quoted_for_the_c_runtime() {
             let mut s = String::new();
-            for a in ["plain", "two words", r#"say "hi""#, r"C:\dir\", ""] {
+            // Without a space or a quote nothing is quoted, trailing backslashes included; quoted,
+            // a trailing run of backslashes is doubled so it does not escape the closing quote.
+            for a in ["plain", "two words", r#"say "hi""#, r"C:\dir\", r"C:\my dir\", ""] {
                 quote(a, &mut s);
                 s.push('|');
             }
-            assert_eq!(s, r#"plain|"two words"|"say \"hi\""|"C:\dir\\"|""|"#);
+            assert_eq!(
+                s,
+                r#"plain|"two words"|"say \"hi\""|C:\dir\|"C:\my dir\\"|""|"#
+            );
         }
     }
 }
