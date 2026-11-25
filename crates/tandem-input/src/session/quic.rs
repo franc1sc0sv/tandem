@@ -290,6 +290,8 @@ impl<C: Capture> ServerDriver<C> {
         publish_cursor(cursor, session);
 
         let mut beats = Beats::new();
+        // Where the time goes on this side: capture -> datagram handed to QUIC.
+        let mut send_hist = Histogram::new();
         let mut heartbeat = time::interval(cfg.heartbeat_interval);
         heartbeat.set_missed_tick_behavior(MissedTickBehavior::Delay);
         let silence = time::sleep(cfg.heartbeat_timeout);
@@ -316,6 +318,11 @@ impl<C: Capture> ServerDriver<C> {
                         outs.extend(session.handle_at(ev.event, ev.t_us));
                     }
                     outs.extend(session.flush().map(ServerOutput::Datagram));
+                    for o in &outs {
+                        if let ServerOutput::Datagram(d) = o {
+                            send_hist.record(now_us().saturating_sub(d.t_us));
+                        }
+                    }
                     let sent = apply(capture, &mut stream, conn, outs).await;
                     sync(session);
                     publish_cursor(cursor, session);
@@ -331,12 +338,16 @@ impl<C: Capture> ServerDriver<C> {
                         match msg {
                             StreamMsg::Heartbeat(b) => beats.incoming(b, now_us()),
                             StreamMsg::Latency(l) => {
+                                let send = send_hist.take();
                                 tracing::info!(
                                     n = l.count,
                                     p50_us = l.p50_us,
                                     p99_us = l.p99_us,
                                     max_us = l.max_us,
-                                    "input latency reported by the other machine"
+                                    send_p50_us = send.map(|s| s.p50_us),
+                                    send_p99_us = send.map(|s| s.p99_us),
+                                    send_max_us = send.map(|s| s.max_us),
+                                    "input latency reported by the other machine (send: capture → handed to QUIC here)"
                                 );
                                 latency.send_replace(Some(l));
                             }
@@ -619,6 +630,9 @@ impl<I: Injector> ClientDriver<I> {
 
         let mut beats = Beats::new();
         let mut hist = Histogram::new();
+        // Where the time goes: capture -> datagram read here, and how long injecting takes.
+        let mut recv_hist = Histogram::new();
+        let mut inject_hist = Histogram::new();
         let mut measure = |t_us: u64, beats: &Beats, hist: &mut Histogram| {
             if let Some(us) = beats.sync().elapsed_since(t_us, now_us()) {
                 hist.record(us);
@@ -661,9 +675,14 @@ impl<I: Injector> ClientDriver<I> {
                         silence.as_mut().reset(Instant::now() + cfg.heartbeat_timeout);
                         match Datagram::decode(&bytes) {
                             Ok(Datagram::Motion(d)) => {
+                                if let Some(us) = beats.sync().elapsed_since(d.t_us, now_us()) {
+                                    recv_hist.record(us);
+                                }
                                 let events = session.on_datagram(d);
                                 if !events.is_empty() {
+                                    let t0 = now_us();
                                     inject(injector, events);
+                                    inject_hist.record(now_us().saturating_sub(t0));
                                     measure(d.t_us, &beats, &mut hist);
                                     client_cursor(cursor, session);
                                 }
@@ -682,12 +701,18 @@ impl<I: Injector> ClientDriver<I> {
                 }
                 _ = report.tick() => {
                     if let Some(l) = hist.take() {
+                        let (recv, inj) = (recv_hist.take(), inject_hist.take());
                         tracing::info!(
                             n = l.count,
                             p50_us = l.p50_us,
                             p99_us = l.p99_us,
                             max_us = l.max_us,
-                            "input latency (capture → injection)"
+                            recv_p50_us = recv.map(|r| r.p50_us),
+                            recv_p99_us = recv.map(|r| r.p99_us),
+                            inject_p50_us = inj.map(|r| r.p50_us),
+                            inject_p99_us = inj.map(|r| r.p99_us),
+                            inject_max_us = inj.map(|r| r.max_us),
+                            "input latency (capture → injection; recv: capture → datagram read)"
                         );
                         latency.send_replace(Some(l));
                         if let Err(e) = stream.send(&StreamMsg::Latency(l)).await {
