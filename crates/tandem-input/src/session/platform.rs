@@ -32,6 +32,10 @@ impl<S: InputSink + Send> Injector for Emulator<S> {
     fn refresh(&mut self) -> Result<(), Self::Error> {
         self.refresh_desktop()
     }
+
+    fn set_focus(&mut self, here: bool) -> Result<(), Self::Error> {
+        Emulator::set_focus(self, here)
+    }
 }
 
 #[cfg(target_os = "macos")]

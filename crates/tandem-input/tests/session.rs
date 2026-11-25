@@ -886,3 +886,93 @@ async fn the_live_cursor_comes_from_whoever_has_the_focus_and_only_with_the_swit
     l.server_ep.close();
     l.client_ep.close();
 }
+
+/// The injector learns when the cursor arrives and leaves (Windows draws the cursor
+/// without a mouse with it), once each, also when the link drops.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_injector_learns_when_the_cursor_arrives_and_leaves() {
+    let l = link().await;
+    let (tx, rx) = mpsc::unbounded_channel();
+    let (server, _calls, mut active) = spawn_server(l.server.clone(), rx);
+    let injector = FakeInjector::new();
+    let mut focus = injector.focus();
+    let mut injected = injector.events();
+    let mut driver = ClientDriver::new(ClientSession::new(mac_screens()), injector, cfg());
+    let (stop, stop_rx) = oneshot::channel::<()>();
+    let client = Running {
+        stop,
+        task: tokio::spawn(async move {
+            let hello = Hello::new(Peer::Agent(Machine::A));
+            let end = driver
+                .run(&l.client, &hello, async {
+                    let _ = stop_rx.await;
+                })
+                .await;
+            (driver, end)
+        }),
+    };
+    up(&mut active).await;
+    hold_s(&tx, &mut injected).await;
+    tx.send(Captured::now(rel(5.0, 0.0))).unwrap();
+    within(focus.wait_for(|f| *f == [true])).await.unwrap();
+    l.server.close("cable disconnected");
+    let _ = client.ended().await;
+    assert_eq!(*focus.borrow(), [true, false]);
+    let _ = server.ended().await;
+    l.server_ep.close();
+    l.client_ep.close();
+}
+
+/// Scene "only Mac": every monitor shows the Mac, so the PC (with the keyboard) has no
+/// screen and no crossing edge. The cursor goes to the Mac when the session starts;
+/// before, it stayed on the invisible PC and the mouse "died".
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn with_every_monitor_on_the_other_machine_the_cursor_goes_there_by_itself() {
+    let l = link().await;
+    let (tx, rx) = mpsc::unbounded_channel();
+    let only_mac = Layout::compute(
+        &Arrangement {
+            a: mac_screens(),
+            b: vec![],
+            a_side: Side::Right,
+            align: None,
+        },
+        LayoutOptions { corner_margin: 0.0 },
+    )
+    .unwrap()
+    .with_shown_elsewhere(Machine::B);
+    let capture = FakeCapture::new();
+    let mut driver = ServerDriver::new(
+        ServerSession::new(Machine::B, only_mac, start(), cfg().resync_every),
+        capture,
+        rx,
+        cfg(),
+    );
+    let mut remote = driver.remote();
+    let (stop, stop_rx) = oneshot::channel::<()>();
+    let conn = l.server.clone();
+    let server = Running {
+        stop,
+        task: tokio::spawn(async move {
+            let hello = Hello::new(Peer::Agent(Machine::B));
+            let end = driver
+                .run(&conn, &hello, async {
+                    let _ = stop_rx.await;
+                })
+                .await;
+            (driver, end)
+        }),
+    };
+    let (client, mut injected) = spawn_client(l.client.clone());
+    within(remote.wait_for(|r| *r)).await.unwrap();
+    // Moving the mouse moves the Mac's cursor from the centre of its screen.
+    tx.send(Captured::now(rel(10.0, 0.0))).unwrap();
+    within(injected.wait_for(|ev| last_position(ev) == Some(Point::new(4410.0, 540.0))))
+        .await
+        .unwrap();
+    let (server, _) = server.stop().await;
+    assert!(!server.capture().grabbed());
+    let _ = client.stop().await;
+    l.server_ep.close();
+    l.client_ep.close();
+}

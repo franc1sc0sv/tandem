@@ -6,7 +6,10 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::mpsc::{self, Sender, SyncSender};
 use std::thread::JoinHandle;
 
-use ::windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, WPARAM};
+use ::windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, POINT, WPARAM};
+use ::windows::Win32::Graphics::Gdi::{
+    GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromPoint,
+};
 use ::windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use ::windows::Win32::System::Threading::{
     GetCurrentThread, GetCurrentThreadId, SetThreadPriority, THREAD_PRIORITY_TIME_CRITICAL,
@@ -21,7 +24,7 @@ use ::windows::Win32::UI::Input::{
     RegisterRawInputDevices,
 };
 use ::windows::Win32::UI::WindowsAndMessaging::{
-    CallNextHookEx, CreateWindowExW, DestroyWindow, DispatchMessageW, GetMessageW,
+    CallNextHookEx, CreateWindowExW, DestroyWindow, DispatchMessageW, GetCursorPos, GetMessageW,
     GetSystemMetrics, HC_ACTION, HHOOK, HWND_MESSAGE, KBDLLHOOKSTRUCT, MSG, MSLLHOOKSTRUCT,
     PM_NOREMOVE, PeekMessageW, PostThreadMessageW, SM_CXSCREEN, SM_CXVIRTUALSCREEN, SM_CYSCREEN,
     SM_CYVIRTUALSCREEN, SetCursorPos, SetWindowsHookExW, UnhookWindowsHookEx, WH_KEYBOARD_LL,
@@ -32,7 +35,7 @@ use ::windows::core::{PCWSTR, w};
 use super::consts;
 use super::{
     CaptureConfig, CaptureError, HookControl, HookEvent, HookFilter, KeyboardHook, MouseHook,
-    RawMouse, Verdict, hook_step, run_pipeline,
+    RawMouse, Verdict, anchor, hook_step, run_pipeline,
 };
 use crate::event::InputEvent;
 use crate::geometry::Point;
@@ -73,6 +76,8 @@ const _: () = {
 
 /// Message to the hook thread: reinstall them.
 const WM_REINSTALL: u32 = WM_APP + 1;
+/// Message to the hook thread: input starts being swallowed, take the cursor to its anchor.
+const WM_ANCHOR: u32 = WM_APP + 2;
 
 fn os_error(op: &'static str, e: ::windows::core::Error) -> CaptureError {
     CaptureError::Os {
@@ -180,9 +185,11 @@ unsafe extern "system" fn mouse_proc(code: i32, wparam: WPARAM, lparam: LPARAM) 
         let swallow = with_ctx(|ctx| {
             ctx.handle(|filter, grab| {
                 let verdict = filter.mouse(grab, &hook);
+                let origin = filter.origin(verdict, &hook);
                 let event = HookEvent::Mouse {
                     hook,
                     swallowed: verdict == Verdict::Swallow,
+                    origin,
                 };
                 (verdict, event)
             })
@@ -300,7 +307,7 @@ fn metric_span(
 }
 
 /// Reads a WM_INPUT. For the keyboard only which device it came from matters.
-fn read_raw(lparam: LPARAM) -> Option<HookEvent> {
+fn read_raw(lparam: LPARAM, grabbed: bool) -> Option<HookEvent> {
     let mut raw = RAWINPUT::default();
     let mut size = size_of::<RAWINPUT>() as u32;
     // SAFETY: the buffer is a complete RAWINPUT and `size` says its size; a
@@ -340,6 +347,7 @@ fn read_raw(lparam: LPARAM) -> Option<HookEvent> {
         last_x: mouse.lLastX,
         last_y: mouse.lLastY,
         span,
+        grabbed,
     }))
 }
 
@@ -356,6 +364,7 @@ fn hook_thread(
     // This thread almost always waits; when it wakes up, it has to answer at once.
     // SAFETY: pseudo-handle of the current thread.
     let _ = unsafe { SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL) };
+    let grabbed = Arc::clone(&grab);
     CTX.with(|c| {
         let _ = c.set(HookCtx {
             tx,
@@ -389,8 +398,23 @@ fn hook_thread(
             reinstalls.fetch_add(1, Ordering::Relaxed);
             continue;
         }
+        if msg.hwnd.is_invalid() && msg.message == WM_ANCHOR {
+            // Here, on the hooks' thread, nothing gets in between: the next swallowed
+            // movement is measured from where the cursor really ends up.
+            if grabbed.load(Ordering::Relaxed)
+                && let Some(pos) = move_to_anchor()
+            {
+                with_ctx(|ctx| {
+                    if let Ok(mut filter) = ctx.filter.try_borrow_mut() {
+                        filter.set_cursor(pos);
+                    }
+                    false
+                });
+            }
+            continue;
+        }
         if msg.message == WM_INPUT
-            && let Some(event) = read_raw(msg.lParam)
+            && let Some(event) = read_raw(msg.lParam, grabbed.load(Ordering::Relaxed))
         {
             with_ctx(|ctx| {
                 let _ = ctx.tx.send(event);
@@ -404,6 +428,33 @@ fn hook_thread(
     drop(hooks);
     drop(window);
     // CTX's Sender is dropped when the thread ends and the process one exits.
+}
+
+fn cursor_pos() -> Option<(i32, i32)> {
+    let mut p = POINT::default();
+    // SAFETY: `p` is an own, valid POINT.
+    unsafe { GetCursorPos(&mut p) }.ok()?;
+    Some((p.x, p.y))
+}
+
+/// Takes the cursor to its anchor ([`anchor`]) on its monitor and returns where it really
+/// is afterwards (Windows may not take it exactly there).
+fn move_to_anchor() -> Option<(i32, i32)> {
+    let (x, y) = cursor_pos()?;
+    // SAFETY: no pointers; with DEFAULTTONEAREST there is always a monitor.
+    let hmon = unsafe { MonitorFromPoint(POINT { x, y }, MONITOR_DEFAULTTONEAREST) };
+    let mut info = MONITORINFO {
+        cbSize: size_of::<MONITORINFO>() as u32,
+        ..Default::default()
+    };
+    // SAFETY: `info` is an own MONITORINFO with its size filled in.
+    if unsafe { GetMonitorInfoW(hmon, &mut info) }.as_bool() {
+        let r = info.rcMonitor;
+        let (ax, ay) = anchor((x, y), (r.left, r.top, r.right, r.bottom));
+        // SAFETY: no pointers.
+        let _ = unsafe { SetCursorPos(ax, ay) };
+    }
+    cursor_pos()
 }
 
 /// Reinstalling the hooks, from the process thread.
@@ -481,9 +532,15 @@ impl WindowsCapture {
         Ok(capture)
     }
 
-    /// `true`: swallow local input (the focus is on the other machine).
+    /// `true`: swallow local input (the focus is on the other machine). The cursor waits
+    /// away from the edge so the hook can measure movement in every direction.
     pub fn set_grab(&self, grab: bool) {
-        self.grab.store(grab, Ordering::Relaxed);
+        let was = self.grab.swap(grab, Ordering::Relaxed);
+        if grab && !was {
+            // SAFETY: message without pointers to a thread with a queue.
+            let _ =
+                unsafe { PostThreadMessageW(self.hook_thread_id, WM_ANCHOR, WPARAM(0), LPARAM(0)) };
+        }
     }
 
     pub fn is_grabbed(&self) -> bool {

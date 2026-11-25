@@ -9,6 +9,11 @@ struct FakeSink {
     cursor: Option<(i32, i32)>,
     calls: Vec<Vec<WinInput>>,
     blocked: bool,
+    /// Windows has no mouse: it does not draw the cursor unless MouseKeys is on.
+    no_mouse: bool,
+    mousekeys: bool,
+    /// Each call to `force_cursor`.
+    forced: Vec<bool>,
 }
 
 impl FakeSink {
@@ -18,6 +23,9 @@ impl FakeSink {
             cursor: Some(cursor),
             calls: Vec::new(),
             blocked: false,
+            no_mouse: false,
+            mousekeys: false,
+            forced: Vec::new(),
         }
     }
 
@@ -60,6 +68,16 @@ impl InputSink for FakeSink {
 
     fn cursor_pos(&self) -> Option<(i32, i32)> {
         self.cursor
+    }
+
+    fn cursor_hidden(&self) -> bool {
+        self.no_mouse && !self.mousekeys
+    }
+
+    fn force_cursor(&mut self, on: bool) -> Result<(), EmulateError> {
+        self.mousekeys = on;
+        self.forced.push(on);
+        Ok(())
     }
 }
 
@@ -569,4 +587,73 @@ fn when_the_screens_change_the_position_adjusts() {
     })
     .unwrap();
     assert_eq!(e.sink().cursor, Some((1919, 500)));
+}
+
+/// The bug: with the keyboard and mouse hub on the Mac, Windows had no mouse and did not
+/// draw the cursor, so on the PC it moved invisible.
+#[test]
+fn without_a_mouse_the_cursor_is_forced_while_the_focus_is_here() {
+    let mut e = emu(single(1920, 1080), (10, 10));
+    e.sink_mut().no_mouse = true;
+    let t0 = Instant::now();
+    e.set_focus_at(true, t0).unwrap();
+    assert!(e.cursor_forced());
+    assert!(!e.sink().cursor_hidden(), "Windows draws it now");
+    // Moving does not touch it again.
+    e.emulate(&InputEvent::MotionRelative { dx: 5.0, dy: 0.0 })
+        .unwrap();
+    assert_eq!(e.sink().forced, vec![true]);
+    // On leaving, the user's setting comes back.
+    e.set_focus_at(false, t0).unwrap();
+    assert!(!e.cursor_forced());
+    assert_eq!(e.sink().forced, vec![true, false]);
+    e.set_focus_at(false, t0).unwrap();
+    assert_eq!(e.sink().forced, vec![true, false], "only once");
+}
+
+#[test]
+fn with_a_mouse_nothing_is_touched() {
+    let mut e = emu(single(1920, 1080), (10, 10));
+    e.set_focus_at(true, Instant::now()).unwrap();
+    e.emulate(&InputEvent::MotionAbsolute { x: 50.0, y: 50.0 })
+        .unwrap();
+    e.set_focus_at(false, Instant::now()).unwrap();
+    assert!(e.sink().forced.is_empty());
+}
+
+#[test]
+fn a_mouse_unplugged_while_the_focus_is_here_is_noticed_moving() {
+    let mut e = emu(single(1920, 1080), (10, 10));
+    let t0 = Instant::now();
+    e.set_focus_at(true, t0).unwrap();
+    e.sink_mut().no_mouse = true;
+    // Checked at most once a second, never on every event.
+    e.check_cursor(t0 + Duration::from_millis(500)).unwrap();
+    assert!(!e.cursor_forced());
+    e.check_cursor(t0 + CURSOR_CHECK_EVERY).unwrap();
+    assert!(e.cursor_forced());
+}
+
+#[test]
+fn without_the_focus_the_cursor_is_never_forced() {
+    let mut e = emu(single(1920, 1080), (10, 10));
+    e.sink_mut().no_mouse = true;
+    e.emulate(&InputEvent::MotionAbsolute { x: 50.0, y: 50.0 })
+        .unwrap();
+    assert!(!e.cursor_forced());
+    assert!(e.sink().forced.is_empty());
+}
+
+#[test]
+fn mousekeys_leaves_the_keypad_as_the_user_types_with_it() {
+    // Num Lock on (digits): MouseKeys only acts with it off.
+    assert_eq!(
+        forced_mousekeys_flags(true),
+        MKF_MOUSEKEYSON | MKF_AVAILABLE
+    );
+    // Num Lock off (arrows): MouseKeys only acts with it on.
+    assert_eq!(
+        forced_mousekeys_flags(false),
+        MKF_MOUSEKEYSON | MKF_AVAILABLE | MKF_REPLACENUMBERS
+    );
 }

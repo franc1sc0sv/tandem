@@ -126,7 +126,32 @@ pub fn layout(
     links: &Links,
     opts: LayoutOptions,
 ) -> Result<Layout, GeometryError> {
-    Layout::compute(&arrangement(desk, state, me, mine, theirs, links), opts)
+    let mut layout = Layout::compute(&arrangement(desk, state, me, mine, theirs, links), opts)?;
+    for machine in [Machine::A, Machine::B] {
+        let own = if machine == me { mine } else { theirs };
+        if shown_elsewhere(desk, state, machine, own, links) {
+            layout = layout.with_shown_elsewhere(machine);
+        }
+    }
+    Ok(layout)
+}
+
+/// `machine` is on and has screens, and every one of them shows the other machine (or is
+/// off): a scene, not screens still unknown. Then the keyboard and mouse go over there.
+pub fn shown_elsewhere(
+    desk: &Config,
+    state: &State,
+    machine: Machine,
+    read: &[Screen],
+    links: &Links,
+) -> bool {
+    if !state.is_on(machine) {
+        return false;
+    }
+    let declared: Vec<Screen> = desk.screens_of(machine).map(from_spec).collect();
+    let screens = if declared.is_empty() { read } else { &declared };
+    let hidden = hidden(desk, machine, links);
+    !screens.is_empty() && screens.iter().all(|s| hidden.contains(&s.id.0))
 }
 
 #[cfg(test)]
@@ -306,6 +331,86 @@ mod tests {
             &shows(Machine::B),
         );
         assert_eq!(arr.a, mine);
+    }
+
+    /// Scene "only Mac": the PC has screens, but all show the Mac. That (and not screens still
+    /// unknown, or a machine that is off) is what sends the cursor to the Mac by itself.
+    #[test]
+    fn a_machine_whose_every_screen_shows_the_other_is_marked() {
+        let mut desk = Config::default();
+        let mut cable = tandem_core::MonitorCable::new("m34");
+        cable.a.screen = Some("mac-1".into());
+        cable.b.screen = Some("pc-1".into());
+        desk.cables.push(cable);
+        let mac = [mon("mac-1", 0, 3440)];
+        let pc = [mon("pc-1", 0, 3440)];
+        let shows =
+            |m: Machine| Links::from([("m34".to_owned(), link(LinkState::ShowsMachine(m)))]);
+        let opts = LayoutOptions::default();
+        let l = layout(
+            &desk,
+            &both_on(),
+            Machine::B,
+            (&pc, &mac),
+            &shows(Machine::A),
+            opts,
+        )
+        .unwrap();
+        assert!(l.shown_elsewhere(Machine::B));
+        assert!(!l.shown_elsewhere(Machine::A));
+        // The same seen from the Mac.
+        let l = layout(
+            &desk,
+            &both_on(),
+            Machine::A,
+            (&mac, &pc),
+            &shows(Machine::A),
+            opts,
+        )
+        .unwrap();
+        assert!(l.shown_elsewhere(Machine::B));
+        // Back to the PC, or without knowing what it shows: not marked.
+        let l = layout(
+            &desk,
+            &both_on(),
+            Machine::B,
+            (&pc, &mac),
+            &shows(Machine::B),
+            opts,
+        )
+        .unwrap();
+        assert!(!l.shown_elsewhere(Machine::B));
+        let l = layout(
+            &desk,
+            &both_on(),
+            Machine::B,
+            (&pc, &mac),
+            &Links::new(),
+            opts,
+        )
+        .unwrap();
+        assert!(!l.shown_elsewhere(Machine::B));
+        // The PC's screens not read yet: no screens, but it is not a scene.
+        let l = layout(
+            &desk,
+            &both_on(),
+            Machine::B,
+            (&[], &mac),
+            &shows(Machine::A),
+            opts,
+        )
+        .unwrap();
+        assert!(l.screens(Machine::B).is_empty());
+        assert!(!l.shown_elsewhere(Machine::B));
+        // Off: it is not marked either.
+        let off = State::initial(Machine::A);
+        assert!(!shown_elsewhere(
+            &desk,
+            &off,
+            Machine::B,
+            &pc,
+            &shows(Machine::A)
+        ));
     }
 
     fn link(state: LinkState) -> MonitorLink {

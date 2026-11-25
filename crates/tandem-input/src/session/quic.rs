@@ -282,7 +282,12 @@ impl<C: Capture> ServerDriver<C> {
             publish(locked, session.is_locked());
             publish(held, session.button_held());
         };
+        let outs = session.start();
+        if let Err(e) = apply(capture, &mut stream, conn, outs).await {
+            return e.into();
+        }
         sync(session);
+        publish_cursor(cursor, session);
 
         let mut beats = Beats::new();
         let mut heartbeat = time::interval(cfg.heartbeat_interval);
@@ -575,7 +580,7 @@ impl<I: Injector> ClientDriver<I> {
         // Whatever happens with the link, nothing is left pressed.
         let release = self.session.link_lost();
         inject(&mut self.injector, release);
-        publish(&self.here, false);
+        focus(&mut self.injector, &self.here, false);
         tracing::info!("input session (without the keyboard) ended: {end}");
         end
     }
@@ -645,7 +650,7 @@ impl<I: Injector> ClientDriver<I> {
                         if let (true, StreamMsg::Key { t_us, .. } | StreamMsg::Button { t_us, .. }) = (injected, msg) {
                             measure(t_us, &beats, &mut hist);
                         }
-                        publish(here, session.is_active());
+                        focus(injector, here, session.is_active());
                         client_cursor(cursor, session);
                     }
                     Ok(None) => return TransportError::ControlClosed.into(),
@@ -732,6 +737,17 @@ fn set_screens<I: Injector>(session: &mut ClientSession, injector: &mut I, scree
     if let Err(e) = injector.refresh() {
         tracing::warn!("injection: the screens could not be reread: {e}");
     }
+}
+
+/// Tells the injector and whoever watches when the cursor arrives or leaves; only on changes.
+fn focus<I: Injector>(injector: &mut I, here: &watch::Sender<bool>, active: bool) {
+    if *here.borrow() == active {
+        return;
+    }
+    if let Err(e) = injector.set_focus(active) {
+        tracing::warn!("injection: {e}");
+    }
+    publish(here, active);
 }
 
 fn inject<I: Injector>(injector: &mut I, events: Vec<InputEvent>) {

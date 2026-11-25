@@ -300,6 +300,16 @@ impl<L: InputSink> InputSink for RoutedSink<L> {
     fn cursor_pos(&self) -> Option<(i32, i32)> {
         self.local.cursor_pos()
     }
+
+    // The cursor is drawn by the session's desktop, whoever injects: MouseKeys is a
+    // system setting, set from here.
+    fn cursor_hidden(&self) -> bool {
+        self.local.cursor_hidden()
+    }
+
+    fn force_cursor(&mut self, on: bool) -> Result<(), EmulateError> {
+        self.local.force_cursor(on)
+    }
 }
 
 #[cfg(test)]
@@ -322,6 +332,7 @@ mod tests {
     #[derive(Debug, Default)]
     struct Seen {
         local: Vec<WinInput>,
+        forced: Vec<bool>,
         helper: Vec<Request>,
         connects: usize,
     }
@@ -390,6 +401,23 @@ mod tests {
         fn cursor_pos(&self) -> Option<(i32, i32)> {
             Some((7, 8))
         }
+        fn cursor_hidden(&self) -> bool {
+            true
+        }
+        fn force_cursor(&mut self, on: bool) -> Result<(), EmulateError> {
+            self.0.lock().unwrap().forced.push(on);
+            Ok(())
+        }
+    }
+
+    /// Without this, the wrapper swallowed the call and the PC's cursor stayed invisible.
+    #[test]
+    fn drawing_the_cursor_reaches_the_local_sink() {
+        let (mut s, seen, _) = sink(Mode::Missing);
+        assert!(s.cursor_hidden());
+        s.force_cursor(true).unwrap();
+        s.force_cursor(false).unwrap();
+        assert_eq!(seen.lock().unwrap().forced, vec![true, false]);
     }
 
     fn sink(mode: Mode) -> (RoutedSink<Local>, Arc<Mutex<Seen>>, Arc<Mutex<Mode>>) {

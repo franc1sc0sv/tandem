@@ -1,5 +1,7 @@
 //! Test desks for the state machines.
 
+use tandem_core::Machine;
+
 use crate::geometry::{Arrangement, Layout, LayoutOptions, Rect, Screen, Side};
 
 pub fn mon(id: &str, x: i32, w: u32, h: u32, scale: f64) -> Screen {
@@ -56,6 +58,22 @@ pub fn layout_pc_two_mac() -> Layout {
 /// The same, but the Mac has no screens: there is nowhere to cross to.
 pub fn layout_pc_only() -> Layout {
     layout(vec![], vec![mon("m34", 0, 3440, 1440, 1.0)], Side::Right)
+}
+
+/// Every monitor shows the Mac: the PC has no screens (scene "only Mac").
+pub fn layout_mac_only() -> Layout {
+    layout(vec![mon("m32", 3440, 1920, 1080, 1.0)], vec![], Side::Right)
+        .with_shown_elsewhere(Machine::B)
+}
+
+/// The PC's screens are not known yet (starting up): it is not a scene.
+pub fn layout_pc_unknown() -> Layout {
+    layout(vec![mon("m32", 3440, 1920, 1080, 1.0)], vec![], Side::Right)
+}
+
+/// Neither machine has a visible screen (a moment in the middle of a change).
+pub fn layout_none() -> Layout {
+    layout(vec![], vec![], Side::Right)
 }
 
 /// 34" on the Mac at the left; 32" 4K at 150 % on the PC at the right.

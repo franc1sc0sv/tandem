@@ -12,6 +12,11 @@
 //!   is kept in `f64`, so deltas of less than a pixel accumulate instead of being lost.
 //! - Wheel with `mouseData` in `WHEEL_DELTA` units (120), which admits fractions.
 //! - Everything injected carries [`TANDEM_EXTRA_INFO`] in `dwExtraInfo`.
+//! - **A cursor without a mouse:** Windows does not draw the cursor when no mouse is
+//!   connected (the keyboard and mouse hub is on the other machine), and what `SendInput`
+//!   injects does not change that. While the focus is here and the cursor is not
+//!   drawn, MouseKeys is turned on ([`InputSink::force_cursor`]): with it Windows counts a
+//!   mouse and draws the cursor. On leaving, the user's setting comes back.
 
 #[cfg(windows)]
 mod sys;
@@ -22,6 +27,8 @@ pub use sys::{SendInputSink, displays, set_per_monitor_v2_dpi_awareness};
 use crate::event::{
     Button, HidUsage, InputEvent, KeyState, ModifierKey, Modifiers, Pressed, Scroll, keymap,
 };
+use std::time::{Duration, Instant};
+
 use crate::geometry::{Point, Rect};
 use crate::windows::TANDEM_EXTRA_INFO;
 
@@ -48,6 +55,24 @@ pub const XBUTTON2: u32 = 0x0002;
 /// `VK_PAUSE`: Pause has no simple scancode (it is the sequence E1 1D 45) and the bare 0x45
 /// that Chromium's Windows table gives is interpreted as Num Lock.
 pub const VK_PAUSE: u16 = 0x13;
+
+/// `MOUSEKEYS.dwFlags` (winuser.h).
+pub const MKF_MOUSEKEYSON: u32 = 0x01;
+pub const MKF_AVAILABLE: u32 = 0x02;
+pub const MKF_REPLACENUMBERS: u32 = 0x80;
+
+/// The MouseKeys flags that make Windows draw the cursor without touching how the keypad
+/// types: MouseKeys acts on the keypad only in the Num Lock state the user is not using
+/// (with it on, the keypad keeps typing digits; with it off, keeps being arrows). No
+/// hotkey, sound or tray icon.
+pub fn forced_mousekeys_flags(num_lock_on: bool) -> u32 {
+    let replace = if num_lock_on { 0 } else { MKF_REPLACENUMBERS };
+    MKF_MOUSEKEYSON | MKF_AVAILABLE | replace
+}
+
+/// How often, while the focus is here, it checks again whether the cursor is drawn (a
+/// mouse that was unplugged or plugged in).
+pub const CURSOR_CHECK_EVERY: Duration = Duration::from_secs(1);
 
 /// Range of `SendInput`'s normalized absolute coordinates.
 const ABS_SCALE: i64 = 65_536;
@@ -170,6 +195,15 @@ pub trait InputSink {
     fn desktop(&self) -> Result<Desktop, EmulateError>;
     /// Real position of the cursor, to notice if another one (the local mouse) moved it.
     fn cursor_pos(&self) -> Option<(i32, i32)>;
+    /// Windows is not drawing the cursor (`GetCursorInfo` without `CURSOR_SHOWING`).
+    fn cursor_hidden(&self) -> bool {
+        false
+    }
+    /// `true`: make Windows draw the cursor even without a mouse (MouseKeys). `false`: put
+    /// back what the user had. Idempotent.
+    fn force_cursor(&mut self, _on: bool) -> Result<(), EmulateError> {
+        Ok(())
+    }
 }
 
 /// Injection state: cursor position with fractions, wheel remainders and what
@@ -182,6 +216,12 @@ pub struct Emulator<S: InputSink> {
     last_px: Option<(i32, i32)>,
     wheel_rest: (f64, f64),
     pressed: Pressed,
+    /// The cursor is on this machine (between the Enter and the Leave).
+    focus: bool,
+    /// MouseKeys is on because of us.
+    forced: bool,
+    /// When it was last checked whether the cursor is drawn.
+    checked_at: Option<Instant>,
 }
 
 impl<S: InputSink> Emulator<S> {
@@ -197,7 +237,54 @@ impl<S: InputSink> Emulator<S> {
             last_px: None,
             wheel_rest: (0.0, 0.0),
             pressed: Pressed::new(),
+            focus: false,
+            forced: false,
+            checked_at: None,
         })
+    }
+
+    /// The cursor arrives at this machine (`true`) or leaves it. While it is here, the
+    /// cursor has to be seen even if Windows has no mouse.
+    pub fn set_focus(&mut self, here: bool) -> Result<(), EmulateError> {
+        self.set_focus_at(here, Instant::now())
+    }
+
+    pub fn set_focus_at(&mut self, here: bool, now: Instant) -> Result<(), EmulateError> {
+        self.focus = here;
+        self.checked_at = None;
+        if here {
+            self.check_cursor(now)
+        } else if self.forced {
+            self.forced = false;
+            self.sink.force_cursor(false)
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Whether MouseKeys is on because of us.
+    pub fn cursor_forced(&self) -> bool {
+        self.forced
+    }
+
+    /// With the focus here, turns MouseKeys on if Windows is not drawing the cursor. Once on,
+    /// it stays until the Leave: with it the cursor is always drawn, so it can no longer tell.
+    fn check_cursor(&mut self, now: Instant) -> Result<(), EmulateError> {
+        if !self.focus || self.forced {
+            return Ok(());
+        }
+        if self
+            .checked_at
+            .is_some_and(|at| now.saturating_duration_since(at) < CURSOR_CHECK_EVERY)
+        {
+            return Ok(());
+        }
+        self.checked_at = Some(now);
+        if self.sink.cursor_hidden() {
+            self.sink.force_cursor(true)?;
+            self.forced = true;
+        }
+        Ok(())
     }
 
     pub fn sink(&self) -> &S {
@@ -232,11 +319,13 @@ impl<S: InputSink> Emulator<S> {
             InputEvent::Key { usage, state } => vec![key_input(usage, state)?],
             InputEvent::Button { button, state } => vec![button_input(button, state)?],
             InputEvent::MotionRelative { dx, dy } => {
+                self.check_cursor(Instant::now())?;
                 self.resync();
                 let p = Point::new(self.pos.x + dx, self.pos.y + dy);
                 return self.move_to(p);
             }
             InputEvent::MotionAbsolute { x, y } => {
+                self.check_cursor(Instant::now())?;
                 return self.move_to(Point::new(x, y));
             }
             InputEvent::Scroll(scroll) => self.scroll_inputs(scroll),

@@ -75,6 +75,12 @@ pub trait Injector: Send {
     fn refresh(&mut self) -> Result<(), Self::Error> {
         Ok(())
     }
+
+    /// The cursor arrives at this machine (`true`, the Enter) or leaves it (the Leave, or
+    /// the session ends). Windows uses it to draw the cursor when it has no mouse.
+    fn set_focus(&mut self, _here: bool) -> Result<(), Self::Error> {
+        Ok(())
+    }
 }
 
 /// Session timings.
