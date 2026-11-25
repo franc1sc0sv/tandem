@@ -9,7 +9,7 @@
 
 | | |
 |---|---|
-| Tasks | **198 done of 203** (`T-001`…`T-357`; open ones below) |
+| Tasks | **199 done of 204** (`T-001`…`T-358`; open ones below) |
 | Tests | **1832 Rust + 803 UI (vitest)**, 0 failures, 11 ignored (`#[ignore = "hardware"]` and latency benches) |
 | Quality | `fmt`, `clippy -D warnings`, `svelte-check` and `pnpm build` with no warnings |
 | CI per PR | Linux · Windows · macOS · UI x3 · coverage · `.dmg` · Windows installer |
