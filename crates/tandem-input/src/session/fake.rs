@@ -72,17 +72,24 @@ impl Capture for FakeCapture {
 #[derive(Debug)]
 pub struct FakeInjector {
     events: watch::Sender<Vec<InputEvent>>,
+    focus: watch::Sender<Vec<bool>>,
 }
 
 impl FakeInjector {
     pub fn new() -> Self {
         Self {
             events: watch::Sender::new(Vec::new()),
+            focus: watch::Sender::new(Vec::new()),
         }
     }
 
     pub fn events(&self) -> watch::Receiver<Vec<InputEvent>> {
         self.events.subscribe()
+    }
+
+    /// Each [`Injector::set_focus`], in order.
+    pub fn focus(&self) -> watch::Receiver<Vec<bool>> {
+        self.focus.subscribe()
     }
 }
 
@@ -97,6 +104,11 @@ impl Injector for FakeInjector {
 
     fn inject(&mut self, event: &InputEvent) -> Result<(), Infallible> {
         self.events.send_modify(|e| e.push(*event));
+        Ok(())
+    }
+
+    fn set_focus(&mut self, here: bool) -> Result<(), Infallible> {
+        self.focus.send_modify(|f| f.push(here));
         Ok(())
     }
 }

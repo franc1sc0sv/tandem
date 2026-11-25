@@ -25,10 +25,14 @@ pub(super) fn button_bit(m: &MouseHook) -> Option<(u8, bool)> {
     }
 }
 
-/// Event from a mouse hook message. Movement only comes out as an absolute
-/// position and only if it was not swallowed: with input swallowed the cursor does not move and
-/// the delta comes from Raw Input.
-pub fn mouse_event(m: &MouseHook, swallowed: bool) -> Option<InputEvent> {
+/// Event from a mouse hook message. A movement that passes comes out as the absolute
+/// position; a swallowed one, as the delta from `origin` (where the cursor stayed) to the
+/// point Windows would have taken it to, with its acceleration already applied.
+pub fn mouse_event(
+    m: &MouseHook,
+    swallowed: bool,
+    origin: Option<(i32, i32)>,
+) -> Option<InputEvent> {
     if let Some((index, down)) = button_bit(m) {
         let button = match index {
             0 => Button::Left,
@@ -52,6 +56,14 @@ pub fn mouse_event(m: &MouseHook, swallowed: bool) -> Option<InputEvent> {
             x: f64::from(m.x),
             y: f64::from(m.y),
         }),
+        WM_MOUSEMOVE => {
+            let (ox, oy) = origin?;
+            let (dx, dy) = (m.x.saturating_sub(ox), m.y.saturating_sub(oy));
+            (dx != 0 || dy != 0).then(|| InputEvent::MotionRelative {
+                dx: f64::from(dx),
+                dy: f64::from(dy),
+            })
+        }
         WM_MOUSEWHEEL if delta != 0 => Some(InputEvent::Scroll(Scroll::Wheel {
             dx_v120: 0,
             dy_v120: delta,
@@ -63,6 +75,21 @@ pub fn mouse_event(m: &MouseHook, swallowed: bool) -> Option<InputEvent> {
         })),
         _ => None,
     }
+}
+
+/// Where the cursor waits while input is swallowed: the point closest to where it was
+/// inside the middle half of its monitor (`left, top, right, bottom`, right and bottom
+/// exclusive). Close to the edge Windows would clamp the point the hook reports, and
+/// the movement towards the other machine would be lost; a quarter of the monitor is far
+/// more than one event can move.
+pub fn anchor(cursor: (i32, i32), monitor: (i32, i32, i32, i32)) -> (i32, i32) {
+    let (l, t, r, b) = monitor;
+    let axis = |p: i32, lo: i32, hi: i32| {
+        let quarter = (hi - lo) / 4;
+        let (lo, hi) = (lo + quarter, (hi - 1 - quarter).max(lo + quarter));
+        p.clamp(lo, hi)
+    };
+    (axis(cursor.0, l, r), axis(cursor.1, t, b))
 }
 
 /// Raw Input deltas. Devices that report absolute position
@@ -143,15 +170,15 @@ mod tests {
         ];
         for (msg, high, b, s) in cases {
             for swallowed in [false, true] {
-                assert_eq!(mouse_event(&hook(msg, high), swallowed), button(b, s));
+                assert_eq!(mouse_event(&hook(msg, high), swallowed, None), button(b, s));
             }
         }
-        assert_eq!(mouse_event(&hook(WM_XBUTTONDOWN, 3), false), None);
+        assert_eq!(mouse_event(&hook(WM_XBUTTONDOWN, 3), false, None), None);
     }
 
     #[test]
     fn wheel_with_sign_and_fractions() {
-        let wheel = |msg, d: i16| mouse_event(&hook(msg, d as u16), true);
+        let wheel = |msg, d: i16| mouse_event(&hook(msg, d as u16), true, None);
         assert_eq!(
             wheel(WM_MOUSEWHEEL, -120),
             Some(InputEvent::Scroll(Scroll::Wheel {
@@ -179,14 +206,41 @@ mod tests {
     #[test]
     fn the_position_only_comes_out_without_grab() {
         assert_eq!(
-            mouse_event(&hook(WM_MOUSEMOVE, 0), false),
+            mouse_event(&hook(WM_MOUSEMOVE, 0), false, None),
             Some(InputEvent::MotionAbsolute {
                 x: -1920.0,
                 y: 300.0
             })
         );
-        assert_eq!(mouse_event(&hook(WM_MOUSEMOVE, 0), true), None);
-        assert_eq!(mouse_event(&hook(0x0000, 0), false), None);
+        assert_eq!(mouse_event(&hook(WM_MOUSEMOVE, 0), true, None), None);
+        assert_eq!(mouse_event(&hook(0x0000, 0), false, None), None);
+    }
+
+    #[test]
+    fn a_swallowed_move_is_the_delta_from_where_the_cursor_stayed() {
+        let mut m = hook(WM_MOUSEMOVE, 0);
+        (m.x, m.y) = (1007, 497);
+        assert_eq!(
+            mouse_event(&m, true, Some((1000, 500))),
+            Some(InputEvent::MotionRelative { dx: 7.0, dy: -3.0 })
+        );
+        // Without knowing where the cursor is, nothing is invented.
+        assert_eq!(mouse_event(&m, true, None), None);
+        // No movement, no event.
+        assert_eq!(mouse_event(&m, true, Some((1007, 497))), None);
+    }
+
+    #[test]
+    fn the_anchor_stays_in_the_middle_half_of_the_monitor() {
+        let mon = (0, 0, 3440, 1440);
+        // At the right edge (where it crossed), it moves in a quarter.
+        assert_eq!(anchor((3439, 700), mon), (2579, 700));
+        assert_eq!(anchor((0, 0), mon), (860, 360));
+        assert_eq!(anchor((1720, 720), mon), (1720, 720));
+        // A monitor left of the primary one (negative coordinates).
+        assert_eq!(anchor((-1, 10), (-1920, 0, 0, 1080)), (-481, 270));
+        // Degenerate: never panics.
+        assert_eq!(anchor((5, 5), (0, 0, 1, 1)), (0, 0));
     }
 
     fn raw(device: usize, flags: u16, x: i32, y: i32) -> RawMouse {
@@ -196,6 +250,7 @@ mod tests {
             last_x: x,
             last_y: y,
             span: (3440.0, 1440.0),
+            grabbed: false,
         }
     }
 

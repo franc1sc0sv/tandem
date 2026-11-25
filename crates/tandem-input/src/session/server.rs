@@ -475,13 +475,49 @@ impl ServerSession {
                         self.synced = false;
                     }
                 }
+                // Coming back to a machine with no visible screen would leave the cursor
+                // where nobody sees it and, with no crossing edge, with no way out: it
+                // stays on the other one until one of the two has a screen again.
+                None if self.layout.screens(self.machine).is_empty() => {}
                 None => {
                     let back = self.local;
                     self.leave(back, &mut out);
                 }
             }
         }
+        self.settle(&mut out);
         out
+    }
+
+    /// Starts a session: if this machine has nothing visible, the focus goes to the other one.
+    pub fn start(&mut self) -> Vec<ServerOutput> {
+        let mut out = Vec::new();
+        self.settle(&mut out);
+        out
+    }
+
+    /// Every monitor of this machine shows the other one (a scene): the keyboard and mouse
+    /// can only be used over there, so the cursor goes there by itself, to the centre of its
+    /// first screen. Without this, with no crossing edge (it needs screens on both sides) it
+    /// would never reach it. Screens not known yet (starting up) do not count: only what the
+    /// agent marks ([`Layout::shown_elsewhere`]).
+    fn settle(&mut self, out: &mut Vec<ServerOutput>) {
+        if self.is_remote()
+            || !self.layout.screens(self.machine).is_empty()
+            || !self.layout.shown_elsewhere(self.machine)
+        {
+            return;
+        }
+        let Some(target) = self.layout.screens(self.machine.other()).first() else {
+            return;
+        };
+        let r = target.rect;
+        let center = Point::new(
+            f64::from(r.x) + f64::from(r.width) / 2.0,
+            f64::from(r.y) + f64::from(r.height) / 2.0,
+        );
+        tracing::info!("no screen of this machine is visible: the cursor goes to the other one");
+        self.enter(center, out);
     }
 
     /// The link dropped or changed: the focus returns to this machine without notifying the
@@ -550,8 +586,8 @@ mod tests {
     use super::*;
     use crate::event::{Button, HidUsage, KeyState, ModifierKey, Modifiers};
     use crate::session::testutil::{
-        edge_pc, layout_mac_pc_hidpi, layout_pc_mac, layout_pc_mac_small, layout_pc_only,
-        layout_pc_two_mac,
+        edge_pc, layout_mac_only, layout_mac_pc_hidpi, layout_none, layout_pc_mac,
+        layout_pc_mac_small, layout_pc_only, layout_pc_two_mac, layout_pc_unknown,
     };
 
     fn session() -> ServerSession {
@@ -1016,6 +1052,58 @@ mod tests {
         assert_eq!(out[0], ServerOutput::Stream(StreamMsg::Leave));
         assert_eq!(out[1], ServerOutput::Grab(false));
         assert!(!s.is_remote());
+    }
+
+    /// The bug: with every monitor showing the Mac, a moment without Mac screens (a scene
+    /// change, macOS reconfiguring its displays) brought the cursor back to a PC with
+    /// nothing visible and no crossing edge: the mouse "died" until the agent restarted.
+    #[test]
+    fn without_local_screens_the_focus_does_not_come_back_to_nothing() {
+        let mut s = session();
+        cross(&mut s);
+        let mac_only = layout_mac_only();
+        assert!(s.set_layout(mac_only.clone()).is_empty());
+        assert!(s.is_remote());
+        // The Mac's screens vanish for a moment: the focus stays there.
+        assert!(s.set_layout(layout_none()).is_empty());
+        assert!(s.is_remote());
+        // They come back: the mouse keeps moving the Mac's cursor.
+        assert!(s.set_layout(mac_only).is_empty());
+        s.handle(rel(10.0, 0.0));
+        assert!(s.flush().is_some());
+        // The PC shows itself again: now it can come back through the edge.
+        assert!(s.set_layout(layout_pc_mac()).is_empty());
+        assert!(s.is_remote());
+    }
+
+    #[test]
+    fn without_local_screens_the_cursor_goes_to_the_other_machine_by_itself() {
+        let mut s = session();
+        // Session start with the scene already applied.
+        let mut s2 = ServerSession::new(Machine::B, layout_mac_only(), Point::new(9.0, 9.0), 4);
+        let out = s2.start();
+        assert_eq!(out[0], ServerOutput::Grab(true));
+        assert!(matches!(
+            out[1],
+            ServerOutput::Stream(StreamMsg::Enter { pos, .. }) if pos == Point::new(4400.0, 540.0)
+        ));
+        assert!(s2.is_remote());
+        assert!(s2.start().is_empty(), "only once");
+        // The scene changes during the session.
+        let out = s.set_layout(layout_mac_only());
+        assert_eq!(out[0], ServerOutput::Grab(true));
+        assert!(s.is_remote());
+        // With neither machine visible there is nowhere to go.
+        let mut s3 = ServerSession::new(Machine::B, layout_none(), Point::new(9.0, 9.0), 4);
+        assert!(s3.start().is_empty());
+        assert!(!s3.is_remote());
+        // With its own screens it stays local.
+        assert!(session().start().is_empty());
+        // Screens not read yet are not a scene: it does not jump to the other machine.
+        let mut s4 = ServerSession::new(Machine::B, layout_pc_unknown(), Point::new(9.0, 9.0), 4);
+        assert!(s4.start().is_empty());
+        assert!(s4.set_layout(layout_pc_unknown()).is_empty());
+        assert!(!s4.is_remote());
     }
 
     #[test]

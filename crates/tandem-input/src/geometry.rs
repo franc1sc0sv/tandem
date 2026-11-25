@@ -242,6 +242,9 @@ pub struct Layout {
     align: Option<Align>,
     a: MachineLayout,
     b: MachineLayout,
+    /// Machines whose screens all show the other one (a scene): they have screens, but
+    /// none is in the geometry ([`Layout::with_shown_elsewhere`]).
+    elsewhere: [bool; 2],
 }
 
 /// The coordinates of a rectangle on the edge axis of `side`.
@@ -288,7 +291,21 @@ impl Layout {
             align: arr.align,
             a: build(arr.a.clone(), a_facing),
             b: build(arr.b.clone(), a_facing.map(Side::opposite)),
+            elsewhere: [false; 2],
         })
+    }
+
+    /// Every screen of `machine` shows the other machine: it is not that its screens are not
+    /// known yet (starting up) or that it is off, but that nothing of it can be seen. The
+    /// keyboard and mouse then only make sense over there.
+    pub fn with_shown_elsewhere(mut self, machine: Machine) -> Self {
+        self.elsewhere[machine as usize] = true;
+        self
+    }
+
+    /// See [`Layout::with_shown_elsewhere`].
+    pub fn shown_elsewhere(&self, machine: Machine) -> bool {
+        self.elsewhere[machine as usize]
     }
 
     pub fn options(&self) -> LayoutOptions {

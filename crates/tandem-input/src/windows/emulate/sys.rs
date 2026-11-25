@@ -6,21 +6,24 @@ use ::windows::Win32::Graphics::Gdi::{
     GetMonitorInfoW, HDC, HMONITOR, MONITORINFO, MONITORINFOEXW,
 };
 use ::windows::Win32::System::Registry::{HKEY_LOCAL_MACHINE, RRF_RT_REG_BINARY, RegGetValueW};
+use ::windows::Win32::UI::Accessibility::MOUSEKEYS;
 use ::windows::Win32::UI::HiDpi::{
     DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetProcessDpiAwarenessContext,
 };
 use ::windows::Win32::UI::Input::KeyboardAndMouse::{
-    INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBD_EVENT_FLAGS, KEYBDINPUT, MOUSE_EVENT_FLAGS,
-    MOUSEINPUT, SendInput, VIRTUAL_KEY,
+    GetKeyState, INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBD_EVENT_FLAGS, KEYBDINPUT,
+    MOUSE_EVENT_FLAGS, MOUSEINPUT, SendInput, VIRTUAL_KEY, VK_NUMLOCK,
 };
 use ::windows::Win32::UI::WindowsAndMessaging::{
-    EDD_GET_DEVICE_INTERFACE_NAME, GetCursorPos, GetSystemMetrics, SM_CXVIRTUALSCREEN,
-    SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN,
+    CURSOR_SHOWING, CURSORINFO, EDD_GET_DEVICE_INTERFACE_NAME, GetCursorInfo, GetCursorPos,
+    GetSystemMetrics, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN,
+    SPI_GETMOUSEKEYS, SPI_SETMOUSEKEYS, SPIF_SENDCHANGE, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS,
+    SetCursorPos, SystemParametersInfoW,
 };
 use ::windows::core::{BOOL, PCWSTR};
 use tandem_core::DisplayKey;
 
-use super::{Desktop, EmulateError, InputSink, WinInput};
+use super::{Desktop, EmulateError, InputSink, MKF_MOUSEKEYSON, WinInput, forced_mousekeys_flags};
 use crate::displays::{Display, windows_edid_key};
 use crate::geometry::Rect;
 
@@ -51,14 +54,59 @@ pub fn set_per_monitor_v2_dpi_awareness() -> Result<(), EmulateError> {
 
 /// Real injection. Creating it declares the process Per-Monitor-V2.
 pub struct SendInputSink {
-    _private: (),
+    /// The user's MouseKeys while ours is on ([`InputSink::force_cursor`]).
+    saved_mousekeys: Option<MOUSEKEYS>,
 }
 
 impl SendInputSink {
     pub fn new() -> Result<Self, EmulateError> {
         set_per_monitor_v2_dpi_awareness()?;
-        Ok(Self { _private: () })
+        Ok(Self {
+            saved_mousekeys: None,
+        })
     }
+}
+
+impl Drop for SendInputSink {
+    fn drop(&mut self) {
+        // MouseKeys is not left on: without the update flag it would last until the session
+        // ends anyway, but the keypad must not stay changed.
+        let _ = self.force_cursor(false);
+    }
+}
+
+fn get_mousekeys() -> Result<MOUSEKEYS, EmulateError> {
+    let mut mk = MOUSEKEYS {
+        cbSize: size_of::<MOUSEKEYS>() as u32,
+        ..Default::default()
+    };
+    // SAFETY: `mk` is an own MOUSEKEYS with its size in `cbSize` and in `uiParam`.
+    unsafe {
+        SystemParametersInfoW(
+            SPI_GETMOUSEKEYS,
+            mk.cbSize,
+            Some((&mut mk as *mut MOUSEKEYS).cast()),
+            SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0),
+        )
+    }
+    .map_err(|_| os_error("SystemParametersInfoW(SPI_GETMOUSEKEYS)"))?;
+    Ok(mk)
+}
+
+/// Without `SPIF_UPDATEINIFILE`: it is not saved in the profile, so if the agent dies
+/// it does not survive the session.
+fn set_mousekeys(mut mk: MOUSEKEYS) -> Result<(), EmulateError> {
+    mk.cbSize = size_of::<MOUSEKEYS>() as u32;
+    // SAFETY: `mk` is an own MOUSEKEYS with its size in `cbSize` and in `uiParam`.
+    unsafe {
+        SystemParametersInfoW(
+            SPI_SETMOUSEKEYS,
+            mk.cbSize,
+            Some((&mut mk as *mut MOUSEKEYS).cast()),
+            SPIF_SENDCHANGE,
+        )
+    }
+    .map_err(|_| os_error("SystemParametersInfoW(SPI_SETMOUSEKEYS)"))
 }
 
 fn to_win32(input: &WinInput) -> INPUT {
@@ -148,6 +196,49 @@ impl InputSink for SendInputSink {
         // SAFETY: `p` is a valid, writable POINT.
         unsafe { GetCursorPos(&mut p) }.ok()?;
         Some((p.x, p.y))
+    }
+
+    fn set_cursor_pos(&mut self, x: i32, y: i32) -> Result<bool, EmulateError> {
+        // SAFETY: no pointers; physical coordinates (the process is Per-Monitor-V2).
+        unsafe { SetCursorPos(x, y) }.map_err(|_| os_error("SetCursorPos"))?;
+        Ok(true)
+    }
+
+    fn cursor_hidden(&self) -> bool {
+        let mut info = CURSORINFO {
+            cbSize: size_of::<CURSORINFO>() as u32,
+            ..Default::default()
+        };
+        // SAFETY: `info` is an own CURSORINFO with its size filled in.
+        if unsafe { GetCursorInfo(&mut info) }.is_err() {
+            return false;
+        }
+        info.flags.0 & CURSOR_SHOWING.0 == 0
+    }
+
+    fn force_cursor(&mut self, on: bool) -> Result<(), EmulateError> {
+        if !on {
+            return match self.saved_mousekeys.take() {
+                Some(mk) => set_mousekeys(mk),
+                None => Ok(()),
+            };
+        }
+        if self.saved_mousekeys.is_some() {
+            return Ok(());
+        }
+        let user = get_mousekeys()?;
+        // The user already has it on: the cursor is drawn and their setting is not touched.
+        if user.dwFlags & MKF_MOUSEKEYSON != 0 {
+            return Ok(());
+        }
+        // SAFETY: no pointers.
+        let num_lock = unsafe { GetKeyState(i32::from(VK_NUMLOCK.0)) } & 1 != 0;
+        set_mousekeys(MOUSEKEYS {
+            dwFlags: forced_mousekeys_flags(num_lock),
+            ..user
+        })?;
+        self.saved_mousekeys = Some(user);
+        Ok(())
     }
 }
 
@@ -306,6 +397,24 @@ mod tests {
             u32::from(::windows::Win32::UI::WindowsAndMessaging::XBUTTON2)
         );
         assert_eq!(VK_PAUSE, km::VK_PAUSE.0);
+        use ::windows::Win32::UI::WindowsAndMessaging as wm;
+        assert_eq!(MKF_MOUSEKEYSON, wm::MKF_MOUSEKEYSON);
+        assert_eq!(MKF_AVAILABLE, wm::MKF_AVAILABLE);
+        assert_eq!(MKF_REPLACENUMBERS, wm::MKF_REPLACENUMBERS);
+    }
+
+    /// On the PC with no mouse connected (the hub on the Mac), from WSL with interop:
+    /// `cargo test -p tandem-input --lib -- --ignored --test-threads=1 mousekeys`. The cursor
+    /// appears while forced and the user's MouseKeys comes back afterwards.
+    #[test]
+    #[ignore = "hardware"]
+    fn mousekeys_draws_the_cursor_and_is_put_back() {
+        let mut sink = SendInputSink::new().unwrap();
+        let before = get_mousekeys().unwrap();
+        sink.force_cursor(true).unwrap();
+        assert!(!sink.cursor_hidden());
+        sink.force_cursor(false).unwrap();
+        assert_eq!(get_mousekeys().unwrap().dwFlags, before.dwFlags);
     }
 
     /// On the PC: `cargo test -p tandem-input --lib -- --ignored --test-threads=1 sendinput`.

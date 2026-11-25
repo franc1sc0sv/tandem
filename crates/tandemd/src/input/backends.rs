@@ -43,6 +43,10 @@ impl<I: Injector> Injector for Stringly<I> {
     fn refresh(&mut self) -> Result<(), String> {
         self.0.refresh().map_err(|e| e.to_string())
     }
+
+    fn set_focus(&mut self, here: bool) -> Result<(), String> {
+        self.0.set_focus(here).map_err(|e| e.to_string())
+    }
 }
 
 impl<C: Clipboard> Clipboard for Stringly<C> {
@@ -108,6 +112,10 @@ impl Injector for DynInjector {
 
     fn refresh(&mut self) -> Result<(), String> {
         self.0.refresh()
+    }
+
+    fn set_focus(&mut self, here: bool) -> Result<(), String> {
+        self.0.set_focus(here)
     }
 }
 

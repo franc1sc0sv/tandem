@@ -300,6 +300,26 @@ impl<L: InputSink> InputSink for RoutedSink<L> {
     fn cursor_pos(&self) -> Option<(i32, i32)> {
         self.local.cursor_pos()
     }
+
+    /// Only without the helper: with it, the input may be on another desktop (UAC, the
+    /// sign-in screen), where this process cannot move the cursor; there it goes as input.
+    fn set_cursor_pos(&mut self, x: i32, y: i32) -> Result<bool, EmulateError> {
+        self.ensure_link(Instant::now());
+        if self.link.is_some() {
+            return Ok(false);
+        }
+        self.local.set_cursor_pos(x, y)
+    }
+
+    // The cursor is drawn by the session's desktop, whoever injects: MouseKeys is a
+    // system setting, set from here.
+    fn cursor_hidden(&self) -> bool {
+        self.local.cursor_hidden()
+    }
+
+    fn force_cursor(&mut self, on: bool) -> Result<(), EmulateError> {
+        self.local.force_cursor(on)
+    }
 }
 
 #[cfg(test)]
@@ -322,6 +342,7 @@ mod tests {
     #[derive(Debug, Default)]
     struct Seen {
         local: Vec<WinInput>,
+        forced: Vec<bool>,
         helper: Vec<Request>,
         connects: usize,
     }
@@ -390,6 +411,36 @@ mod tests {
         fn cursor_pos(&self) -> Option<(i32, i32)> {
             Some((7, 8))
         }
+        fn cursor_hidden(&self) -> bool {
+            true
+        }
+        fn force_cursor(&mut self, on: bool) -> Result<(), EmulateError> {
+            self.0.lock().unwrap().forced.push(on);
+            Ok(())
+        }
+        fn set_cursor_pos(&mut self, _x: i32, _y: i32) -> Result<bool, EmulateError> {
+            Ok(true)
+        }
+    }
+
+    /// With the helper up the input may be on another desktop: the move goes through it.
+    #[test]
+    fn set_cursor_pos_only_without_the_helper() {
+        let (mut s, _, mode) = sink(Mode::Missing);
+        assert!(s.set_cursor_pos(5, 5).unwrap());
+        *mode.lock().unwrap() = Mode::Up;
+        s.next_attempt = None;
+        assert!(!s.set_cursor_pos(5, 5).unwrap());
+    }
+
+    /// Without this, the wrapper swallowed the call and the PC's cursor stayed invisible.
+    #[test]
+    fn drawing_the_cursor_reaches_the_local_sink() {
+        let (mut s, seen, _) = sink(Mode::Missing);
+        assert!(s.cursor_hidden());
+        s.force_cursor(true).unwrap();
+        s.force_cursor(false).unwrap();
+        assert_eq!(seen.lock().unwrap().forced, vec![true, false]);
     }
 
     fn sink(mode: Mode) -> (RoutedSink<Local>, Arc<Mutex<Seen>>, Arc<Mutex<Mode>>) {

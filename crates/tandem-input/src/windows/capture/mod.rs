@@ -13,11 +13,14 @@
 //!   hooks with Raw Input from real devices and reinstalls them if Windows
 //!   removed them. It never injects anything.
 //!
-//! Contract with the session (T-026): movement always arrives as `MotionRelative` from
-//! Raw Input (without acceleration, in physical pixels), and as
-//! `MotionAbsolute` with the cursor's real position while input is not
-//! swallowed. Coordinates are physical because the process declares itself
-//! Per-Monitor-V2 DPI aware.
+//! Contract with the session (T-026): while input is not swallowed, movement arrives as
+//! `MotionRelative` from Raw Input (without acceleration, in physical pixels) and as
+//! `MotionAbsolute` with the cursor's real position. While it is swallowed (the focus is
+//! on the other machine), as `MotionRelative` measured by the hook: the point where
+//! Windows would have taken the cursor minus where it is. That delta already carries
+//! the pointer speed and "Enhance pointer precision" the user set, so the mouse feels
+//! the same on the other machine as on this one; Raw Input's counts would not.
+//! Coordinates are physical because the process declares itself Per-Monitor-V2 DPI aware.
 
 mod keyboard;
 mod mouse;
@@ -32,7 +35,7 @@ use std::time::{Duration, Instant};
 use crate::event::InputEvent;
 
 pub use keyboard::{AltGrFilter, key_event};
-pub use mouse::{RawMotion, mouse_event};
+pub use mouse::{RawMotion, anchor, mouse_event};
 pub use watchdog::{HookKind, Watchdog, WatchdogAction, WatchdogConfig};
 
 #[cfg(windows)]
@@ -135,6 +138,8 @@ pub struct RawMouse {
     /// Width and height in pixels of the area covered by the 0–65535 range of
     /// absolute movements (virtual desktop or primary screen).
     pub span: (f64, f64),
+    /// Input was being swallowed when it arrived: the hook measures the movement.
+    pub grabbed: bool,
 }
 
 /// What the hook thread queues.
@@ -147,6 +152,9 @@ pub enum HookEvent {
     Mouse {
         hook: MouseHook,
         swallowed: bool,
+        /// Where the cursor really was when a swallowed movement arrived
+        /// ([`HookFilter::origin`]).
+        origin: Option<(i32, i32)>,
     },
     Raw(RawMouse),
     /// Keyboard Raw Input; only useful to the watchdog.
@@ -200,6 +208,9 @@ pub struct HookFilter {
     keys: [u64; 4],
     /// Bit per button: left, right, middle, X1, X2.
     buttons: u8,
+    /// The cursor's real position: the last point of an event that passed, or where the
+    /// capture put it. A swallowed event does not move it.
+    cursor: Option<(i32, i32)>,
 }
 
 impl HookFilter {
@@ -227,6 +238,25 @@ impl HookFilter {
             self.keys[word] |= bit;
             Verdict::Pass
         }
+    }
+
+    /// Where the cursor is, measured from an event already decided: one that passes
+    /// takes it to its point; a swallowed movement returns where it is, from which the hook
+    /// measures the (accelerated) movement Windows would have made.
+    pub fn origin(&mut self, verdict: Verdict, m: &MouseHook) -> Option<(i32, i32)> {
+        match verdict {
+            Verdict::Pass => {
+                self.cursor = Some((m.x, m.y));
+                None
+            }
+            Verdict::Swallow if m.message == consts::WM_MOUSEMOVE => self.cursor,
+            Verdict::Swallow => None,
+        }
+    }
+
+    /// The capture moved the cursor itself (`SetCursorPos`).
+    pub fn set_cursor(&mut self, pos: (i32, i32)) {
+        self.cursor = Some(pos);
     }
 
     pub fn mouse(&mut self, grab: bool, m: &MouseHook) -> Verdict {
@@ -303,18 +333,26 @@ impl Translator {
                     self.altgr.push(hook, now, &mut emit_key);
                 }
             }
-            HookEvent::Mouse { hook, swallowed } => {
+            HookEvent::Mouse {
+                hook,
+                swallowed,
+                origin,
+            } => {
                 if hook.injected() {
                     return;
                 }
-                if let Some(ev) = mouse_event(&hook, swallowed) {
+                if let Some(ev) = mouse_event(&hook, swallowed, origin) {
                     // The held Ctrl happened earlier: it goes first.
                     self.altgr.flush_all(&mut emit_key);
                     out(ev);
                 }
             }
             HookEvent::Raw(raw) => {
-                if let Some((dx, dy)) = self.raw.push(&raw) {
+                // Always pushed, so an absolute device keeps its series; with input
+                // swallowed the hook already measures the movement, with acceleration.
+                if let Some((dx, dy)) = self.raw.push(&raw)
+                    && !raw.grabbed
+                {
                     self.altgr.flush_all(&mut emit_key);
                     out(InputEvent::MotionRelative { dx, dy });
                 }
@@ -666,6 +704,7 @@ mod tests {
             HookEvent::Mouse {
                 hook: mouse(WM_LBUTTONDOWN, 0),
                 swallowed: true,
+                origin: None,
             },
             HookEvent::Raw(RawMouse {
                 device: 7,
@@ -673,6 +712,7 @@ mod tests {
                 last_x: 3,
                 last_y: -2,
                 span: (0.0, 0.0),
+                grabbed: false,
             }),
             HookEvent::Raw(RawMouse {
                 device: 0,
@@ -680,11 +720,13 @@ mod tests {
                 last_x: 50,
                 last_y: 50,
                 span: (0.0, 0.0),
+                grabbed: false,
             }),
             HookEvent::RawKeyboard { device: 7 },
             HookEvent::Mouse {
                 hook: mouse(WM_MOUSEWHEEL, (120u32) << 16),
                 swallowed: true,
+                origin: None,
             },
             kb(KeyboardHook {
                 flags: LLKHF_UP,
@@ -765,6 +807,7 @@ mod tests {
             HookEvent::Mouse {
                 hook: mouse(WM_LBUTTONDOWN, 0),
                 swallowed: false,
+                origin: None,
             },
         ]);
         assert_eq!(
@@ -782,6 +825,70 @@ mod tests {
         );
     }
 
+    #[test]
+    fn the_filter_knows_where_the_cursor_really_is() {
+        let mut f = HookFilter::new();
+        let at = |x, y| MouseHook {
+            x,
+            y,
+            ..mouse(WM_MOUSEMOVE, 0)
+        };
+        assert_eq!(f.origin(Verdict::Swallow, &at(5, 5)), None, "not known yet");
+        assert_eq!(f.origin(Verdict::Pass, &at(100, 200)), None);
+        // Swallowed: the cursor stays where the last one that passed left it.
+        assert_eq!(f.origin(Verdict::Swallow, &at(110, 190)), Some((100, 200)));
+        assert_eq!(f.origin(Verdict::Swallow, &at(130, 170)), Some((100, 200)));
+        // A swallowed click does not measure anything.
+        assert_eq!(f.origin(Verdict::Swallow, &mouse(WM_LBUTTONDOWN, 0)), None);
+        f.set_cursor((1720, 720));
+        assert_eq!(
+            f.origin(Verdict::Swallow, &at(1725, 720)),
+            Some((1720, 720))
+        );
+    }
+
+    /// The bug: with the focus on the Mac the movement went in Raw Input counts, without
+    /// the PC's pointer speed or acceleration, so the mouse felt different over there.
+    #[test]
+    fn with_input_swallowed_the_movement_is_the_accelerated_one_of_the_hook() {
+        let moved = |x, y, swallowed, origin| HookEvent::Mouse {
+            hook: MouseHook {
+                x,
+                y,
+                ..mouse(WM_MOUSEMOVE, 0)
+            },
+            swallowed,
+            origin,
+        };
+        let raw = |grabbed| {
+            HookEvent::Raw(RawMouse {
+                device: 7,
+                flags: 0,
+                last_x: 2,
+                last_y: 0,
+                span: (0.0, 0.0),
+                grabbed,
+            })
+        };
+        let out = run(vec![
+            // Local: Raw's delta and the hook's position, as before.
+            raw(false),
+            moved(102, 50, false, None),
+            // Swallowed: Raw does not count; the hook's point, accelerated by
+            // Windows (2 counts became 9 pixels), minus where the cursor stayed.
+            raw(true),
+            moved(111, 50, true, Some((102, 50))),
+        ]);
+        assert_eq!(
+            out,
+            vec![
+                InputEvent::MotionRelative { dx: 2.0, dy: 0.0 },
+                InputEvent::MotionAbsolute { x: 102.0, y: 50.0 },
+                InputEvent::MotionRelative { dx: 9.0, dy: 0.0 },
+            ]
+        );
+    }
+
     fn raw_mouse(device: usize, dx: i32) -> HookEvent {
         HookEvent::Raw(RawMouse {
             device,
@@ -789,6 +896,7 @@ mod tests {
             last_x: dx,
             last_y: 0,
             span: (0.0, 0.0),
+            grabbed: false,
         })
     }
 
@@ -854,6 +962,7 @@ mod tests {
                 HookEvent::Mouse {
                     hook: mouse(WM_MOUSEMOVE, 0),
                     swallowed: false,
+                    origin: None,
                 },
             ]),
             0

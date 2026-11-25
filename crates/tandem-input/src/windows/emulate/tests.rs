@@ -9,6 +9,15 @@ struct FakeSink {
     cursor: Option<(i32, i32)>,
     calls: Vec<Vec<WinInput>>,
     blocked: bool,
+    /// Windows has no mouse: it does not draw the cursor unless MouseKeys is on.
+    no_mouse: bool,
+    mousekeys: bool,
+    /// Each call to `force_cursor`.
+    forced: Vec<bool>,
+    /// `SetCursorPos` works here (off by default: the other tests see every move as input).
+    can_set_pos: bool,
+    /// Each `SetCursorPos`.
+    set_pos: Vec<(i32, i32)>,
 }
 
 impl FakeSink {
@@ -18,6 +27,11 @@ impl FakeSink {
             cursor: Some(cursor),
             calls: Vec::new(),
             blocked: false,
+            no_mouse: false,
+            mousekeys: false,
+            forced: Vec::new(),
+            can_set_pos: false,
+            set_pos: Vec::new(),
         }
     }
 
@@ -60,6 +74,25 @@ impl InputSink for FakeSink {
 
     fn cursor_pos(&self) -> Option<(i32, i32)> {
         self.cursor
+    }
+
+    fn cursor_hidden(&self) -> bool {
+        self.no_mouse && !self.mousekeys
+    }
+
+    fn set_cursor_pos(&mut self, x: i32, y: i32) -> Result<bool, EmulateError> {
+        if !self.can_set_pos {
+            return Ok(false);
+        }
+        self.set_pos.push((x, y));
+        self.cursor = Some((x, y));
+        Ok(true)
+    }
+
+    fn force_cursor(&mut self, on: bool) -> Result<(), EmulateError> {
+        self.mousekeys = on;
+        self.forced.push(on);
+        Ok(())
     }
 }
 
@@ -569,4 +602,151 @@ fn when_the_screens_change_the_position_adjusts() {
     })
     .unwrap();
     assert_eq!(e.sink().cursor, Some((1919, 500)));
+}
+
+/// The bug: with the keyboard and mouse hub on the Mac, Windows had no mouse and did not
+/// draw the cursor, so on the PC it moved invisible.
+#[test]
+fn without_a_mouse_the_cursor_is_forced_while_the_focus_is_here() {
+    let mut e = emu(single(1920, 1080), (10, 10));
+    e.sink_mut().no_mouse = true;
+    let t0 = Instant::now();
+    e.set_focus_at(true, t0).unwrap();
+    assert!(e.cursor_forced());
+    assert!(!e.sink().cursor_hidden(), "Windows draws it now");
+    // Moving does not touch it again.
+    e.emulate(&InputEvent::MotionRelative { dx: 5.0, dy: 0.0 })
+        .unwrap();
+    assert_eq!(e.sink().forced, vec![true]);
+    // On leaving, the user's setting comes back.
+    e.set_focus_at(false, t0).unwrap();
+    assert!(!e.cursor_forced());
+    assert_eq!(e.sink().forced, vec![true, false]);
+    e.set_focus_at(false, t0).unwrap();
+    assert_eq!(e.sink().forced, vec![true, false], "only once");
+}
+
+#[test]
+fn with_a_mouse_nothing_is_touched() {
+    let mut e = emu(single(1920, 1080), (10, 10));
+    e.set_focus_at(true, Instant::now()).unwrap();
+    e.emulate(&InputEvent::MotionAbsolute { x: 50.0, y: 50.0 })
+        .unwrap();
+    e.set_focus_at(false, Instant::now()).unwrap();
+    assert!(e.sink().forced.is_empty());
+}
+
+#[test]
+fn a_mouse_unplugged_while_the_focus_is_here_is_noticed_moving() {
+    let mut e = emu(single(1920, 1080), (10, 10));
+    let t0 = Instant::now();
+    e.set_focus_at(true, t0).unwrap();
+    e.sink_mut().no_mouse = true;
+    // Checked at most once a second, never on every event.
+    e.check_cursor(t0 + Duration::from_millis(500)).unwrap();
+    assert!(!e.cursor_forced());
+    e.check_cursor(t0 + CURSOR_CHECK_EVERY).unwrap();
+    assert!(e.cursor_forced());
+}
+
+#[test]
+fn without_the_focus_the_cursor_is_never_forced() {
+    let mut e = emu(single(1920, 1080), (10, 10));
+    e.sink_mut().no_mouse = true;
+    e.emulate(&InputEvent::MotionAbsolute { x: 50.0, y: 50.0 })
+        .unwrap();
+    assert!(!e.cursor_forced());
+    assert!(e.sink().forced.is_empty());
+}
+
+#[test]
+fn mousekeys_leaves_the_keypad_as_the_user_types_with_it() {
+    // Num Lock on (digits): MouseKeys only acts with it off.
+    assert_eq!(
+        forced_mousekeys_flags(true),
+        MKF_MOUSEKEYSON | MKF_AVAILABLE
+    );
+    // Num Lock off (arrows): MouseKeys only acts with it on.
+    assert_eq!(
+        forced_mousekeys_flags(false),
+        MKF_MOUSEKEYSON | MKF_AVAILABLE | MKF_REPLACENUMBERS
+    );
+}
+
+fn moves(e: &Emulator<FakeSink>) -> usize {
+    e.sink()
+        .all()
+        .iter()
+        .filter(|i| matches!(i, WinInput::Mouse { flags, .. } if flags & MOUSEEVENTF_MOVE != 0))
+        .count()
+}
+
+/// The bug: each `SendInput` cost 0.4–1.5 ms on the PC, so the cursor could not keep up with a
+/// fast Mac mouse. Plain movement now goes with `SetCursorPos` (~10 µs), to the exact pixel.
+#[test]
+fn plain_movement_goes_with_set_cursor_pos_and_one_as_input_now_and_then() {
+    let mut e = emu(single(1920, 1080), (10, 10));
+    e.sink_mut().can_set_pos = true;
+    for x in 0..50 {
+        e.emulate(&InputEvent::MotionAbsolute {
+            x: 100.0 + f64::from(x),
+            y: 200.0,
+        })
+        .unwrap();
+    }
+    // The first one goes as input (Windows counts activity); the rest, without hooks.
+    assert_eq!(moves(&e), 1);
+    assert_eq!(e.sink().set_pos.len(), 49);
+    assert_eq!(e.sink().set_pos.last(), Some(&(149, 200)));
+    assert_eq!(e.sink().cursor_pos(), Some((149, 200)));
+    // After the keepalive period, one goes as input again.
+    std::thread::sleep(INPUT_KEEPALIVE);
+    e.emulate(&InputEvent::MotionAbsolute { x: 300.0, y: 200.0 })
+        .unwrap();
+    assert_eq!(moves(&e), 2);
+}
+
+/// A drag goes as input, so the app under the cursor gets it as such.
+#[test]
+fn with_a_button_held_the_movement_goes_as_input() {
+    let mut e = emu(single(1920, 1080), (10, 10));
+    e.sink_mut().can_set_pos = true;
+    e.emulate(&InputEvent::MotionAbsolute { x: 50.0, y: 50.0 })
+        .unwrap();
+    e.emulate(&InputEvent::Button {
+        button: Button::Left,
+        state: KeyState::Pressed,
+    })
+    .unwrap();
+    for x in 0..10 {
+        e.emulate(&InputEvent::MotionAbsolute {
+            x: 60.0 + f64::from(x),
+            y: 50.0,
+        })
+        .unwrap();
+    }
+    assert_eq!(moves(&e), 11);
+    assert!(e.sink().set_pos.is_empty());
+    e.emulate(&InputEvent::Button {
+        button: Button::Left,
+        state: KeyState::Released,
+    })
+    .unwrap();
+    e.emulate(&InputEvent::MotionAbsolute { x: 90.0, y: 50.0 })
+        .unwrap();
+    assert_eq!(e.sink().set_pos, vec![(90, 50)]);
+}
+
+/// Without `SetCursorPos` (the input goes through the secure desktop helper), as before.
+#[test]
+fn without_set_cursor_pos_every_move_goes_as_input() {
+    let mut e = emu(single(1920, 1080), (10, 10));
+    for x in 0..5 {
+        e.emulate(&InputEvent::MotionAbsolute {
+            x: 100.0 + f64::from(x),
+            y: 200.0,
+        })
+        .unwrap();
+    }
+    assert_eq!(moves(&e), 5);
 }
