@@ -1079,6 +1079,11 @@ async fn new_client(sh: &Arc<Shared>) -> Result<Client, String> {
     let injector = tokio::task::spawn_blocking(move || backends.injector())
         .await
         .map_err(|e| e.to_string())??;
+    // Injecting has its own thread, where the newest position wins: the network loop never
+    // waits for `SendInput` and no queue of old positions builds up (T-358).
+    let injector = tandem_input::session::ThreadedInjector::spawn(injector, "tandem-inject")
+        .map(backends::DynInjector::new)
+        .map_err(|e| e.to_string())?;
     let session = ClientSession::new(sh.visible.borrow().clone());
     let s = sh.clone();
     let driver = ClientDriver::new(session, injector, sh.opts.session)

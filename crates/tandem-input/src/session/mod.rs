@@ -31,6 +31,7 @@ mod quic;
 mod server;
 #[cfg(test)]
 mod testutil;
+mod threaded;
 
 use std::fmt::Display;
 use std::time::Duration;
@@ -42,6 +43,7 @@ pub use latency::Captured;
 pub use msg::{Datagram, MotionDatagram, StreamMsg};
 pub use quic::{ClientDriver, ServerDriver, SessionEnd};
 pub use server::{ServerOutput, ServerSession};
+pub use threaded::{Job, Mailbox, ThreadedInjector};
 
 use crate::event::InputEvent;
 use crate::geometry::Point;
