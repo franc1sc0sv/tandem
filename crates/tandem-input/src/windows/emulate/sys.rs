@@ -18,7 +18,7 @@ use ::windows::Win32::UI::WindowsAndMessaging::{
     CURSOR_SHOWING, CURSORINFO, EDD_GET_DEVICE_INTERFACE_NAME, GetCursorInfo, GetCursorPos,
     GetSystemMetrics, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN,
     SPI_GETMOUSEKEYS, SPI_SETMOUSEKEYS, SPIF_SENDCHANGE, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS,
-    SystemParametersInfoW,
+    SetCursorPos, SystemParametersInfoW,
 };
 use ::windows::core::{BOOL, PCWSTR};
 use tandem_core::DisplayKey;
@@ -196,6 +196,12 @@ impl InputSink for SendInputSink {
         // SAFETY: `p` is a valid, writable POINT.
         unsafe { GetCursorPos(&mut p) }.ok()?;
         Some((p.x, p.y))
+    }
+
+    fn set_cursor_pos(&mut self, x: i32, y: i32) -> Result<bool, EmulateError> {
+        // SAFETY: no pointers; physical coordinates (the process is Per-Monitor-V2).
+        unsafe { SetCursorPos(x, y) }.map_err(|_| os_error("SetCursorPos"))?;
+        Ok(true)
     }
 
     fn cursor_hidden(&self) -> bool {

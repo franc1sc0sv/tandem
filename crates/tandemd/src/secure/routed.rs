@@ -301,6 +301,16 @@ impl<L: InputSink> InputSink for RoutedSink<L> {
         self.local.cursor_pos()
     }
 
+    /// Only without the helper: with it, the input may be on another desktop (UAC, the
+    /// sign-in screen), where this process cannot move the cursor; there it goes as input.
+    fn set_cursor_pos(&mut self, x: i32, y: i32) -> Result<bool, EmulateError> {
+        self.ensure_link(Instant::now());
+        if self.link.is_some() {
+            return Ok(false);
+        }
+        self.local.set_cursor_pos(x, y)
+    }
+
     // The cursor is drawn by the session's desktop, whoever injects: MouseKeys is a
     // system setting, set from here.
     fn cursor_hidden(&self) -> bool {
@@ -408,6 +418,19 @@ mod tests {
             self.0.lock().unwrap().forced.push(on);
             Ok(())
         }
+        fn set_cursor_pos(&mut self, _x: i32, _y: i32) -> Result<bool, EmulateError> {
+            Ok(true)
+        }
+    }
+
+    /// With the helper up the input may be on another desktop: the move goes through it.
+    #[test]
+    fn set_cursor_pos_only_without_the_helper() {
+        let (mut s, _, mode) = sink(Mode::Missing);
+        assert!(s.set_cursor_pos(5, 5).unwrap());
+        *mode.lock().unwrap() = Mode::Up;
+        s.next_attempt = None;
+        assert!(!s.set_cursor_pos(5, 5).unwrap());
     }
 
     /// Without this, the wrapper swallowed the call and the PC's cursor stayed invisible.
