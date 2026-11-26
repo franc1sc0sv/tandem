@@ -884,7 +884,9 @@ async fn new_server(sh: &Arc<Shared>, peer: Option<Os>) -> Result<Server, String
         sh.agent.config().os,
         peer,
     )
-    .with_scenes(sh.agent.scene_shortcuts(sh.scene_keys.clone()));
+    .with_scenes(sh.agent.scene_shortcuts(sh.scene_keys.clone()))
+    // The lock shortcut and the scenes' match the physical chord: its keys are not translated.
+    .with_shortcuts(sh.lock_keys.clone());
     if sh.agent.config().input.synthetic_motion {
         sh.agent.set_synthetic_sink(Some(sink.downgrade()));
     }

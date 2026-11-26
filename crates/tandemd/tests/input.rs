@@ -576,6 +576,64 @@ async fn keyboard_mouse_clipboard_and_roles_between_two_agents() {
     mac.stop().await;
 }
 
+/// T-361: the PC's Ctrl+Left (word jump) reaches the Mac as Option+Left, not Cmd+Left, and
+/// nothing stays pressed over there.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_pc_shortcut_reaches_the_mac_as_its_equivalent() {
+    let (mac_id, pc_id) = sides(Identity::from_seed([61; 32]), Identity::from_seed([62; 32]));
+    let mac_fake = FakeInputBackends::new(vec![screen("m32", 1920, 1080)]);
+    let pc_fake = FakeInputBackends::new(vec![screen("m34", 3440, 1440)]);
+    pc_fake.devices().set(vec![KEYBOARD, MOUSE]);
+    let (mac, pc) = tandemd::start_pair!(
+        |mac_port, pc_port| start(
+            Machine::A,
+            &mac_id,
+            mac_port,
+            (pc_id.public_key(), pc_port),
+            mac_fake.clone(),
+        ),
+        start(
+            Machine::B,
+            &pc_id,
+            pc_port,
+            (mac_id.public_key(), mac_port),
+            pc_fake.clone(),
+        )
+    );
+    let pc_serving = |s: &InputStatus| s.server == Machine::B && s.session;
+    mac.until_input(pc_serving).await;
+    pc.until_input(pc_serving).await;
+    both_on(&mac, &pc).await;
+    let (x, _) = cross(&pc_fake, &mac_fake, 0.0, -5.0).await;
+    assert_eq!(x, 1919.0);
+
+    let ctrl = ModifierKey::ControlLeft.usage();
+    let option = ModifierKey::AltLeft.usage();
+    let left = HidUsage::key(0x50);
+    pc_fake.capture(key(ctrl, KeyState::Pressed));
+    pc_fake.capture(key(left, KeyState::Pressed));
+    pc_fake.capture(key(left, KeyState::Released));
+    pc_fake.capture(key(ctrl, KeyState::Released));
+    until_injected(&mac_fake, |e| {
+        let keys: Vec<_> = e
+            .iter()
+            .filter(|e| matches!(e, InputEvent::Key { .. }))
+            .collect();
+        let want = [
+            key(option, KeyState::Pressed),
+            key(left, KeyState::Pressed),
+            key(left, KeyState::Released),
+            key(option, KeyState::Released),
+        ];
+        keys.windows(4)
+            .any(|w| w.iter().zip(&want).all(|(a, b)| *a == b))
+    })
+    .await;
+
+    pc.stop().await;
+    mac.stop().await;
+}
+
 /// An arrangement edited on the PC reaches the Mac through `ControlMsg::Desk` and changes where
 /// its cursor crosses (DESIGN §7).
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

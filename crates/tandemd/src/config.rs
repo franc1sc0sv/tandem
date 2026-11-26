@@ -380,7 +380,10 @@ pub struct InputConfig {
     #[serde(default)]
     pub hub: Option<HubConfig>,
     /// The table for each direction of Cmd<->Ctrl; whether it is remapped or not is stated by the desk
-    /// (`[prefs] cmd_ctrl`).
+    /// (`[prefs] cmd_ctrl`). With it on, the other system's chords are also translated by
+    /// intent (T-361): Ctrl+Left to Option+Left, Home to Cmd+Left, Alt+Tab to Cmd+Tab, Alt+F4
+    /// to Cmd+Q, the Win key to Spotlight, PrintScreen to Cmd+Shift+3, and the mirror. The
+    /// full table is in `tandem_input::event::shortcuts` and DESIGN §7.
     #[serde(default)]
     pub remap: RemapPolicy,
     /// Whether a drag (a mouse button pressed) crosses to the other machine. By

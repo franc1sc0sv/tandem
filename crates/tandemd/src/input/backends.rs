@@ -7,9 +7,11 @@
 
 use std::sync::Arc;
 
+use std::sync::Mutex;
 use tandem_clipboard::{ClipContent, Clipboard};
 use tandem_core::{DisplayKey, Os};
-use tandem_input::event::{Direction, ModifierRemap, RemapPolicy};
+
+use tandem_input::event::{Direction, ModifierRemap, RemapPolicy, ShortcutTranslator};
 use tandem_input::session::{Capture, Captured, Injector};
 use tandem_input::{HidUsage, InputEvent, Point, Screen};
 use tandem_peripherals::{DeviceScanner, UsbId};
@@ -168,8 +170,13 @@ impl DeviceScanner for DynScanner {
 pub struct CaptureSink {
     tx: mpsc::UnboundedSender<Captured>,
     remap: ModifierRemap,
+    direction: Option<Direction>,
+    policy: RemapPolicy,
     /// The scene shortcuts look at the physical keys, before remapping them.
     scenes: Option<crate::agent::SceneShortcuts>,
+    /// Chords translated by intent (Ctrl+Left → Option+Left). Shared by the clones of the
+    /// sink: it is one keyboard.
+    shortcuts: Option<Arc<Mutex<ShortcutTranslator>>>,
 }
 
 impl std::fmt::Debug for CaptureSink {
@@ -187,7 +194,10 @@ impl std::fmt::Debug for CaptureSink {
 pub struct WeakCaptureSink {
     tx: mpsc::WeakUnboundedSender<Captured>,
     remap: ModifierRemap,
+    direction: Option<Direction>,
+    policy: RemapPolicy,
     scenes: Option<crate::agent::SceneShortcuts>,
+    shortcuts: Option<Arc<Mutex<ShortcutTranslator>>>,
 }
 
 impl std::fmt::Debug for WeakCaptureSink {
@@ -202,7 +212,10 @@ impl WeakCaptureSink {
         Some(CaptureSink {
             tx: self.tx.upgrade()?,
             remap: self.remap,
+            direction: self.direction,
+            policy: self.policy,
             scenes: self.scenes.clone(),
+            shortcuts: self.shortcuts.clone(),
         })
     }
 }
@@ -226,13 +239,17 @@ impl CaptureSink {
         from: Os,
         to: Option<Os>,
     ) -> Self {
-        let remap = direction(from, to)
+        let direction = direction(from, to);
+        let remap = direction
             .map(|d| *policy.for_direction(d))
             .unwrap_or_default();
         CaptureSink {
             tx,
             remap,
+            direction,
+            policy: *policy,
             scenes: None,
+            shortcuts: None,
         }
     }
 
@@ -242,7 +259,16 @@ impl CaptureSink {
             scenes.observe(&event);
         }
         // The mark is set here, on the capture thread (the hook's or the tap's).
-        self.tx.send(Captured::now(self.remap.apply(event))).is_ok()
+        let Some(shortcuts) = &self.shortcuts else {
+            return self.tx.send(Captured::now(self.remap.apply(event))).is_ok();
+        };
+        let translated = shortcuts
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .process(event);
+        translated
+            .into_iter()
+            .all(|e| self.tx.send(Captured::now(e)).is_ok())
     }
 
     /// A handle that does not keep the channel open.
@@ -250,7 +276,10 @@ impl CaptureSink {
         WeakCaptureSink {
             tx: self.tx.downgrade(),
             remap: self.remap,
+            direction: self.direction,
+            policy: self.policy,
             scenes: self.scenes.clone(),
+            shortcuts: self.shortcuts.clone(),
         }
     }
 
@@ -258,6 +287,19 @@ impl CaptureSink {
     /// is captured here even if the cursor is on the other).
     pub fn with_scenes(mut self, scenes: crate::agent::SceneShortcuts) -> Self {
         self.scenes = Some(scenes);
+        self
+    }
+
+    /// Translates the source system's shortcuts into the target's (`event::shortcuts`) on top
+    /// of the modifier remap. `exempt` are the physical keys of the Tandem's own shortcuts:
+    /// they keep matching the chord as typed. Without a direction (same systems, or
+    /// `cmd_ctrl` off) there is nothing to translate.
+    pub fn with_shortcuts(mut self, exempt: Vec<HidUsage>) -> Self {
+        self.shortcuts = self.direction.map(|d| {
+            Arc::new(Mutex::new(
+                ShortcutTranslator::new(d, &self.policy).with_exempt(exempt),
+            ))
+        });
         self
     }
 

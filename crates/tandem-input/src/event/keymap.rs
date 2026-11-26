@@ -402,6 +402,24 @@ mod tests {
     }
 
     #[test]
+    fn media_and_volume_keys_reach_both_systems() {
+        // To Windows every consumer key has a scancode. To the Mac only mute and volume
+        // have a keycode (through the keyboard-page alias); play/pause, next and previous
+        // are NX system-defined events that `macos::emulate::media_key` injects.
+        for id in [0xE2, 0xE9, 0xEA, 0xCD, 0xB5, 0xB6, 0xB7] {
+            assert!(to_win(HidUsage::consumer(id)).is_some(), "consumer {id:#x}");
+        }
+        for id in [0xE2, 0xE9, 0xEA] {
+            assert!(to_mac(HidUsage::consumer(id)).is_some(), "consumer {id:#x}");
+        }
+        // F1–F12 and the navigation block travel on the keyboard page, both ways.
+        for id in (0x3A..=0x45).chain(0x49..=0x52) {
+            let k = HidUsage::key(id);
+            assert!(to_win(k).is_some() && to_mac(k).is_some(), "key {id:#x}");
+        }
+    }
+
+    #[test]
     fn invalid_codes_are_not_translated() {
         assert_eq!(to_win(HidUsage::key(0x00)), None);
         assert_eq!(to_win(HidUsage::key(0x01)), None);
