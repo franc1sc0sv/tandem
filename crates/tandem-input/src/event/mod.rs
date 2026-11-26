@@ -7,17 +7,20 @@
 //!
 //! - [`keymap`]: HID ↔ Mac keycode ↔ Windows scancode tables.
 //! - [`remap`]: modifier remapping by direction (Cmd→Ctrl, etc.).
+//! - [`shortcuts`]: translation of chords by intent (Ctrl+Left → Option+Left, etc.).
 //! - [`pressed`]: set of pressed keys and buttons, with `release_all()`.
 
 pub mod keymap;
 pub mod pressed;
 pub mod remap;
+pub mod shortcuts;
 
 use serde::{Deserialize, Serialize};
 
 pub use keymap::{MacKeycode, WinScancode};
 pub use pressed::{Change, Pressed};
 pub use remap::{Direction, ModifierRemap, RemapError, RemapPolicy};
+pub use shortcuts::ShortcutTranslator;
 
 /// HID keyboard page (Keyboard/Keypad).
 pub const PAGE_KEYBOARD: u16 = 0x07;
