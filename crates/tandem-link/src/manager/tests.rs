@@ -131,7 +131,11 @@ impl Rig {
     }
 
     async fn next(&mut self) -> LinkEvent {
-        let e = time::timeout(Duration::from_secs(30), self.events.recv())
+        self.next_within(Duration::from_secs(30)).await
+    }
+
+    async fn next_within(&mut self, limit: Duration) -> LinkEvent {
+        let e = time::timeout(limit, self.events.recv())
             .await
             .expect("no event arrived")
             .expect("the manager stopped");
@@ -219,14 +223,18 @@ async fn a_flickering_usb4_does_not_move_the_link_and_returns_after_settling() {
         assert!(during.is_empty(), "offset {offset_ms} ms: {during:?}");
         assert_eq!(rig.manager.active().unwrap().kind, Ethernet);
 
-        // Still: it returns to USB4 at most after a ping lost in the last cut has used up
-        // a backup's patience, the next ping and 3 s of good pings. It may be sooner: a
-        // cut between two pings is not seen, so the streak may have started during the
-        // last cycles.
-        let took = rig.until_active(Some(Usb4)).await;
+        // Still: it returns to USB4 once it has been steady for the longer wait its drops
+        // earned (T-364), at most MAX_SETTLE, plus a backup's patience and the next ping.
+        let start = Instant::now();
+        while rig.next_within(MAX_SETTLE * 2).await.to != Some(Usb4) {}
+        let took = start.elapsed();
         let config = HealthConfig::default();
         assert!(
-            took <= config.backup_patience + config.settle + Duration::from_millis(1100),
+            took > config.settle * 2,
+            "offset {offset_ms} ms: a flickering link came back after only {took:?}"
+        );
+        assert!(
+            took <= config.backup_patience + MAX_SETTLE + Duration::from_millis(1100),
             "offset {offset_ms} ms: came back in {took:?}"
         );
     }

@@ -41,6 +41,24 @@ pub(crate) struct LinkTable<H> {
     flapped: std::collections::BTreeSet<LinkKind>,
     /// How long a link that already dropped before has to be healthy before going back to it.
     settle: Duration,
+    /// Recent drops of each link, kept across its interface going away and coming back
+    /// (T-364): every drop within [`FLAP_WINDOW`] of the last one doubles the wait before
+    /// going back to it.
+    flaps: BTreeMap<LinkKind, Flaps>,
+}
+
+/// A link that keeps dropping is only gone back to once it has proved steady for longer and
+/// longer, up to this: each switch restarts the input session, so a cable that drops every
+/// minute or two must not drag the keyboard and mouse back and forth (T-364).
+pub(crate) const MAX_SETTLE: Duration = Duration::from_secs(600);
+
+/// Drops further apart than this are not counted together: the link starts over at `settle`.
+pub(crate) const FLAP_WINDOW: Duration = Duration::from_secs(1800);
+
+#[derive(Debug, Clone, Copy, Default)]
+struct Flaps {
+    count: u32,
+    last: Option<Instant>,
 }
 
 struct Slot<H> {
@@ -108,6 +126,7 @@ impl<H> LinkTable<H> {
             next_seq: 0,
             flapped: Default::default(),
             settle,
+            flaps: BTreeMap::new(),
         })
     }
 
@@ -125,8 +144,11 @@ impl<H> LinkTable<H> {
                 return Added::Deferred;
             }
         }
-        let dropped =
-            self.flapped.contains(&c.kind) || self.links.get(&c.kind).is_some_and(|s| s.dropped);
+        // A link with recent drops (also one that failed its pings before its interface went
+        // away) comes back with hysteresis, and its wait from `settle_for` (T-364).
+        let dropped = self.flapped.contains(&c.kind)
+            || self.flaps.contains_key(&c.kind)
+            || self.links.get(&c.kind).is_some_and(|s| s.dropped);
         self.links.insert(
             c.kind,
             Slot {
@@ -157,12 +179,16 @@ impl<H> LinkTable<H> {
     /// at once, whether or not a transaction is in progress.
     pub(crate) fn remove(&mut self, kind: LinkKind, now: Instant) -> Option<LinkEvent> {
         let slot = self.links.get_mut(&kind)?;
-        if slot.up.is_some() {
+        let was_up = slot.up.is_some();
+        if was_up {
             self.flapped.insert(kind);
         }
         // First down, so the event counts how long it was without a path; then it leaves.
         slot.up = None;
         slot.up_since = None;
+        if was_up {
+            self.note_drop(kind, now);
+        }
         let event = self.reevaluate(now, false);
         self.links.remove(&kind);
         event
@@ -185,11 +211,13 @@ impl<H> LinkTable<H> {
         let Some(slot) = self.links.get_mut(&kind) else {
             return self.reevaluate(now, held);
         };
+        let mut dropped = false;
         match (&slot.up, &up) {
             (_, Some(_)) if slot.up_since.is_none() => slot.up_since = Some(now),
             (Some(_), None) => {
                 slot.up_since = None;
                 slot.dropped = true;
+                dropped = true;
             }
             _ => {}
         }
@@ -197,6 +225,9 @@ impl<H> LinkTable<H> {
             slot.last_ok = Some(now);
         }
         slot.up = up;
+        if dropped {
+            self.note_drop(kind, now);
+        }
         self.reevaluate(now, held)
     }
 
@@ -235,6 +266,32 @@ impl<H> LinkTable<H> {
         Some(event)
     }
 
+    fn note_drop(&mut self, kind: LinkKind, now: Instant) {
+        let f = self.flaps.entry(kind).or_default();
+        let recent = f
+            .last
+            .is_some_and(|t| now.saturating_duration_since(t) < FLAP_WINDOW);
+        f.count = if recent { f.count.saturating_add(1) } else { 1 };
+        f.last = Some(now);
+    }
+
+    /// The steady time a link that dropped needs before it is chosen again: `settle`, doubled
+    /// for each further drop within [`FLAP_WINDOW`], at most [`MAX_SETTLE`].
+    pub(crate) fn settle_for(&self, kind: LinkKind, now: Instant) -> Duration {
+        let count = self
+            .flaps
+            .get(&kind)
+            .filter(|f| {
+                f.last
+                    .is_some_and(|t| now.saturating_duration_since(t) < FLAP_WINDOW)
+            })
+            .map_or(0, |f| f.count);
+        let doublings = count.saturating_sub(1).min(16);
+        self.settle
+            .saturating_mul(1u32 << doublings)
+            .min(MAX_SETTLE.max(self.settle))
+    }
+
     fn choose(&self, now: Instant, held: bool) -> Option<LinkKind> {
         let active = self
             .active
@@ -242,7 +299,7 @@ impl<H> LinkTable<H> {
         let settled = self
             .links
             .iter()
-            .find(|(_, s)| s.settled(now, self.settle))
+            .find(|(k, s)| s.settled(now, self.settle_for(**k, now)))
             .map(|(k, _)| *k);
         match active {
             Some(a) if held => Some(a),
@@ -459,6 +516,111 @@ mod tests {
         assert_eq!(tos, [Some(LinkKind::Ethernet)], "{events:?}");
     }
 
+    /// T-364: a USB4 cable that drops every couple of minutes. Each drop doubles the steady
+    /// time it needs before the link goes back to it, so the switches (each one restarts the
+    /// input session) thin out instead of happening twice per drop.
+    #[test]
+    fn a_link_that_keeps_dropping_waits_longer_each_time() {
+        let mut c = Clock::new(all());
+        c.at(0, LinkKind::Usb4, Some(1));
+        c.at(0, LinkKind::Wifi, Some(3));
+        let at = |c: &Clock<u32>, ms: u64| c.start + Duration::from_millis(ms);
+        let mut ms = 1000;
+        let mut waits = Vec::new();
+        for _ in 0..5 {
+            c.at(ms, LinkKind::Usb4, None);
+            assert_eq!(c.active(), Some(LinkKind::Wifi));
+            waits.push(c.t.settle_for(LinkKind::Usb4, at(&c, ms)).as_secs());
+            ms += 1000;
+            // It answers again: it is not chosen before its wait is over.
+            let back = ms;
+            loop {
+                c.at(ms, LinkKind::Usb4, Some(1));
+                c.at(ms, LinkKind::Wifi, Some(3));
+                if c.active() == Some(LinkKind::Usb4) {
+                    break;
+                }
+                assert!(ms < 1_000_000, "it never went back: {waits:?}");
+                ms += 1000;
+            }
+            assert_eq!(c.active(), Some(LinkKind::Usb4));
+            assert!(ms - back >= waits.last().unwrap() * 1000, "{waits:?}");
+            ms += 1000;
+        }
+        assert_eq!(waits, [3, 6, 12, 24, 48]);
+    }
+
+    #[test]
+    fn the_wait_is_capped_and_forgiven_after_a_quiet_window() {
+        let mut t = all();
+        let t0 = Instant::now();
+        for i in 0..20 {
+            t.note_drop(LinkKind::Usb4, t0 + Duration::from_secs(i));
+        }
+        assert_eq!(
+            t.settle_for(LinkKind::Usb4, t0 + Duration::from_secs(20)),
+            MAX_SETTLE
+        );
+        assert_eq!(t.settle_for(LinkKind::Usb4, t0 + FLAP_WINDOW * 2), SETTLE);
+        t.note_drop(LinkKind::Usb4, t0 + FLAP_WINDOW * 2);
+        assert_eq!(t.settle_for(LinkKind::Usb4, t0 + FLAP_WINDOW * 2), SETTLE);
+        assert_eq!(t.settle_for(LinkKind::Wifi, t0), SETTLE);
+    }
+
+    /// The interface going away and coming back (the PC's USB4 adapter does) keeps the count.
+    #[test]
+    fn the_drop_count_survives_the_interface_coming_back() {
+        let mut t = all();
+        let t0 = Instant::now();
+        t.report(LinkKind::Usb4, Some((1, RTT)), t0, false);
+        t.remove(LinkKind::Usb4, t0 + Duration::from_secs(1));
+        t.add(cand(LinkKind::Usb4, 1));
+        t.report(
+            LinkKind::Usb4,
+            Some((1, RTT)),
+            t0 + Duration::from_secs(2),
+            false,
+        );
+        t.report(LinkKind::Usb4, None, t0 + Duration::from_secs(3), false);
+        assert_eq!(
+            t.settle_for(LinkKind::Usb4, t0 + Duration::from_secs(3)),
+            SETTLE * 2
+        );
+    }
+
+    /// The common case on the desk: the pings fail first and the interface goes away after.
+    #[test]
+    fn a_link_that_failed_before_its_interface_went_away_still_waits() {
+        let mut t = all();
+        let t0 = Instant::now();
+        let s = |n: u64| t0 + Duration::from_secs(n);
+        t.report(LinkKind::Wifi, Some((3, RTT)), s(0), false);
+        let mut now = 0;
+        for _ in 0..3 {
+            t.report(LinkKind::Usb4, Some((1, RTT)), s(now), false);
+            now += 100;
+            t.report(LinkKind::Usb4, None, s(now), false);
+            t.remove(LinkKind::Usb4, s(now));
+            t.add(cand(LinkKind::Usb4, 1));
+            now += 1;
+        }
+        let wait = t.settle_for(LinkKind::Usb4, s(now));
+        assert_eq!(wait, SETTLE * 4);
+        t.report(LinkKind::Usb4, Some((1, RTT)), s(now), false);
+        assert_eq!(t.active().map(|(k, _)| k), Some(LinkKind::Wifi));
+        let back = t.report(
+            LinkKind::Usb4,
+            Some((1, RTT)),
+            s(now) + wait - Duration::from_millis(1),
+            false,
+        );
+        assert_eq!(back, None);
+        let back = t
+            .report(LinkKind::Usb4, Some((1, RTT)), s(now) + wait, false)
+            .unwrap();
+        assert_eq!(back.to, Some(LinkKind::Usb4));
+    }
+
     #[test]
     fn during_a_transaction_it_only_switches_if_the_active_one_drops() {
         let mut c = Clock::new(all());
@@ -542,7 +704,7 @@ mod tests {
         /// After any sequence of pings, with or without a transaction in progress:
         /// - there is an active one if and only if some link is healthy, and the active one is healthy;
         /// - with a transaction, the active one only changes if it dropped;
-        /// - without a transaction, no link better than the active one has `SETTLE`
+        /// - without a transaction, no link better than the active one has its `settle_for`
         ///   healthy (or never dropped);
         /// - while no link has dropped, the active one is the best healthy one;
         /// - events come out numbered and chained, and the data plane
@@ -584,7 +746,7 @@ mod tests {
                 if !held && let Some(a) = active {
                     for (b, since) in up.range(..a) {
                         prop_assert!(
-                            ever_dropped.contains(b) && now - *since < SETTLE,
+                            ever_dropped.contains(b) && now - *since < t.settle_for(*b, now),
                             "{:?} settled and better than {:?}", b, a
                         );
                     }
