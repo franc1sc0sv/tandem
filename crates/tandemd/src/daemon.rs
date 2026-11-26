@@ -181,10 +181,13 @@ fn start_monitors(agent: &Arc<Agent>) {
 /// What it turned off goes back on at start-up, at exit ([`Daemon::serve`]), on a panic and when
 /// AppKit ends the process at the end of the session ([`crate::displays::restore_at_process_exit`]).
 fn start_displays(agent: &Arc<Agent>, paths: &Paths) {
-    let guard = Arc::new(crate::displays::DisplayGuard::new(
-        tandem_input::displays::system_display_power(),
-        Some(paths.displays_off_file()),
-    ));
+    let guard = Arc::new(
+        crate::displays::DisplayGuard::new(
+            tandem_input::displays::system_display_power(),
+            Some(paths.displays_off_file()),
+        )
+        .with_rescue(tandem_input::rescue::system_window_mover()),
+    );
     match guard.control() {
         tandem_input::displays::DisplayControl::NotNeeded => {}
         tandem_input::displays::DisplayControl::Available => {

@@ -67,7 +67,15 @@ impl Agent {
             }
         }
         let t = Instant::now();
-        guard.reconcile(me, &now, &self.monitors.keys(), t);
+        let keys = self.monitors.keys();
+        guard.reconcile(me, &now, &keys, t);
+        // Where the display stays on (Windows) its windows are moved to a screen somebody sees.
+        let hidden = keys
+            .iter()
+            .filter(|(id, _)| now.get(*id) == Some(&me.other()))
+            .map(|(_, key)| *key)
+            .collect();
+        guard.rescue_windows(&hidden);
         // The built-in display after the external ones: what it does depends on which are on.
         guard.reconcile_builtin(self.desk().builtin_display.of(me), t);
     }
