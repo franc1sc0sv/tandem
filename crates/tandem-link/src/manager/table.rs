@@ -144,8 +144,11 @@ impl<H> LinkTable<H> {
                 return Added::Deferred;
             }
         }
-        let dropped =
-            self.flapped.contains(&c.kind) || self.links.get(&c.kind).is_some_and(|s| s.dropped);
+        // A link with recent drops (also one that failed its pings before its interface went
+        // away) comes back with hysteresis, and its wait from `settle_for` (T-364).
+        let dropped = self.flapped.contains(&c.kind)
+            || self.flaps.contains_key(&c.kind)
+            || self.links.get(&c.kind).is_some_and(|s| s.dropped);
         self.links.insert(
             c.kind,
             Slot {
@@ -583,6 +586,39 @@ mod tests {
             t.settle_for(LinkKind::Usb4, t0 + Duration::from_secs(3)),
             SETTLE * 2
         );
+    }
+
+    /// The common case on the desk: the pings fail first and the interface goes away after.
+    #[test]
+    fn a_link_that_failed_before_its_interface_went_away_still_waits() {
+        let mut t = all();
+        let t0 = Instant::now();
+        let s = |n: u64| t0 + Duration::from_secs(n);
+        t.report(LinkKind::Wifi, Some((3, RTT)), s(0), false);
+        let mut now = 0;
+        for _ in 0..3 {
+            t.report(LinkKind::Usb4, Some((1, RTT)), s(now), false);
+            now += 100;
+            t.report(LinkKind::Usb4, None, s(now), false);
+            t.remove(LinkKind::Usb4, s(now));
+            t.add(cand(LinkKind::Usb4, 1));
+            now += 1;
+        }
+        let wait = t.settle_for(LinkKind::Usb4, s(now));
+        assert_eq!(wait, SETTLE * 4);
+        t.report(LinkKind::Usb4, Some((1, RTT)), s(now), false);
+        assert_eq!(t.active().map(|(k, _)| k), Some(LinkKind::Wifi));
+        let back = t.report(
+            LinkKind::Usb4,
+            Some((1, RTT)),
+            s(now) + wait - Duration::from_millis(1),
+            false,
+        );
+        assert_eq!(back, None);
+        let back = t
+            .report(LinkKind::Usb4, Some((1, RTT)), s(now) + wait, false)
+            .unwrap();
+        assert_eq!(back.to, Some(LinkKind::Usb4));
     }
 
     #[test]
