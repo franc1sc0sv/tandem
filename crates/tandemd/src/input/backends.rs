@@ -503,7 +503,8 @@ mod platform {
         use crate::secure::windows::PipeConnector;
 
         let sink = SendInputSink::new().map_err(|e| e.to_string())?;
-        let routed = RoutedSink::new(sink, Box::new(PipeConnector::new()));
+        let routed = RoutedSink::new(sink, Box::new(PipeConnector::new()))
+            .with_foreground(Box::new(crate::secure::windows::WinForeground));
         Emulator::new(routed)
             .map(DynInjector::new)
             .map_err(|e| e.to_string())

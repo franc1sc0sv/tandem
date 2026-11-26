@@ -32,6 +32,7 @@ pub mod install;
 pub mod protocol;
 pub mod routed;
 pub mod supervisor;
+pub mod uipi;
 #[cfg(windows)]
 pub mod windows;
 
@@ -116,8 +117,14 @@ fn scm_status() -> SecureStatus {
     SecureStatus::NotInstalled
 }
 
-/// The module's state for a status.
+/// The module's state for a status, naming the elevated window that blocks the cursor now
+/// (T-363) if there is one.
 pub fn module_state(status: SecureStatus) -> ModuleState {
+    module_state_with(status, uipi::blocked().as_ref())
+}
+
+/// [`module_state`] with the UIPI episode given (tests: not the process-wide one).
+pub fn module_state_with(status: SecureStatus, blocked: Option<&uipi::Blocked>) -> ModuleState {
     let reason = match status {
         SecureStatus::Connected => return ModuleState::Active,
         SecureStatus::Unknown | SecureStatus::NotInstalled => {
@@ -131,9 +138,11 @@ pub fn module_state(status: SecureStatus) -> ModuleState {
             "Tandem's system service is from another version: install it again from the setup"
         }
     };
-    ModuleState::Unavailable {
-        reason: reason.into(),
-    }
+    let reason = match blocked {
+        Some(b) => format!("{}. {reason}", uipi::blocked_reason(&b.process)),
+        None => reason.to_owned(),
+    };
+    ModuleState::Unavailable { reason }
 }
 
 #[cfg(test)]
@@ -163,7 +172,10 @@ mod tests {
 
     #[test]
     fn only_a_connected_helper_makes_the_module_active() {
-        assert_eq!(module_state(SecureStatus::Connected), ModuleState::Active);
+        assert_eq!(
+            module_state_with(SecureStatus::Connected, None),
+            ModuleState::Active
+        );
         for s in [
             SecureStatus::Unknown,
             SecureStatus::NotInstalled,
@@ -171,10 +183,32 @@ mod tests {
             SecureStatus::NoAccess,
             SecureStatus::Outdated,
         ] {
-            let ModuleState::Unavailable { reason } = module_state(s) else {
+            let ModuleState::Unavailable { reason } = module_state_with(s, None) else {
                 panic!("{s:?} cannot be active");
             };
             assert!(!reason.is_empty());
         }
+    }
+
+    #[test]
+    fn an_elevated_window_is_named_in_the_module() {
+        let blocked = uipi::Blocked {
+            process: "Taskmgr.exe".into(),
+            count: 3,
+        };
+        let ModuleState::Unavailable { reason } =
+            module_state_with(SecureStatus::NotInstalled, Some(&blocked))
+        else {
+            panic!("not unavailable");
+        };
+        assert!(
+            reason.starts_with("Taskmgr.exe runs as administrator"),
+            "{reason}"
+        );
+        // A connected helper controls elevated windows: nothing to say.
+        assert_eq!(
+            module_state_with(SecureStatus::Connected, Some(&blocked)),
+            ModuleState::Active
+        );
     }
 }
