@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc dd3ca22696ca716c8bcf466b0793dce29e9b8cb7aedec7335953d26db8516814 # shrinks to configured = [Usb4, Wifi], reports = [(Usb4, true, 0, false), (Usb4, false, 0, false), (Usb4, true, 0, false), (Usb4, false, 0, false), (Wifi, true, 0, false), (Usb4, true, 0, false), (Usb4, true, 1503, false), (Usb4, true, 1497, false)]

@@ -44,6 +44,8 @@ pub use quic::{QuicProber, QuicSession, answer_pings};
 pub use table::{LinkEvent, LinkStatus};
 // `LinkControl` and `ManagerGone` are defined below.
 
+#[cfg(test)]
+use table::MAX_SETTLE;
 use table::{Added, LinkTable};
 
 /// Health check timings.
