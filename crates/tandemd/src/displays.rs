@@ -11,7 +11,7 @@
 //! the cables would then name the wrong screen. A monitor whose input stops being known is turned
 //! back on after [`UNKNOWN_GRACE`].
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, TryLockError, Weak};
 use std::time::{Duration, Instant};
@@ -19,6 +19,7 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 use tandem_core::{BuiltinMode, DisplayKey, Machine};
 use tandem_input::displays::{BuiltinState, DisplayControl, DisplayPower, SystemDisplay};
+use tandem_input::rescue::{WindowMover, WindowRescue};
 
 /// How long a monitor's input can be unknown (the other agent left, the owner changes) before its
 /// display is turned back on: shorter would turn it on and off during a normal owner handover.
@@ -111,6 +112,9 @@ struct Inner {
     builtin_retry: Option<Retry>,
     /// The agent is exiting: nothing goes off any more.
     stopped: bool,
+    /// When each screen was last known to show the other machine, for the window rescue: an
+    /// input that is briefly unknown (a DDC read that failed) does not bring the windows back.
+    hidden_at: BTreeMap<DisplayKey, Instant>,
 }
 
 /// This machine's display control in the agent.
@@ -120,6 +124,9 @@ pub struct DisplayGuard {
     /// Where the displays turned off are saved; `None` keeps them in memory (tests).
     file: Option<PathBuf>,
     inner: Mutex<Inner>,
+    /// Moves the windows off a screen nobody sees where the display cannot be turned off
+    /// (Windows, T-360).
+    rescue: Option<WindowRescue>,
 }
 
 fn lock(m: &Mutex<Inner>) -> MutexGuard<'_, Inner> {
@@ -132,7 +139,38 @@ impl DisplayGuard {
             power,
             file,
             inner: Mutex::new(Inner::default()),
+            rescue: None,
         }
+    }
+
+    /// With the window rescue of this system, if it has one.
+    #[must_use]
+    pub fn with_rescue(mut self, mover: Option<Arc<dyn WindowMover>>) -> Self {
+        self.rescue = mover.map(WindowRescue::new);
+        self
+    }
+
+    /// Moves the windows off the screens of the monitors in `hidden` (those that show the other
+    /// machine) and puts them back when they are seen again (`shown`, they show this one). A
+    /// screen in neither, whose input is not known, stays hidden for [`UNKNOWN_GRACE`].
+    pub fn rescue_windows(
+        &self,
+        hidden: &BTreeSet<DisplayKey>,
+        shown: &BTreeSet<DisplayKey>,
+        now: Instant,
+    ) {
+        let Some(r) = &self.rescue else { return };
+        let effective = {
+            let mut inner = lock(&self.inner);
+            for k in hidden {
+                inner.hidden_at.insert(*k, now);
+            }
+            inner.hidden_at.retain(|k, at| {
+                !shown.contains(k) && now.saturating_duration_since(*at) < UNKNOWN_GRACE
+            });
+            inner.hidden_at.keys().copied().collect::<BTreeSet<_>>()
+        };
+        r.reconcile(&effective);
     }
 
     pub fn control(&self) -> DisplayControl {
@@ -683,6 +721,66 @@ mod tests {
             product: 0x7105,
             serial: 9,
         }
+    }
+
+    #[test]
+    fn the_guard_rescues_windows_only_with_a_mover() {
+        use tandem_input::geometry::Rect;
+        use tandem_input::rescue::{
+            FakeWindowMover, RescueScreen, ShowState, WindowInfo, WindowMover,
+        };
+        let key = DisplayKey {
+            vendor: 9,
+            product: 9,
+            serial: 9,
+        };
+        let r = Rect::new(-1000, 0, 500, 500);
+        let fake = Arc::new(FakeWindowMover::new(
+            vec![
+                RescueScreen {
+                    rect: Rect::new(-2560, 0, 2560, 1440),
+                    work: Rect::new(-2560, 0, 2560, 1400),
+                    key: Some(key),
+                    primary: false,
+                },
+                RescueScreen {
+                    rect: Rect::new(0, 0, 1920, 1080),
+                    work: Rect::new(0, 0, 1920, 1040),
+                    key: None,
+                    primary: true,
+                },
+            ],
+            vec![WindowInfo {
+                id: 1,
+                rect: r,
+                normal: r,
+                state: ShowState::Normal,
+            }],
+        ));
+        let mover: Arc<dyn WindowMover> = fake.clone();
+        let g = DisplayGuard::new(Arc::new(FakeDisplayPower::unavailable("x")), None)
+            .with_rescue(Some(mover));
+        let t = Instant::now();
+        let none = BTreeSet::new();
+        g.rescue_windows(&BTreeSet::from([key]), &none, t);
+        assert!(fake.window(1).unwrap().rect.x >= 0);
+        // Its input unknown for less than the grace: the windows stay where they were moved.
+        g.rescue_windows(&none, &none, t + UNKNOWN_GRACE - Duration::from_secs(1));
+        assert!(fake.window(1).unwrap().rect.x >= 0);
+        // Unknown for longer: they go back.
+        g.rescue_windows(&none, &none, t + UNKNOWN_GRACE);
+        assert_eq!(fake.window(1).unwrap().rect.x, -1000);
+        // Shown again on this machine: back at once.
+        g.rescue_windows(&BTreeSet::from([key]), &none, t + UNKNOWN_GRACE * 2);
+        assert!(fake.window(1).unwrap().rect.x >= 0);
+        g.rescue_windows(&none, &BTreeSet::from([key]), t + UNKNOWN_GRACE * 2);
+        assert_eq!(fake.window(1).unwrap().rect.x, -1000);
+        // Without a mover (macOS) it does nothing.
+        DisplayGuard::new(Arc::new(FakeDisplayPower::unavailable("x")), None).rescue_windows(
+            &BTreeSet::from([key]),
+            &none,
+            t,
+        );
     }
 
     fn mac() -> Arc<FakeDisplayPower> {

@@ -242,9 +242,22 @@ impl InputSink for SendInputSink {
     }
 }
 
+/// `MONITORINFO::dwFlags` of the primary monitor.
+const MONITORINFOF_PRIMARY: u32 = 1;
+
+/// A monitor of the virtual desktop.
+struct Output {
+    rect: Rect,
+    /// The adapter output it hangs from (`\\.\DISPLAY1`).
+    device: [u16; 32],
+    /// Without the taskbar.
+    work: Rect,
+    primary: bool,
+}
+
 /// Each monitor of the virtual desktop with the adapter output it hangs from (`\\.\DISPLAY1`).
-fn enumerate() -> Result<Vec<(Rect, [u16; 32])>, EmulateError> {
-    type Out = Vec<(Rect, [u16; 32])>;
+fn enumerate() -> Result<Vec<Output>, EmulateError> {
+    type Out = Vec<Output>;
     // SAFETY: the signature matches `MONITORENUMPROC`; it is only invoked by `EnumDisplayMonitors`
     // synchronously inside `enumerate`.
     unsafe extern "system" fn collect(hmon: HMONITOR, _: HDC, _: *mut RECT, data: LPARAM) -> BOOL {
@@ -260,16 +273,20 @@ fn enumerate() -> Result<Vec<(Rect, [u16; 32])>, EmulateError> {
         // SAFETY: `info` is a MONITORINFOEXW and its `cbSize` says so, so Windows also fills
         // `szDevice`.
         if unsafe { GetMonitorInfoW(hmon, &mut info.monitorInfo) }.as_bool() {
-            let r = info.monitorInfo.rcMonitor;
-            out.push((
+            let rect = |r: RECT| {
                 Rect::new(
                     r.left,
                     r.top,
                     (r.right - r.left).max(0) as u32,
                     (r.bottom - r.top).max(0) as u32,
-                ),
-                info.szDevice,
-            ));
+                )
+            };
+            out.push(Output {
+                rect: rect(info.monitorInfo.rcMonitor),
+                device: info.szDevice,
+                work: rect(info.monitorInfo.rcWork),
+                primary: info.monitorInfo.dwFlags & MONITORINFOF_PRIMARY != 0,
+            });
         }
         BOOL(1)
     }
@@ -291,7 +308,7 @@ fn enumerate() -> Result<Vec<(Rect, [u16; 32])>, EmulateError> {
 }
 
 fn monitors() -> Result<Vec<Rect>, EmulateError> {
-    Ok(enumerate()?.into_iter().map(|(r, _)| r).collect())
+    Ok(enumerate()?.into_iter().map(|o| o.rect).collect())
 }
 
 /// Each monitor of the virtual desktop, in the order of [`SendInputSink`]'s desktop, with the
@@ -299,7 +316,20 @@ fn monitors() -> Result<Vec<Rect>, EmulateError> {
 pub fn displays() -> Result<Vec<Display>, EmulateError> {
     Ok(enumerate()?
         .into_iter()
-        .map(|(r, output)| (r, edid_key(&output)))
+        .map(|o| (o.rect, edid_key(&o.device)))
+        .collect())
+}
+
+/// The same monitors with their work area and which is the primary one (T-360).
+pub fn rescue_screens() -> Result<Vec<crate::rescue::RescueScreen>, EmulateError> {
+    Ok(enumerate()?
+        .into_iter()
+        .map(|o| crate::rescue::RescueScreen {
+            rect: o.rect,
+            work: o.work,
+            key: edid_key(&o.device),
+            primary: o.primary,
+        })
         .collect())
 }
 

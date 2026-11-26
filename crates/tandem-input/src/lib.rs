@@ -12,6 +12,7 @@ pub mod event;
 pub mod geometry;
 pub mod hotplug;
 pub mod macos;
+pub mod rescue;
 pub mod session;
 pub mod windows;
 
