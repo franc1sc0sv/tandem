@@ -34,7 +34,7 @@ use std::time::{Duration, Instant};
 
 use crate::event::InputEvent;
 
-pub use keyboard::{AltGrFilter, key_event};
+pub use keyboard::{AltGrFilter, FakeShiftFilter, key_event};
 pub use mouse::{RawMotion, anchor, mouse_event};
 pub use watchdog::{HookKind, Watchdog, WatchdogAction, WatchdogConfig};
 
@@ -307,6 +307,7 @@ pub fn hook_step(
 /// Translates what the hook thread queues into Tandem events.
 #[derive(Debug)]
 pub struct Translator {
+    shift: FakeShiftFilter,
     altgr: AltGrFilter,
     raw: RawMotion,
 }
@@ -316,21 +317,22 @@ impl Translator {
     /// AltGr's fake one.
     pub fn new(altgr_window: Duration) -> Self {
         Self {
+            shift: FakeShiftFilter::new(altgr_window),
             altgr: AltGrFilter::new(altgr_window),
             raw: RawMotion::new(),
         }
     }
 
     pub fn push(&mut self, event: HookEvent, now: Instant, out: &mut impl FnMut(InputEvent)) {
-        let mut emit_key = |k: KeyboardHook| {
-            if let Some(ev) = key_event(&k) {
-                out(ev);
-            }
+        let Self { shift, altgr, raw } = self;
+        // Fake Shifts go first, then AltGr's Ctrl: each filter hands what it keeps to the next.
+        let mut emit = |k: KeyboardHook| {
+            altgr.push(k, now, &mut |k| emit_key(k, out));
         };
         match event {
             HookEvent::Keyboard { hook, .. } => {
                 if !hook.injected() {
-                    self.altgr.push(hook, now, &mut emit_key);
+                    shift.push(hook, now, &mut emit);
                 }
             }
             HookEvent::Mouse {
@@ -342,18 +344,20 @@ impl Translator {
                     return;
                 }
                 if let Some(ev) = mouse_event(&hook, swallowed, origin) {
-                    // The held Ctrl happened earlier: it goes first.
-                    self.altgr.flush_all(&mut emit_key);
+                    // The held keys happened earlier: they go first.
+                    shift.flush_all(&mut emit);
+                    altgr.flush_all(&mut |k| emit_key(k, out));
                     out(ev);
                 }
             }
-            HookEvent::Raw(raw) => {
+            HookEvent::Raw(r) => {
                 // Always pushed, so an absolute device keeps its series; with input
                 // swallowed the hook already measures the movement, with acceleration.
-                if let Some((dx, dy)) = self.raw.push(&raw)
-                    && !raw.grabbed
+                if let Some((dx, dy)) = raw.push(&r)
+                    && !r.grabbed
                 {
-                    self.altgr.flush_all(&mut emit_key);
+                    shift.flush_all(&mut emit);
+                    altgr.flush_all(&mut |k| emit_key(k, out));
                     out(InputEvent::MotionRelative { dx, dy });
                 }
             }
@@ -361,25 +365,28 @@ impl Translator {
         }
     }
 
-    /// Releases the held Ctrl if the AltGr window has passed.
+    /// Releases the held keys whose window has passed.
     pub fn flush_expired(&mut self, now: Instant, out: &mut impl FnMut(InputEvent)) {
-        self.altgr.flush_expired(now, &mut |k| {
-            if let Some(ev) = key_event(&k) {
-                out(ev);
-            }
-        });
+        let Self { shift, altgr, .. } = self;
+        shift.flush_expired(now, &mut |k| altgr.push(k, now, &mut |k| emit_key(k, out)));
+        altgr.flush_expired(now, &mut |k| emit_key(k, out));
     }
 
     pub fn flush_all(&mut self, out: &mut impl FnMut(InputEvent)) {
-        self.altgr.flush_all(&mut |k| {
-            if let Some(ev) = key_event(&k) {
-                out(ev);
-            }
-        });
+        let Self { shift, altgr, .. } = self;
+        let now = Instant::now();
+        shift.flush_all(&mut |k| altgr.push(k, now, &mut |k| emit_key(k, out)));
+        altgr.flush_all(&mut |k| emit_key(k, out));
     }
 
     pub fn has_pending(&self) -> bool {
-        self.altgr.has_pending()
+        self.shift.has_pending() || self.altgr.has_pending()
+    }
+}
+
+fn emit_key(k: KeyboardHook, out: &mut impl FnMut(InputEvent)) {
+    if let Some(ev) = key_event(&k) {
+        out(ev);
     }
 }
 
@@ -751,6 +758,48 @@ mod tests {
                 }),
                 InputEvent::Key {
                     usage: HidUsage::key(0x04),
+                    state: KeyState::Released
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn pipeline_passes_the_extended_right_shift() {
+        // T-359: the hook reports the real right Shift with LLKHF_EXTENDED; it reaches the
+        // other machine as right Shift instead of being dropped as a fake one.
+        let mut t = Translator::new(Duration::from_millis(10));
+        let mut out = Vec::new();
+        let now = Instant::now();
+        for (scan, flags, time) in [
+            (0x36, LLKHF_EXTENDED, 1),
+            (0x1E, 0, 80),
+            (0x36, LLKHF_EXTENDED | LLKHF_UP, 150),
+        ] {
+            t.push(
+                HookEvent::Keyboard {
+                    hook: key(scan, flags, time),
+                    swallowed: true,
+                },
+                now,
+                &mut |e| out.push(e),
+            );
+        }
+        t.flush_all(&mut |e| out.push(e));
+        let rshift = HidUsage::key(0xE5);
+        assert_eq!(
+            out,
+            vec![
+                InputEvent::Key {
+                    usage: rshift,
+                    state: KeyState::Pressed
+                },
+                InputEvent::Key {
+                    usage: HidUsage::key(0x04),
+                    state: KeyState::Pressed
+                },
+                InputEvent::Key {
+                    usage: rshift,
                     state: KeyState::Released
                 },
             ]
