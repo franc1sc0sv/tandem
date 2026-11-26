@@ -235,7 +235,7 @@ impl<C: Capture> ServerDriver<C> {
         let end = self.serve(conn, open, stop).await;
         self.active.send_replace(false);
         for out in self.session.link_lost() {
-            apply_local(&mut self.capture, out);
+            let _ = apply_local(&mut self.capture, out);
         }
         self.publish();
         tracing::info!("input session (with the keyboard) ended: {end}");
@@ -282,8 +282,18 @@ impl<C: Capture> ServerDriver<C> {
             publish(locked, session.is_locked());
             publish(held, session.button_held());
         };
-        let outs = session.start();
-        if let Err(e) = apply(capture, &mut stream, conn, outs).await {
+        // The geometry changed while this driver idled (it only follows it in a session): the
+        // session starts with the current one, not the one it had when it stopped serving.
+        // With the old one a machine whose scene had changed "settled" onto the other machine
+        // and froze its own cursor.
+        let mut outs = Vec::new();
+        if let Some(rx) = layouts.as_mut()
+            && rx.has_changed().unwrap_or(false)
+        {
+            outs = session.set_layout(rx.borrow_and_update().clone());
+        }
+        outs.extend(session.start());
+        if let Err(e) = apply(session, capture, &mut stream, conn, outs).await {
             return e.into();
         }
         sync(session);
@@ -323,7 +333,7 @@ impl<C: Capture> ServerDriver<C> {
                             send_hist.record(now_us().saturating_sub(d.t_us));
                         }
                     }
-                    let sent = apply(capture, &mut stream, conn, outs).await;
+                    let sent = apply(session, capture, &mut stream, conn, outs).await;
                     sync(session);
                     publish_cursor(cursor, session);
                     if let Err(e) = sent {
@@ -366,7 +376,7 @@ impl<C: Capture> ServerDriver<C> {
                 () = &mut silence => return SessionEnd::Silent,
                 () = &mut resync, if session.needs_resync() => {
                     let outs = session.resync();
-                    if let Err(e) = apply(capture, &mut stream, conn, outs).await {
+                    if let Err(e) = apply(session, capture, &mut stream, conn, outs).await {
                         return e.into();
                     }
                 }
@@ -376,7 +386,7 @@ impl<C: Capture> ServerDriver<C> {
                 layout = next_layout(layouts) => match layout {
                     Some(l) => {
                         let outs = session.set_layout(l);
-                        let sent = apply(capture, &mut stream, conn, outs).await;
+                        let sent = apply(session, capture, &mut stream, conn, outs).await;
                         sync(session);
                         publish_cursor(cursor, session);
                         if let Err(e) = sent {
@@ -459,34 +469,50 @@ async fn next_value<T: Clone>(rx: &mut Option<watch::Receiver<T>>) -> Option<T> 
 }
 
 async fn apply<C: Capture>(
+    session: &mut ServerSession,
     capture: &mut C,
     stream: &mut ControlStream,
     conn: &Connection,
-    outs: Vec<ServerOutput>,
+    mut outs: Vec<ServerOutput>,
 ) -> Result<(), TransportError> {
-    for out in outs {
-        match out {
-            ServerOutput::Stream(msg) => stream.send(&msg).await?,
-            ServerOutput::Datagram(d) => {
-                let bytes = Datagram::Motion(d).encode()?;
-                conn.send_datagram(Bytes::from(bytes))?;
+    // A refused grab (Secure Event Input) turns into a return to local; that return can
+    // not be refused, so it takes one more round at most.
+    while !outs.is_empty() {
+        let mut refused = false;
+        for out in outs {
+            match out {
+                ServerOutput::Stream(msg) => stream.send(&msg).await?,
+                ServerOutput::Datagram(d) => {
+                    let bytes = Datagram::Motion(d).encode()?;
+                    conn.send_datagram(Bytes::from(bytes))?;
+                }
+                local => refused |= !apply_local(capture, local),
             }
-            local => apply_local(capture, local),
         }
+        outs = if refused {
+            session.grab_refused()
+        } else {
+            Vec::new()
+        };
     }
     Ok(())
 }
 
 /// A capture failure does not cut the session: it is logged and it goes on, so as not to
-/// leave the user without a keyboard because of a system error.
-fn apply_local<C: Capture>(capture: &mut C, out: ServerOutput) {
-    let result = match out {
-        ServerOutput::Grab(grab) => capture.set_grab(grab),
-        ServerOutput::Warp(pos) => capture.warp(pos),
-        ServerOutput::Stream(_) | ServerOutput::Datagram(_) => return,
+/// leave the user without a keyboard because of a system error. `false` if taking the
+/// input was refused: the session must not believe the focus is on the other machine.
+fn apply_local<C: Capture>(capture: &mut C, out: ServerOutput) -> bool {
+    let (result, is_grab) = match out {
+        ServerOutput::Grab(grab) => (capture.set_grab(grab), grab),
+        ServerOutput::Warp(pos) => (capture.warp(pos), false),
+        ServerOutput::Stream(_) | ServerOutput::Datagram(_) => return true,
     };
-    if let Err(e) = result {
-        tracing::error!("capture: {e}");
+    match result {
+        Ok(()) => true,
+        Err(e) => {
+            tracing::error!("capture: {e}");
+            !is_grab
+        }
     }
 }
 
@@ -496,6 +522,9 @@ pub struct ClientDriver<I> {
     injector: I,
     here: watch::Sender<bool>,
     screens: Option<watch::Receiver<Vec<Screen>>>,
+    /// What the system really reports as screens (not the declared ones): a change makes
+    /// the injector read them again.
+    displays: Option<watch::Receiver<Vec<Screen>>>,
     latency: watch::Sender<Option<InputLatency>>,
     /// Each measured latency, in addition to the window (the data guardian, T-101).
     on_sample: Option<Box<dyn FnMut(Duration) + Send>>,
@@ -511,6 +540,7 @@ impl<I: Injector> ClientDriver<I> {
             injector,
             here: watch::Sender::new(false),
             screens: None,
+            displays: None,
             latency: watch::Sender::new(None),
             on_sample: None,
             cursor: None,
@@ -542,6 +572,16 @@ impl<I: Injector> ClientDriver<I> {
         self.session
             .set_screens(screens.borrow_and_update().clone());
         self.screens = Some(screens);
+        self
+    }
+
+    /// The screens the system reports. The geometry (`with_screens`) can come from the desk's
+    /// declared screens and not change when macOS reconfigures its displays (a monitor
+    /// that comes back, a different resolution): without this the injector kept clamping the
+    /// cursor to the old screens and it ended up on a part nobody sees.
+    pub fn with_display_changes(mut self, mut displays: watch::Receiver<Vec<Screen>>) -> Self {
+        displays.borrow_and_update();
+        self.displays = Some(displays);
         self
     }
 
@@ -607,6 +647,7 @@ impl<I: Injector> ClientDriver<I> {
             injector,
             here,
             screens,
+            displays,
             latency,
             on_sample,
             cursor,
@@ -618,6 +659,12 @@ impl<I: Injector> ClientDriver<I> {
             && rx.has_changed().unwrap_or(false)
         {
             set_screens(session, injector, rx.borrow_and_update().clone());
+        }
+        if let Some(rx) = displays.as_mut()
+            && rx.has_changed().unwrap_or(false)
+        {
+            rx.borrow_and_update();
+            reread(injector);
         }
         let mut stream = tokio::select! {
             () = &mut stop => return SessionEnd::Stopped,
@@ -728,6 +775,10 @@ impl<I: Injector> ClientDriver<I> {
                     Some(list) => set_screens(session, injector, list),
                     None => *screens = None,
                 },
+                real = next_value(displays) => match real {
+                    Some(_) => reread(injector),
+                    None => *displays = None,
+                },
             }
         }
     }
@@ -759,6 +810,10 @@ fn flush_client_cursor(cursor: &mut Option<CursorFeed>, session: &ClientSession)
 
 fn set_screens<I: Injector>(session: &mut ClientSession, injector: &mut I, screens: Vec<Screen>) {
     session.set_screens(screens);
+    reread(injector);
+}
+
+fn reread<I: Injector>(injector: &mut I) {
     if let Err(e) = injector.refresh() {
         tracing::warn!("injection: the screens could not be reread: {e}");
     }

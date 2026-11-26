@@ -69,6 +69,9 @@ pub struct ServerSession {
     /// The client received over the stream the exact position after the last
     /// movement.
     synced: bool,
+    /// The focus is remote because this machine had no visible screen (not because the
+    /// cursor crossed an edge): it goes back as soon as one is visible again.
+    settled: bool,
     /// Shortcut that locks the cursor on the machine where it is; empty = no shortcut.
     lock_shortcut: Vec<HidUsage>,
     locked: bool,
@@ -102,6 +105,7 @@ impl ServerSession {
             resync_every,
             since_resync: 0,
             synced: true,
+            settled: false,
             lock_shortcut: Vec::new(),
             locked: false,
             drag_across: false,
@@ -376,6 +380,7 @@ impl ServerSession {
 
     fn enter(&mut self, pos: Point, out: &mut Vec<ServerOutput>) {
         self.crossed(self.machine);
+        self.settled = false;
         self.focus = Focus::Remote { pos };
         self.pending = Pending::default();
         self.since_resync = 0;
@@ -390,6 +395,7 @@ impl ServerSession {
 
     fn leave(&mut self, back: Point, out: &mut Vec<ServerOutput>) {
         self.crossed(self.machine.other());
+        self.settled = false;
         self.focus = Focus::Local;
         // What was pending was for the client, which now releases everything.
         self.pending = Pending::default();
@@ -466,6 +472,25 @@ impl ServerSession {
             }
             self.local = inside;
         }
+        // A settle made on a view that did not last (a role or link change): with a screen of
+        // this machine visible again the cursor comes back instead of staying on the other one.
+        if self.settled
+            && self.is_remote()
+            && let Some(first) = self.layout.screens(self.machine).first()
+        {
+            let r = first.rect;
+            let back = if self.layout.screen_at(self.machine, self.local).is_some() {
+                self.local
+            } else {
+                Point::new(
+                    f64::from(r.x) + f64::from(r.width) / 2.0,
+                    f64::from(r.y) + f64::from(r.height) / 2.0,
+                )
+            };
+            tracing::info!("a screen of this machine is visible again: the cursor comes back");
+            self.leave(back, &mut out);
+            return out;
+        }
         if let Focus::Remote { pos } = self.focus {
             match self.layout.screen_at(self.machine.other(), pos) {
                 Some(s) => {
@@ -518,6 +543,22 @@ impl ServerSession {
         );
         tracing::info!("no screen of this machine is visible: the cursor goes to the other one");
         self.enter(center, out);
+        self.settled = true;
+    }
+
+    /// The capture refused to take local input (Secure Event Input: a password field): the
+    /// cursor did not leave, so the session cannot believe the focus is on the other machine.
+    /// Without this the Mac kept typing locally while the other one received everything too,
+    /// and the cursor was stuck on a machine that was not following it. The focus comes back
+    /// here and the client is told.
+    pub fn grab_refused(&mut self) -> Vec<ServerOutput> {
+        let mut out = Vec::new();
+        if self.is_remote() {
+            tracing::warn!("the capture refused the input: the cursor stays on this machine");
+            let back = self.local;
+            self.leave(back, &mut out);
+        }
+        out
     }
 
     /// The link dropped or changed: the focus returns to this machine without notifying the
@@ -527,6 +568,7 @@ impl ServerSession {
             return Vec::new();
         }
         self.focus = Focus::Local;
+        self.settled = false;
         self.pending = Pending::default();
         vec![ServerOutput::Grab(false), ServerOutput::Warp(self.local)]
     }
@@ -612,6 +654,54 @@ mod tests {
             y: 720.0,
         });
         s.handle(rel(5.0, 0.0))
+    }
+
+    /// T-362: the capture refused to take the input after a crossing: the focus comes back
+    /// and the client is told.
+    #[test]
+    fn a_refused_grab_returns_the_focus_and_tells_the_client() {
+        let mut s = session();
+        cross(&mut s);
+        assert!(s.is_remote());
+        let out = s.grab_refused();
+        assert!(!s.is_remote());
+        assert!(out.contains(&ServerOutput::Stream(StreamMsg::Leave)));
+        assert!(out.contains(&ServerOutput::Grab(false)));
+        // Without a remote focus there is nothing to undo.
+        assert!(s.grab_refused().is_empty());
+    }
+
+    /// T-362: a machine with no visible screen whose input is refused (a lock screen) must
+    /// not stay "on the other machine": the session returns to local.
+    #[test]
+    fn a_refused_settle_does_not_strand_the_cursor() {
+        let mut s = ServerSession::new(Machine::B, layout_mac_only(), Point::new(9.0, 9.0), 4);
+        s.start();
+        assert!(s.is_remote());
+        s.grab_refused();
+        assert!(!s.is_remote());
+    }
+
+    /// T-362: a settle made on a transient view (a role or link change, the PC at 15:43) must
+    /// not strand the cursor: when a screen of this machine is visible again, it comes back.
+    #[test]
+    fn a_settled_cursor_comes_back_when_a_own_screen_is_visible_again() {
+        let mut s = ServerSession::new(Machine::B, layout_mac_only(), Point::new(9.0, 9.0), 4);
+        s.start();
+        assert!(s.is_remote());
+        let out = s.set_layout(layout_pc_mac());
+        assert!(!s.is_remote());
+        assert!(out.contains(&ServerOutput::Stream(StreamMsg::Leave)));
+        assert!(out.contains(&ServerOutput::Grab(false)));
+    }
+
+    /// A cursor that crossed by an edge is not taken back by a layout change.
+    #[test]
+    fn a_crossed_cursor_stays_when_the_layout_changes() {
+        let mut s = session();
+        cross(&mut s);
+        s.set_layout(layout_pc_mac());
+        assert!(s.is_remote());
     }
 
     #[test]

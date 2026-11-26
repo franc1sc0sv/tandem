@@ -21,12 +21,32 @@ pub enum CaptureCall {
 #[derive(Debug)]
 pub struct FakeCapture {
     calls: watch::Sender<Vec<CaptureCall>>,
+    refuse_grab: bool,
+}
+
+/// The double refused to take input (Secure Event Input).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GrabRefused;
+
+impl std::fmt::Display for GrabRefused {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("grab refused")
+    }
 }
 
 impl FakeCapture {
     pub fn new() -> Self {
         Self {
             calls: watch::Sender::new(Vec::new()),
+            refuse_grab: false,
+        }
+    }
+
+    /// A capture that refuses to take input, like macOS with a password field active.
+    pub fn refusing_grab() -> Self {
+        Self {
+            refuse_grab: true,
+            ..Self::new()
         }
     }
 
@@ -55,14 +75,17 @@ impl Default for FakeCapture {
 }
 
 impl Capture for FakeCapture {
-    type Error = Infallible;
+    type Error = GrabRefused;
 
-    fn set_grab(&mut self, grab: bool) -> Result<(), Infallible> {
+    fn set_grab(&mut self, grab: bool) -> Result<(), GrabRefused> {
         self.calls.send_modify(|c| c.push(CaptureCall::Grab(grab)));
+        if grab && self.refuse_grab {
+            return Err(GrabRefused);
+        }
         Ok(())
     }
 
-    fn warp(&mut self, pos: Point) -> Result<(), Infallible> {
+    fn warp(&mut self, pos: Point) -> Result<(), GrabRefused> {
         self.calls.send_modify(|c| c.push(CaptureCall::Warp(pos)));
         Ok(())
     }
@@ -73,6 +96,7 @@ impl Capture for FakeCapture {
 pub struct FakeInjector {
     events: watch::Sender<Vec<InputEvent>>,
     focus: watch::Sender<Vec<bool>>,
+    refreshes: watch::Sender<u32>,
 }
 
 impl FakeInjector {
@@ -80,11 +104,17 @@ impl FakeInjector {
         Self {
             events: watch::Sender::new(Vec::new()),
             focus: watch::Sender::new(Vec::new()),
+            refreshes: watch::Sender::new(0),
         }
     }
 
     pub fn events(&self) -> watch::Receiver<Vec<InputEvent>> {
         self.events.subscribe()
+    }
+
+    /// How many times the screens were read again ([`Injector::refresh`]).
+    pub fn refreshes(&self) -> watch::Receiver<u32> {
+        self.refreshes.subscribe()
     }
 
     /// Each [`Injector::set_focus`], in order.
@@ -104,6 +134,11 @@ impl Injector for FakeInjector {
 
     fn inject(&mut self, event: &InputEvent) -> Result<(), Infallible> {
         self.events.send_modify(|e| e.push(*event));
+        Ok(())
+    }
+
+    fn refresh(&mut self) -> Result<(), Infallible> {
+        self.refreshes.send_modify(|n| *n += 1);
         Ok(())
     }
 
