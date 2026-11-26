@@ -1090,6 +1090,7 @@ async fn new_client(sh: &Arc<Shared>) -> Result<Client, String> {
     let s = sh.clone();
     let driver = ClientDriver::new(session, injector, sh.opts.session)
         .with_screens(sh.visible.subscribe())
+        .with_display_changes(sh.screens.subscribe())
         .with_cursor(sh.cursor.clone(), sh.me)
         .on_latency_sample(move |d| feed_qos(&s, d));
     forward_latency(sh.clone(), driver.latency(), false);

@@ -976,3 +976,162 @@ async fn with_every_monitor_on_the_other_machine_the_cursor_goes_there_by_itself
     l.server_ep.close();
     l.client_ep.close();
 }
+
+/// T-362: the driver idled (this machine was not the sender) while the scene changed. When it
+/// serves again, the session starts with the current geometry: with the one it had when it
+/// stopped (the Mac's screens "elsewhere") it settled onto the other machine, grabbed and froze
+/// its own cursor, and the mouse was a phantom.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_server_starting_after_a_scene_change_uses_the_current_geometry() {
+    let l = link().await;
+    let (_tx, rx) = mpsc::unbounded_channel();
+    let stale = Layout::compute(
+        &Arrangement {
+            a: mac_screens(),
+            b: vec![],
+            a_side: Side::Right,
+            align: None,
+        },
+        LayoutOptions { corner_margin: 0.0 },
+    )
+    .unwrap()
+    .with_shown_elsewhere(Machine::B);
+    let (layouts, layouts_rx) = watch::channel(stale);
+    layouts.send_replace(layout());
+    let mut driver = ServerDriver::new(
+        ServerSession::new(Machine::B, layout_stale_copy(), start(), cfg().resync_every),
+        FakeCapture::new(),
+        rx,
+        cfg(),
+    )
+    .with_layouts(layouts_rx);
+    let mut active = driver.active();
+    let (stop, stop_rx) = oneshot::channel::<()>();
+    let conn = l.server.clone();
+    let server = Running {
+        stop,
+        task: tokio::spawn(async move {
+            let hello = Hello::new(Peer::Agent(Machine::B));
+            let end = driver
+                .run(&conn, &hello, async {
+                    let _ = stop_rx.await;
+                })
+                .await;
+            (driver, end)
+        }),
+    };
+    let (client, _injected) = spawn_client(l.client.clone());
+    up(&mut active).await;
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    let (server, _) = server.stop().await;
+    assert!(
+        !server
+            .capture()
+            .calls()
+            .borrow()
+            .contains(&CaptureCall::Grab(true)),
+        "it must not have grabbed the cursor"
+    );
+    let _ = client.stop().await;
+    l.server_ep.close();
+    l.client_ep.close();
+}
+
+/// The geometry the session had when it stopped serving: every screen of B elsewhere.
+fn layout_stale_copy() -> Layout {
+    Layout::compute(
+        &Arrangement {
+            a: mac_screens(),
+            b: vec![],
+            a_side: Side::Right,
+            align: None,
+        },
+        LayoutOptions { corner_margin: 0.0 },
+    )
+    .unwrap()
+    .with_shown_elsewhere(Machine::B)
+}
+
+/// T-362: with Secure Event Input the capture refuses to take the input. The session goes back to
+/// local and the client is told (Leave); before, it believed the focus was on the other
+/// machine while the local cursor and keyboard kept working.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_refused_grab_returns_the_focus_to_this_machine() {
+    let l = link().await;
+    let (tx, rx) = mpsc::unbounded_channel();
+    let mut driver = ServerDriver::new(server_session(), FakeCapture::refusing_grab(), rx, cfg());
+    let mut active = driver.active();
+    let mut remote = driver.remote();
+    let (stop, stop_rx) = oneshot::channel::<()>();
+    let conn = l.server.clone();
+    let server = Running {
+        stop,
+        task: tokio::spawn(async move {
+            let hello = Hello::new(Peer::Agent(Machine::B));
+            let end = driver
+                .run(&conn, &hello, async {
+                    let _ = stop_rx.await;
+                })
+                .await;
+            (driver, end)
+        }),
+    };
+    let (client, _injected) = spawn_client(l.client.clone());
+    up(&mut active).await;
+    // Cross at the PC's edge.
+    tx.send(Captured::now(InputEvent::MotionAbsolute {
+        x: 3439.0,
+        y: 720.0,
+    }))
+    .unwrap();
+    tx.send(Captured::now(rel(5.0, 0.0))).unwrap();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(!*remote.borrow_and_update(), "the focus must be local");
+    let (server, _) = server.stop().await;
+    assert!(!server.session().is_remote());
+    let _ = client.stop().await;
+    l.server_ep.close();
+    l.client_ep.close();
+}
+
+/// T-362: macOS reconfigures its displays (a monitor comes back). The declared geometry does
+/// not change, but the injector reads the real screens again.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_client_rereads_the_displays_when_the_system_changes_them() {
+    let l = link().await;
+    let injector = FakeInjector::new();
+    let mut refreshes = injector.refreshes();
+    let (displays, displays_rx) = watch::channel(mac_screens());
+    let mut driver = ClientDriver::new(ClientSession::new(mac_screens()), injector, cfg())
+        .with_display_changes(displays_rx);
+    let (stop, stop_rx) = oneshot::channel::<()>();
+    let conn = l.client.clone();
+    let client = Running {
+        stop,
+        task: tokio::spawn(async move {
+            let hello = Hello::new(Peer::Agent(Machine::A));
+            let end = driver
+                .run(&conn, &hello, async {
+                    let _ = stop_rx.await;
+                })
+                .await;
+            (driver, end)
+        }),
+    };
+    let (_tx, rx) = mpsc::unbounded_channel();
+    let (server, _, _) = spawn_server(l.server.clone(), rx);
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let before = *refreshes.borrow_and_update();
+    let mut grown = mac_screens();
+    grown.push(Screen::new(
+        "new".into(),
+        Rect::new(5360, 0, 2560, 1440),
+        1.0,
+    ));
+    displays.send_replace(grown);
+    within(refreshes.wait_for(|n| *n > before)).await.unwrap();
+    let _ = server.stop().await;
+    let _ = client.stop().await;
+    l.server_ep.close();
+    l.client_ep.close();
+}

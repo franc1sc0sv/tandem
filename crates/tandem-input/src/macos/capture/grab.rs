@@ -271,6 +271,26 @@ mod tests {
         assert_eq!(s.hide_count, 0);
     }
 
+    /// T-362: a refusal by Secure Event Input and then a release (the server goes back to
+    /// client) touch neither the hide counter nor the freeze: the cursor stays visible and free.
+    #[test]
+    fn a_refused_grab_then_a_release_leaves_the_cursor_visible_and_free() {
+        let (g, c) = grab();
+        c.state().secure_input = true;
+        assert!(matches!(g.set(true), Err(CaptureError::SecureInput)));
+        g.set(false).unwrap();
+        g.release();
+        assert_eq!(c.state().hide_count, 0);
+        assert!(!c.state().frozen);
+        assert!(c.state().calls.is_empty());
+        // After the password field goes away, taking and giving back balances out.
+        c.state().secure_input = false;
+        g.set(true).unwrap();
+        g.set(false).unwrap();
+        assert_eq!(c.state().hide_count, 0);
+        assert!(!c.state().frozen);
+    }
+
     #[test]
     fn if_freezing_fails_it_is_not_hidden() {
         let (g, c) = grab();
