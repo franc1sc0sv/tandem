@@ -128,17 +128,20 @@ fn is_right_shift(k: &KeyboardHook) -> bool {
     k.scan_code == SCAN_RSHIFT && k.is_extended()
 }
 
-/// Removes the fake right Shift (E0 B6 before, E0 36 after) that Windows puts around a
-/// navigation key while the real right Shift is held with NumLock on. The real right Shift
-/// carries the same flags, so it is told apart by time: the fake one comes within `window` of
-/// the navigation key's `time`; a person does not press both that close. A right Shift is held
-/// until the next event or until the window passes, like AltGr's Ctrl.
+/// Removes the fake right Shift Windows puts around a navigation key while the real right Shift
+/// is held with NumLock on: a release (E0 B6) just before the navigation key goes down, and a
+/// press (E0 36) just after it goes up. The real right Shift carries the same flags, so they are
+/// told apart by direction and time: only a release followed within `window` by a navigation
+/// press, and only a press within `window` of a navigation release, are fake. A real release is
+/// never dropped for following a navigation key, so the other machine never keeps a Shift held.
+/// Right Shift releases wait for the next event or the window, like AltGr's Ctrl; presses are
+/// never held.
 #[derive(Debug)]
 pub struct FakeShiftFilter {
     window: Duration,
     pending: Option<(KeyboardHook, Instant)>,
-    /// `time` of the last navigation key.
-    last_navigation: Option<u32>,
+    /// `time` of the last navigation key release.
+    last_release: Option<u32>,
 }
 
 impl FakeShiftFilter {
@@ -146,7 +149,7 @@ impl FakeShiftFilter {
         Self {
             window,
             pending: None,
-            last_navigation: None,
+            last_release: None,
         }
     }
 
@@ -162,18 +165,20 @@ impl FakeShiftFilter {
 
     pub fn push(&mut self, k: KeyboardHook, now: Instant, out: &mut impl FnMut(KeyboardHook)) {
         if let Some((held, _)) = self.pending.take()
-            && !(is_navigation(&k) && self.close(k.time, held.time))
+            && !(is_navigation(&k) && !k.is_up() && self.close(k.time, held.time))
         {
             out(held);
         }
         if is_right_shift(&k) {
-            if !self.last_navigation.is_some_and(|t| self.close(k.time, t)) {
+            if k.is_up() {
                 self.pending = Some((k, now));
+            } else if !self.last_release.is_some_and(|t| self.close(k.time, t)) {
+                out(k);
             }
             return;
         }
-        if is_navigation(&k) {
-            self.last_navigation = Some(k.time);
+        if is_navigation(&k) && k.is_up() {
+            self.last_release = Some(k.time);
         }
         out(k);
     }
@@ -330,17 +335,48 @@ mod tests {
     }
 
     #[test]
+    fn a_real_release_right_after_the_arrow_is_kept() {
+        // Arrow released, its fake Shift press, then the real Shift released 5 ms later.
+        let real = key(SCAN_RSHIFT, LLKHF_EXTENDED, 100);
+        let fake_up = key(SCAN_RSHIFT, LLKHF_EXTENDED | LLKHF_UP, 300);
+        let arrow = key(0x48, LLKHF_EXTENDED, 300);
+        let arrow_up = key(0x48, LLKHF_EXTENDED | LLKHF_UP, 380);
+        let fake_down = key(SCAN_RSHIFT, LLKHF_EXTENDED, 380);
+        let real_up = key(SCAN_RSHIFT, LLKHF_EXTENDED | LLKHF_UP, 385);
+        assert_eq!(
+            shifts(&[real, fake_up, arrow, arrow_up, fake_down, real_up]),
+            vec![real, arrow, arrow_up, real_up]
+        );
+    }
+
+    #[test]
+    fn a_real_release_just_before_the_arrow_goes_up_is_kept() {
+        let real = key(SCAN_RSHIFT, LLKHF_EXTENDED, 100);
+        let fake_up = key(SCAN_RSHIFT, LLKHF_EXTENDED | LLKHF_UP, 300);
+        let arrow = key(0x48, LLKHF_EXTENDED, 300);
+        let real_up = key(SCAN_RSHIFT, LLKHF_EXTENDED | LLKHF_UP, 375);
+        let arrow_up = key(0x48, LLKHF_EXTENDED | LLKHF_UP, 380);
+        assert_eq!(
+            shifts(&[real, fake_up, arrow, real_up, arrow_up]),
+            vec![real, arrow, real_up, arrow_up]
+        );
+    }
+
+    #[test]
     fn a_held_right_shift_goes_out_when_the_window_expires() {
         let t0 = Instant::now();
         let mut f = FakeShiftFilter::new(Duration::from_millis(10));
         let mut out = Vec::new();
         let down = key(SCAN_RSHIFT, LLKHF_EXTENDED, 1);
+        let up = key(SCAN_RSHIFT, LLKHF_EXTENDED | LLKHF_UP, 50);
         f.push(down, t0, &mut |k| out.push(k));
-        assert!(out.is_empty() && f.has_pending());
+        assert_eq!(out, vec![down], "a press is never held");
+        f.push(up, t0, &mut |k| out.push(k));
+        assert!(f.has_pending());
         f.flush_expired(t0 + Duration::from_millis(9), &mut |k| out.push(k));
-        assert!(out.is_empty());
-        f.flush_expired(t0 + Duration::from_millis(10), &mut |k| out.push(k));
         assert_eq!(out, vec![down]);
+        f.flush_expired(t0 + Duration::from_millis(10), &mut |k| out.push(k));
+        assert_eq!(out, vec![down, up]);
     }
 
     #[test]
@@ -460,6 +496,67 @@ mod tests {
                 })
                 .collect()
         })
+    }
+
+    fn arb_spaced_with_arrows() -> impl Strategy<Value = Vec<KeyboardHook>> {
+        // Real keys only (right Shift, arrows, letters) at least 11 ms apart: no fake pair can
+        // be among them, so the filter must pass everything.
+        prop::collection::vec(
+            (
+                prop_oneof![Just(SCAN_RSHIFT), Just(0x48), Just(0x4B), 0x10u32..0x33],
+                any::<bool>(),
+                11u32..200,
+            ),
+            0..40,
+        )
+        .prop_map(|v| {
+            let mut t = 0u32;
+            v.into_iter()
+                .map(|(scan, up, gap)| {
+                    t = t.wrapping_add(gap);
+                    let ext = if scan == SCAN_RSHIFT || scan == 0x48 || scan == 0x4B {
+                        LLKHF_EXTENDED
+                    } else {
+                        0
+                    };
+                    key(scan, ext | if up { LLKHF_UP } else { 0 }, t)
+                })
+                .collect()
+        })
+    }
+
+    proptest! {
+        #[test]
+        fn real_keys_apart_from_each_other_all_pass(events in arb_spaced_with_arrows()) {
+            prop_assert_eq!(shifts(&events), events);
+        }
+
+        #[test]
+        fn a_right_shift_release_is_never_dropped(events in arb_typing()) {
+            let releases = |v: &[KeyboardHook]| {
+                v.iter().filter(|k| is_right_shift(k) && k.is_up()).count()
+            };
+            let mut with_arrows = events.clone();
+            // An arrow press and release right after every event, same time.
+            with_arrows = with_arrows
+                .into_iter()
+                .flat_map(|k| {
+                    [
+                        k,
+                        key(0x48, LLKHF_EXTENDED, k.time),
+                        key(0x48, LLKHF_EXTENDED | LLKHF_UP, k.time),
+                    ]
+                })
+                .collect();
+            let out = shifts(&with_arrows);
+            // Only a release followed by an arrow press at its time is a fake one; the property
+            // checks the releases that are not.
+            let fakes = with_arrows
+                .windows(2)
+                .filter(|w| is_right_shift(&w[0]) && w[0].is_up() && is_navigation(&w[1]) && !w[1].is_up())
+                .count();
+            prop_assert_eq!(releases(&out), releases(&with_arrows) - fakes);
+        }
     }
 
     proptest! {
