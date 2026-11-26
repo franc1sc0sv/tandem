@@ -576,8 +576,6 @@ async fn keyboard_mouse_clipboard_and_roles_between_two_agents() {
     mac.stop().await;
 }
 
-/// An arrangement edited on the PC reaches the Mac through `ControlMsg::Desk` and changes where
-/// its cursor crosses (DESIGN §7).
 /// T-361: the PC's Ctrl+Left (word jump) reaches the Mac as Option+Left, not Cmd+Left, and
 /// nothing stays pressed over there.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -636,6 +634,8 @@ async fn a_pc_shortcut_reaches_the_mac_as_its_equivalent() {
     mac.stop().await;
 }
 
+/// An arrangement edited on the PC reaches the Mac through `ControlMsg::Desk` and changes where
+/// its cursor crosses (DESIGN §7).
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn an_arrangement_edited_on_one_machine_reaches_the_other_by_desk() {
     let (mac_id, pc_id) = sides(Identity::from_seed([31; 32]), Identity::from_seed([32; 32]));
