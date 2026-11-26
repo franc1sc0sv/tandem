@@ -133,7 +133,9 @@ fn is_right_shift(k: &KeyboardHook) -> bool {
 /// press (E0 36) just after it goes up. The real right Shift carries the same flags, so they are
 /// told apart by direction and time: only a release followed within `window` by a navigation
 /// press, and only a press within `window` of a navigation release, are fake. A real release is
-/// never dropped for following a navigation key, so the other machine never keeps a Shift held.
+/// never dropped for following a navigation key. An autorepeat of a navigation key that is
+/// already down does not make a release fake either: letting go of Shift while an arrow keeps
+/// repeating must reach the other machine, or Shift would stay held there.
 /// Right Shift releases wait for the next event or the window, like AltGr's Ctrl; presses are
 /// never held.
 #[derive(Debug)]
@@ -142,6 +144,8 @@ pub struct FakeShiftFilter {
     pending: Option<(KeyboardHook, Instant)>,
     /// `time` of the last navigation key release.
     last_release: Option<u32>,
+    /// Navigation keys down now (scan codes): a press of one of them is an autorepeat.
+    nav_down: std::collections::BTreeSet<u32>,
 }
 
 impl FakeShiftFilter {
@@ -150,6 +154,7 @@ impl FakeShiftFilter {
             window,
             pending: None,
             last_release: None,
+            nav_down: std::collections::BTreeSet::new(),
         }
     }
 
@@ -164,10 +169,19 @@ impl FakeShiftFilter {
     }
 
     pub fn push(&mut self, k: KeyboardHook, now: Instant, out: &mut impl FnMut(KeyboardHook)) {
+        let fresh_nav_press =
+            is_navigation(&k) && !k.is_up() && !self.nav_down.contains(&k.scan_code);
         if let Some((held, _)) = self.pending.take()
-            && !(is_navigation(&k) && !k.is_up() && self.close(k.time, held.time))
+            && !(fresh_nav_press && self.close(k.time, held.time))
         {
             out(held);
+        }
+        if is_navigation(&k) {
+            if k.is_up() {
+                self.nav_down.remove(&k.scan_code);
+            } else {
+                self.nav_down.insert(k.scan_code);
+            }
         }
         if is_right_shift(&k) {
             if k.is_up() {
@@ -308,6 +322,21 @@ mod tests {
         }
         f.flush_all(&mut |k| out.push(k));
         out
+    }
+
+    /// Shift+Right held to select, Shift let go while the arrow keeps repeating: the release
+    /// lands next to a repeat and must still reach the other machine.
+    #[test]
+    fn a_release_next_to_an_arrow_autorepeat_passes() {
+        let events = [
+            key(SCAN_RSHIFT, LLKHF_EXTENDED, 100),
+            key(0x4D, LLKHF_EXTENDED, 150),
+            key(0x4D, LLKHF_EXTENDED, 183),
+            key(SCAN_RSHIFT, LLKHF_EXTENDED | LLKHF_UP, 210),
+            key(0x4D, LLKHF_EXTENDED, 216),
+            key(0x4D, LLKHF_EXTENDED | LLKHF_UP, 240),
+        ];
+        assert_eq!(shifts(&events), events);
     }
 
     #[test]
@@ -531,31 +560,28 @@ mod tests {
             prop_assert_eq!(shifts(&events), events);
         }
 
+        /// A right Shift release is dropped exactly when a fresh navigation press follows it
+        /// within the window (10 ms); the presses, apart from navigation releases, all pass.
         #[test]
-        fn a_right_shift_release_is_never_dropped(events in arb_typing()) {
-            let releases = |v: &[KeyboardHook]| {
-                v.iter().filter(|k| is_right_shift(k) && k.is_up()).count()
+        fn a_release_is_dropped_only_before_a_fresh_navigation_press(
+            gaps in prop::collection::vec(0u32..30, 1..40),
+        ) {
+            let mut events = Vec::new();
+            let mut base = 1000u32;
+            for gap in &gaps {
+                events.push(key(SCAN_RSHIFT, LLKHF_EXTENDED, base));
+                events.push(key(SCAN_RSHIFT, LLKHF_EXTENDED | LLKHF_UP, base + 40));
+                events.push(key(0x4D, LLKHF_EXTENDED, base + 40 + gap));
+                events.push(key(0x4D, LLKHF_EXTENDED | LLKHF_UP, base + 70 + gap));
+                base += 200;
+            }
+            let out = shifts(&events);
+            let count = |v: &[KeyboardHook], up: bool| {
+                v.iter().filter(|k| is_right_shift(k) && k.is_up() == up).count()
             };
-            let mut with_arrows = events.clone();
-            // An arrow press and release right after every event, same time.
-            with_arrows = with_arrows
-                .into_iter()
-                .flat_map(|k| {
-                    [
-                        k,
-                        key(0x48, LLKHF_EXTENDED, k.time),
-                        key(0x48, LLKHF_EXTENDED | LLKHF_UP, k.time),
-                    ]
-                })
-                .collect();
-            let out = shifts(&with_arrows);
-            // Only a release followed by an arrow press at its time is a fake one; the property
-            // checks the releases that are not.
-            let fakes = with_arrows
-                .windows(2)
-                .filter(|w| is_right_shift(&w[0]) && w[0].is_up() && is_navigation(&w[1]) && !w[1].is_up())
-                .count();
-            prop_assert_eq!(releases(&out), releases(&with_arrows) - fakes);
+            let fakes = gaps.iter().filter(|g| **g <= 10).count();
+            prop_assert_eq!(count(&out, true), gaps.len() - fakes);
+            prop_assert_eq!(count(&out, false), gaps.len());
         }
     }
 
