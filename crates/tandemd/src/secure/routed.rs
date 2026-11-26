@@ -24,6 +24,7 @@ use tandem_input::windows::emulate::{
 
 use super::SecureStatus;
 use super::protocol::{PROTOCOL_VERSION, Reply, Request, WireInput, read_frame, write_frame};
+use super::uipi::{Episodes, ForegroundProbe, Verdict};
 
 /// Time between connection attempts while the helper is missing.
 pub const RECONNECT_EVERY: Duration = Duration::from_secs(2);
@@ -145,6 +146,9 @@ pub struct RoutedSink<L: InputSink> {
     next_attempt: Option<Instant>,
     chord: SasChord,
     status: SecureStatus,
+    /// UIPI failures without a helper (T-363): logged once per episode.
+    episodes: Episodes,
+    foreground: Option<Box<dyn ForegroundProbe>>,
     /// Where status changes go: the process-wide value the module reads.
     report: fn(SecureStatus),
 }
@@ -158,7 +162,63 @@ impl<L: InputSink> RoutedSink<L> {
             next_attempt: None,
             chord: SasChord::default(),
             status: SecureStatus::Unknown,
+            episodes: Episodes::default(),
+            foreground: None,
             report: super::report_status,
+        }
+    }
+
+    /// With a way to tell who has the foreground: local failures caused by an elevated window
+    /// become a quiet, published episode instead of one error per event.
+    pub fn with_foreground(mut self, probe: Box<dyn ForegroundProbe>) -> Self {
+        self.foreground = Some(probe);
+        self
+    }
+
+    /// Events lost in the current UIPI episode.
+    pub fn blocked_events(&self) -> u64 {
+        self.episodes.count()
+    }
+
+    /// A local injection (`op`) failed with `error`. Outside an episode the helper is tried
+    /// right away (a service installed a moment ago is used at once). `Ok(())`: the failure
+    /// is UIPI and already accounted for; `Err`: report it.
+    fn local_failed(
+        &mut self,
+        op: &str,
+        error: EmulateError,
+        now: Instant,
+    ) -> Result<(), EmulateError> {
+        let Some(probe) = self.foreground.as_deref() else {
+            return Err(error);
+        };
+        match self.episodes.failure(now, probe) {
+            Verdict::Other => Err(error),
+            Verdict::Started { process } => {
+                tracing::warn!(
+                    %process, %op, %error,
+                    "an elevated window has the foreground and the protected screens service is not reachable; \
+                     injection is paused until it changes (counting the lost events)"
+                );
+                Ok(())
+            }
+            Verdict::Ongoing => Ok(()),
+        }
+    }
+
+    fn recovered(&mut self) {
+        if let Some((process, lost)) = self.episodes.recovered() {
+            tracing::info!(%process, lost, "injection works again");
+        }
+    }
+
+    /// The first failure of an episode asks for the helper now, not at the next 2 s mark.
+    fn retry_helper_now(&mut self, now: Instant) {
+        // `ensure_link` already tried at this very instant: asking again gains nothing.
+        let just_tried = self.next_attempt == Some(now + RECONNECT_EVERY);
+        if !self.episodes.is_active() && !just_tried {
+            self.next_attempt = None;
+            self.ensure_link(now);
         }
     }
 
@@ -256,9 +316,17 @@ impl<L: InputSink> RoutedSink<L> {
         let mut result = Ok(());
         if !split.inputs.is_empty() {
             let wire = split.inputs.iter().map(WireInput::from).collect();
+            // `send_local` ends the UIPI episode itself: an `Ok` from it can also be a failure
+            // already counted in the episode.
             result = match self.call(&Request::Inject(wire)) {
-                Some(reply) => reply_to_result(reply, split.inputs.len()),
-                None => self.local.send(&split.inputs),
+                Some(reply) => {
+                    let r = reply_to_result(reply, split.inputs.len());
+                    if r.is_ok() {
+                        self.recovered();
+                    }
+                    r
+                }
+                None => self.send_local(&split.inputs, now),
             };
         }
         if split.sas {
@@ -269,6 +337,29 @@ impl<L: InputSink> RoutedSink<L> {
             }
         }
         result
+    }
+}
+
+impl<L: InputSink> RoutedSink<L> {
+    /// The batch without a helper; on failure, the UIPI accounting and an immediate retry
+    /// through a helper that may have appeared.
+    fn send_local(&mut self, inputs: &[WinInput], now: Instant) -> Result<(), EmulateError> {
+        let Err(error) = self.local.send(inputs) else {
+            self.recovered();
+            return Ok(());
+        };
+        self.retry_helper_now(now);
+        if self.link.is_some() {
+            let wire = inputs.iter().map(WireInput::from).collect();
+            if let Some(reply) = self.call(&Request::Inject(wire)) {
+                let r = reply_to_result(reply, inputs.len());
+                if r.is_ok() {
+                    self.recovered();
+                }
+                return r;
+            }
+        }
+        self.local_failed("SendInput", error, now)
     }
 }
 
@@ -308,7 +399,21 @@ impl<L: InputSink> InputSink for RoutedSink<L> {
         if self.link.is_some() {
             return Ok(false);
         }
-        self.local.set_cursor_pos(x, y)
+        let now = Instant::now();
+        match self.local.set_cursor_pos(x, y) {
+            Ok(moved) => {
+                self.recovered();
+                Ok(moved)
+            }
+            Err(error) => {
+                self.retry_helper_now(now);
+                if self.link.is_some() {
+                    return Ok(false);
+                }
+                self.local_failed("SetCursorPos", error, now)
+                    .map(|()| false)
+            }
+        }
     }
 
     // The cursor is drawn by the session's desktop, whoever injects: MouseKeys is a
@@ -345,6 +450,8 @@ mod tests {
         forced: Vec<bool>,
         helper: Vec<Request>,
         connects: usize,
+        /// The local sink fails like `SetCursorPos` under UIPI.
+        fail_local: bool,
     }
 
     #[derive(Clone, Copy, PartialEq, Eq)]
@@ -402,7 +509,11 @@ mod tests {
 
     impl InputSink for Local {
         fn send(&mut self, inputs: &[WinInput]) -> Result<(), EmulateError> {
-            self.0.lock().unwrap().local.extend_from_slice(inputs);
+            let mut seen = self.0.lock().unwrap();
+            if seen.fail_local {
+                return Err(uipi_error());
+            }
+            seen.local.extend_from_slice(inputs);
             Ok(())
         }
         fn desktop(&self) -> Result<Desktop, EmulateError> {
@@ -419,8 +530,105 @@ mod tests {
             Ok(())
         }
         fn set_cursor_pos(&mut self, _x: i32, _y: i32) -> Result<bool, EmulateError> {
+            if self.0.lock().unwrap().fail_local {
+                return Err(uipi_error());
+            }
             Ok(true)
         }
+    }
+
+    fn uipi_error() -> EmulateError {
+        EmulateError::Os {
+            op: "SetCursorPos",
+            code: 6,
+            message: "The handle is invalid.".into(),
+        }
+    }
+
+    fn uipi_sink(
+        mode: Mode,
+        name: &str,
+    ) -> (RoutedSink<Local>, Arc<Mutex<Seen>>, Arc<Mutex<Mode>>) {
+        let (s, seen, m) = sink(mode);
+        seen.lock().unwrap().fail_local = true;
+        let s = s.with_foreground(Box::new(crate::secure::uipi::tests::Fake::elevated(name)));
+        (s, seen, m)
+    }
+
+    #[test]
+    fn an_elevated_foreground_is_one_quiet_episode_not_an_error_per_event() {
+        let _g = crate::secure::uipi::tests::GLOBAL
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        let t = Instant::now();
+        let (mut s, seen, _) = uipi_sink(Mode::Missing, "Taskmgr.exe");
+        for i in 0..500 {
+            s.send_at(&[mouse()], t + Duration::from_micros(i)).unwrap();
+        }
+        assert_eq!(s.blocked_events(), 500);
+        assert_eq!(
+            crate::secure::uipi::blocked().map(|b| b.process),
+            Some("Taskmgr.exe".into())
+        );
+        // The helper is asked once at the start, not once per event.
+        assert_eq!(seen.lock().unwrap().connects, 1);
+        // Back to normal: the episode ends and the state clears.
+        seen.lock().unwrap().fail_local = false;
+        s.send_at(&[mouse()], t + Duration::from_secs(1)).unwrap();
+        assert_eq!(s.blocked_events(), 0);
+        assert_eq!(crate::secure::uipi::blocked(), None);
+    }
+
+    #[test]
+    fn a_failure_with_no_elevated_foreground_is_still_an_error() {
+        let _g = crate::secure::uipi::tests::GLOBAL
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        let (mut s, seen, _) = sink(Mode::Missing);
+        seen.lock().unwrap().fail_local = true;
+        // Without a probe, nothing is swallowed.
+        assert!(s.send_at(&[mouse()], Instant::now()).is_err());
+        let mut s = s.with_foreground(Box::new(crate::secure::uipi::tests::Fake(Mutex::new(None))));
+        assert!(s.send_at(&[mouse()], Instant::now()).is_err());
+        assert!(s.set_cursor_pos(1, 1).is_err());
+    }
+
+    #[test]
+    fn a_freshly_installed_service_is_used_at_the_first_failure() {
+        let _g = crate::secure::uipi::tests::GLOBAL
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        let t = Instant::now();
+        let (mut s, seen, mode) = uipi_sink(Mode::Missing, "Taskmgr.exe");
+        // A recent failed attempt would normally hold the next one back for 2 s.
+        s.send_at(&[mouse()], t).unwrap();
+        *mode.lock().unwrap() = Mode::Up;
+        // Another episode on another process would not retry, so end this one first.
+        seen.lock().unwrap().fail_local = false;
+        s.send_at(&[mouse()], t + Duration::from_millis(5)).unwrap();
+        seen.lock().unwrap().fail_local = true;
+        s.next_attempt = Some(t + RECONNECT_EVERY * 10);
+        s.send_at(&[mouse()], t + Duration::from_millis(10))
+            .unwrap();
+        assert_eq!(
+            injected(&seen.lock().unwrap()).len(),
+            1,
+            "went through the helper"
+        );
+        assert_eq!(s.status(), SecureStatus::Connected);
+        assert_eq!(s.blocked_events(), 0);
+    }
+
+    #[test]
+    fn the_cursor_move_under_uipi_is_also_quiet() {
+        let _g = crate::secure::uipi::tests::GLOBAL
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        let (mut s, _, _) = uipi_sink(Mode::Missing, "Taskmgr.exe");
+        for _ in 0..20 {
+            assert!(!s.set_cursor_pos(3, 3).unwrap());
+        }
+        assert_eq!(s.blocked_events(), 20);
     }
 
     /// With the helper up the input may be on another desktop: the move goes through it.

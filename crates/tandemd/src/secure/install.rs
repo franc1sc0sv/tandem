@@ -218,6 +218,39 @@ pub fn uninstall_plan(current: &Current) -> Result<Vec<Step>, PlanError> {
     Ok(steps)
 }
 
+/// How many times the service start is tried right after installing it (T-363).
+pub const START_ATTEMPTS: u32 = 5;
+/// The wait between those tries.
+pub const START_RETRY_WAIT: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// Runs `start` until it works or `attempts` run out, waiting with `sleep` in between, but only
+/// while the failure is one an antivirus scanning the freshly copied file causes (access
+/// denied, or the service not answering in time). Seen on the real PC on 2026-11-26: the first
+/// start failed with "Access is denied" and a manual start a minute later worked.
+pub fn start_with_retries(
+    attempts: u32,
+    mut start: impl FnMut() -> std::io::Result<()>,
+    mut sleep: impl FnMut(),
+) -> std::io::Result<()> {
+    let mut tries = 0;
+    loop {
+        tries += 1;
+        match start() {
+            Ok(()) => return Ok(()),
+            Err(e) if tries < attempts && transient_start_error(&e) => {
+                tracing::info!(attempt = tries, error = %e, "the service did not start yet; trying again");
+                sleep();
+            }
+            Err(e) => return Err(e),
+        }
+    }
+}
+
+/// `ERROR_ACCESS_DENIED` (5) and `ERROR_SERVICE_REQUEST_TIMEOUT` (1053), or a wait that ran out.
+fn transient_start_error(e: &std::io::Error) -> bool {
+    matches!(e.raw_os_error(), Some(5 | 1053)) || e.kind() == std::io::ErrorKind::TimedOut
+}
+
 #[cfg(test)]
 mod tests {
     use std::io;
@@ -435,5 +468,51 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn a_start_refused_by_a_scan_is_tried_again() {
+        let mut calls = 0;
+        let mut sleeps = 0;
+        let r = start_with_retries(
+            START_ATTEMPTS,
+            || {
+                calls += 1;
+                if calls < 3 {
+                    Err(std::io::Error::from_raw_os_error(5))
+                } else {
+                    Ok(())
+                }
+            },
+            || sleeps += 1,
+        );
+        assert!(r.is_ok());
+        assert_eq!((calls, sleeps), (3, 2));
+    }
+
+    #[test]
+    fn other_start_errors_and_the_last_attempt_are_reported() {
+        let mut calls = 0;
+        let r = start_with_retries(
+            START_ATTEMPTS,
+            || {
+                calls += 1;
+                Err(std::io::Error::from_raw_os_error(2))
+            },
+            || {},
+        );
+        assert_eq!(r.unwrap_err().raw_os_error(), Some(2));
+        assert_eq!(calls, 1, "a missing file is not retried");
+        let mut calls = 0;
+        let r = start_with_retries(
+            START_ATTEMPTS,
+            || {
+                calls += 1;
+                Err(std::io::Error::from_raw_os_error(5))
+            },
+            || {},
+        );
+        assert!(r.is_err());
+        assert_eq!(calls, START_ATTEMPTS);
     }
 }

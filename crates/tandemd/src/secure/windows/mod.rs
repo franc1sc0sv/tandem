@@ -13,12 +13,14 @@ use windows::Win32::System::RemoteDesktop::ProcessIdToSessionId;
 use windows::Win32::System::Threading::GetCurrentProcessId;
 
 mod desktop;
+mod foreground;
 mod host;
 mod manager;
 mod pipe;
 mod scm;
 
 pub use desktop::WinDesktops;
+pub use foreground::WinForeground;
 pub use manager::{install_service, service_state, uninstall_service};
 pub use pipe::{PipeConnector, run_helper};
 pub use scm::run_service;

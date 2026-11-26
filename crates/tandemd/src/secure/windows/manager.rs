@@ -316,13 +316,21 @@ fn apply(step: &Step) -> io::Result<()> {
             let scm = manager(SC_MANAGER_ALL_ACCESS)?;
             let service = open(&scm, SERVICE_ALL_ACCESS)?
                 .ok_or_else(|| io::Error::other("the service does not exist"))?;
-            // SAFETY: live handle with SERVICE_START; no arguments.
-            match unsafe { StartServiceW(service.0, None) } {
-                Ok(()) => {}
-                Err(e) if e.code() == ERROR_SERVICE_ALREADY_RUNNING.to_hresult() => {}
-                Err(e) => return Err(win_err(e)),
-            }
-            wait_state(&service, true, Duration::from_secs(15))
+            // Right after the copy an antivirus may still hold the file: a refused start is
+            // tried again a few times.
+            crate::secure::install::start_with_retries(
+                crate::secure::install::START_ATTEMPTS,
+                || {
+                    // SAFETY: live handle with SERVICE_START; no arguments.
+                    match unsafe { StartServiceW(service.0, None) } {
+                        Ok(()) => {}
+                        Err(e) if e.code() == ERROR_SERVICE_ALREADY_RUNNING.to_hresult() => {}
+                        Err(e) => return Err(win_err(e)),
+                    }
+                    wait_state(&service, true, Duration::from_secs(15))
+                },
+                || std::thread::sleep(crate::secure::install::START_RETRY_WAIT),
+            )
         }
         Step::Delete => {
             let scm = manager(SC_MANAGER_ALL_ACCESS)?;
