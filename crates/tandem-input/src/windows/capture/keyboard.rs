@@ -12,6 +12,10 @@ use crate::event::{InputEvent, KeyState};
 const FAKE_CTRL_SCAN: u32 = 0x21D;
 const SCAN_CONTROL: u32 = 0x1D;
 const SCAN_ALT: u32 = 0x38;
+/// Right Shift. The low-level hook reports the real key with `LLKHF_EXTENDED` (T-359), the same
+/// flags as the fake one Windows adds around the navigation keys, so the flag does not tell
+/// them apart: [`FakeShiftFilter`] does, by time.
+const SCAN_RSHIFT: u32 = 0x36;
 
 /// Keys that can arrive without a scancode (some media keyboards) or with one
 /// that the table does not have: they are resolved by the virtual code.
@@ -31,14 +35,16 @@ fn scancode_from_vk(vk: u32) -> Option<WinScancode> {
     Some(WinScancode(code))
 }
 
-/// The physical key of a hook event. `None` for what is not a real
-/// key: the fake Shifts (E0 2A / E0 36) that Windows adds around the
-/// arrows with NumLock, or codes that are not in the table.
+/// The physical key of a hook event. `None` for what is not a real key: the fake left Shift
+/// (E0 2A) that Windows adds around the arrows with NumLock, or codes that are not in the
+/// table. Right Shift is right Shift with or without the extended flag; its fake one is
+/// removed earlier by [`FakeShiftFilter`].
 pub fn key_event(k: &KeyboardHook) -> Option<InputEvent> {
+    let extended = k.is_extended() && k.scan_code != SCAN_RSHIFT;
     let by_scan = u8::try_from(k.scan_code)
         .ok()
         .filter(|code| *code != 0)
-        .and_then(|code| keymap::from_win(WinScancode::from_parts(code, k.is_extended())));
+        .and_then(|code| keymap::from_win(WinScancode::from_parts(code, extended)));
     let usage = by_scan.or_else(|| keymap::from_win(scancode_from_vk(k.vk)?))?;
     let state = if k.is_up() {
         KeyState::Released
@@ -93,6 +99,81 @@ impl AltGrFilter {
         if is_left_ctrl(&k) {
             self.pending = Some((k, now));
             return;
+        }
+        out(k);
+    }
+
+    pub fn flush_expired(&mut self, now: Instant, out: &mut impl FnMut(KeyboardHook)) {
+        if let Some((_, since)) = self.pending
+            && now.saturating_duration_since(since) >= self.window
+        {
+            self.flush_all(out);
+        }
+    }
+
+    pub fn flush_all(&mut self, out: &mut impl FnMut(KeyboardHook)) {
+        if let Some((held, _)) = self.pending.take() {
+            out(held);
+        }
+    }
+}
+
+/// The extended navigation keys Windows wraps in fake Shifts with NumLock on: Insert, Delete,
+/// Home, End, Page Up, Page Down and the arrows (E0 47..E0 53), and the keypad's `/` (E0 35).
+fn is_navigation(k: &KeyboardHook) -> bool {
+    k.is_extended() && matches!(k.scan_code, 0x47..=0x49 | 0x4B | 0x4D | 0x4F..=0x53 | 0x35)
+}
+
+fn is_right_shift(k: &KeyboardHook) -> bool {
+    k.scan_code == SCAN_RSHIFT && k.is_extended()
+}
+
+/// Removes the fake right Shift (E0 B6 before, E0 36 after) that Windows puts around a
+/// navigation key while the real right Shift is held with NumLock on. The real right Shift
+/// carries the same flags, so it is told apart by time: the fake one comes within `window` of
+/// the navigation key's `time`; a person does not press both that close. A right Shift is held
+/// until the next event or until the window passes, like AltGr's Ctrl.
+#[derive(Debug)]
+pub struct FakeShiftFilter {
+    window: Duration,
+    pending: Option<(KeyboardHook, Instant)>,
+    /// `time` of the last navigation key.
+    last_navigation: Option<u32>,
+}
+
+impl FakeShiftFilter {
+    pub fn new(window: Duration) -> Self {
+        Self {
+            window,
+            pending: None,
+            last_navigation: None,
+        }
+    }
+
+    pub fn has_pending(&self) -> bool {
+        self.pending.is_some()
+    }
+
+    /// Hook times are milliseconds that wrap around.
+    fn close(&self, a: u32, b: u32) -> bool {
+        let gap = a.wrapping_sub(b).min(b.wrapping_sub(a));
+        u128::from(gap) <= self.window.as_millis()
+    }
+
+    pub fn push(&mut self, k: KeyboardHook, now: Instant, out: &mut impl FnMut(KeyboardHook)) {
+        if let Some((held, _)) = self.pending.take()
+            && !(is_navigation(&k) && self.close(k.time, held.time))
+        {
+            out(held);
+        }
+        if is_right_shift(&k) {
+            if !self.last_navigation.is_some_and(|t| self.close(k.time, t)) {
+                self.pending = Some((k, now));
+            }
+            return;
+        }
+        if is_navigation(&k) {
+            self.last_navigation = Some(k.time);
         }
         out(k);
     }
@@ -199,9 +280,67 @@ mod tests {
     #[test]
     fn fake_shift_and_unknown_codes_are_discarded() {
         assert_eq!(key_event(&key(0x2A, LLKHF_EXTENDED, 0)), None);
-        assert_eq!(key_event(&key(0x36, LLKHF_EXTENDED, 0)), None);
         assert_eq!(key_event(&key(0, 0, 0)), None);
         assert_eq!(key_event(&key(0x1_0000, 0, 0)), None);
+    }
+
+    #[test]
+    fn right_shift_with_the_extended_flag_is_right_shift() {
+        // The low-level hook reports the real right Shift with LLKHF_EXTENDED (T-359).
+        assert_eq!(
+            usage(key(0x36, LLKHF_EXTENDED, 0)),
+            Some(HidUsage::key(0xE5))
+        );
+        assert_eq!(usage(key(0x36, 0, 0)), Some(HidUsage::key(0xE5)));
+    }
+
+    fn shifts(events: &[KeyboardHook]) -> Vec<KeyboardHook> {
+        let now = Instant::now();
+        let mut f = FakeShiftFilter::new(Duration::from_millis(10));
+        let mut out = Vec::new();
+        for k in events {
+            f.push(*k, now, &mut |k| out.push(k));
+        }
+        f.flush_all(&mut |k| out.push(k));
+        out
+    }
+
+    #[test]
+    fn a_lone_right_shift_passes() {
+        let down = key(SCAN_RSHIFT, LLKHF_EXTENDED, 100);
+        let a = key(0x1E, 0, 160);
+        let up = key(SCAN_RSHIFT, LLKHF_EXTENDED | LLKHF_UP, 220);
+        assert_eq!(shifts(&[down, a, up]), vec![down, a, up]);
+    }
+
+    #[test]
+    fn the_fake_right_shifts_around_an_arrow_are_dropped() {
+        // Right Shift held, NumLock on, up arrow: Windows wraps the arrow in a fake E0 B6 /
+        // E0 36 pair with the arrow's time. The real Shift stays held at the other end.
+        let real = key(SCAN_RSHIFT, LLKHF_EXTENDED, 100);
+        let fake_up = key(SCAN_RSHIFT, LLKHF_EXTENDED | LLKHF_UP, 300);
+        let arrow = key(0x48, LLKHF_EXTENDED, 300);
+        let arrow_up = key(0x48, LLKHF_EXTENDED | LLKHF_UP, 380);
+        let fake_down = key(SCAN_RSHIFT, LLKHF_EXTENDED, 380);
+        let real_up = key(SCAN_RSHIFT, LLKHF_EXTENDED | LLKHF_UP, 500);
+        assert_eq!(
+            shifts(&[real, fake_up, arrow, arrow_up, fake_down, real_up]),
+            vec![real, arrow, arrow_up, real_up]
+        );
+    }
+
+    #[test]
+    fn a_held_right_shift_goes_out_when_the_window_expires() {
+        let t0 = Instant::now();
+        let mut f = FakeShiftFilter::new(Duration::from_millis(10));
+        let mut out = Vec::new();
+        let down = key(SCAN_RSHIFT, LLKHF_EXTENDED, 1);
+        f.push(down, t0, &mut |k| out.push(k));
+        assert!(out.is_empty() && f.has_pending());
+        f.flush_expired(t0 + Duration::from_millis(9), &mut |k| out.push(k));
+        assert!(out.is_empty());
+        f.flush_expired(t0 + Duration::from_millis(10), &mut |k| out.push(k));
+        assert_eq!(out, vec![down]);
     }
 
     #[test]
@@ -295,6 +434,39 @@ mod tests {
             0u32..4,
         )
             .prop_map(|(scan, flags, time)| key(scan, flags, time))
+    }
+
+    fn arb_typing() -> impl Strategy<Value = Vec<KeyboardHook>> {
+        // Letters and the right Shift, with times that only go forward.
+        prop::collection::vec(
+            (
+                prop_oneof![Just(SCAN_RSHIFT), 0x10u32..0x33],
+                prop_oneof![
+                    Just(LLKHF_EXTENDED),
+                    Just(LLKHF_EXTENDED | LLKHF_UP),
+                    Just(0),
+                    Just(LLKHF_UP)
+                ],
+                0u32..200,
+            ),
+            0..40,
+        )
+        .prop_map(|v| {
+            let mut t = 0u32;
+            v.into_iter()
+                .map(|(scan, flags, gap)| {
+                    t = t.wrapping_add(gap);
+                    key(scan, flags, t)
+                })
+                .collect()
+        })
+    }
+
+    proptest! {
+        #[test]
+        fn without_navigation_keys_nothing_is_lost_or_reordered(events in arb_typing()) {
+            prop_assert_eq!(shifts(&events), events);
+        }
     }
 
     proptest! {
