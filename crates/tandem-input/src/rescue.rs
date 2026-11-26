@@ -62,6 +62,10 @@ pub enum MoveError {
     Denied,
     #[error("the window is gone")]
     Gone,
+    /// The window's thread does not answer (a hung app): placing it now would block the
+    /// agent, so it is tried again on a later turn.
+    #[error("the window does not answer")]
+    Busy,
     #[error("{0}")]
     Other(String),
 }
@@ -240,6 +244,10 @@ impl WindowRescue {
                     );
                 }
                 Err(MoveError::Gone) => {}
+                // Not a failure: the next turn tries it again, once the app answers.
+                Err(MoveError::Busy) => {
+                    tracing::debug!(window = w.id, "a window does not answer; rescued later");
+                }
                 Err(e) => {
                     tracing::info!(window = w.id, "a window cannot be rescued: {e}");
                     inner.failed.insert(w.id);
@@ -270,6 +278,7 @@ struct FakeDesktop {
     screens: Vec<RescueScreen>,
     windows: Vec<WindowInfo>,
     denied: BTreeSet<WindowId>,
+    busy: BTreeSet<WindowId>,
     calls: Vec<(WindowId, Placement)>,
 }
 
@@ -291,6 +300,16 @@ impl FakeWindowMover {
     /// Placing this window fails with access denied (an elevated process).
     pub fn deny(&self, id: WindowId) {
         self.lock().denied.insert(id);
+    }
+
+    /// This window's app is hung (`set` true) or answers again (`false`).
+    pub fn hang(&self, id: WindowId, set: bool) {
+        let mut d = self.lock();
+        if set {
+            d.busy.insert(id);
+        } else {
+            d.busy.remove(&id);
+        }
     }
 
     pub fn calls(&self) -> Vec<(WindowId, Placement)> {
@@ -333,6 +352,9 @@ impl WindowMover for FakeWindowMover {
         d.calls.push((id, to));
         if d.denied.contains(&id) {
             return Err(MoveError::Denied);
+        }
+        if d.busy.contains(&id) {
+            return Err(MoveError::Busy);
         }
         let screens = d.screens.clone();
         let w = d
@@ -519,6 +541,19 @@ mod tests {
         r.reconcile(&hide());
         assert_eq!(fake.calls().len(), 1);
         assert_eq!(fake.window(1).unwrap().rect.x, -2000);
+    }
+
+    #[test]
+    fn a_hung_window_is_rescued_once_it_answers() {
+        let (fake, r) = setup(vec![win(1, Rect::new(-2000, 100, 800, 600))]);
+        fake.hang(1, true);
+        r.reconcile(&hide());
+        r.reconcile(&hide());
+        assert_eq!(fake.window(1).unwrap().rect.x, -2000);
+        fake.hang(1, false);
+        r.reconcile(&hide());
+        assert_ne!(fake.window(1).unwrap().rect.x, -2000);
+        assert_eq!(fake.calls().len(), 3);
     }
 
     #[test]

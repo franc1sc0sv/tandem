@@ -12,9 +12,9 @@ use ::windows::Win32::System::Threading::{
 };
 use ::windows::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GW_OWNER, GWL_EXSTYLE, GetClassNameW, GetWindow, GetWindowLongPtrW,
-    GetWindowPlacement, GetWindowRect, GetWindowThreadProcessId, IsWindow, IsWindowVisible,
-    SW_SHOWMAXIMIZED, SW_SHOWMINIMIZED, SW_SHOWMINNOACTIVE, SW_SHOWNOACTIVATE, SetWindowPlacement,
-    WINDOWPLACEMENT, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
+    GetWindowPlacement, GetWindowRect, GetWindowThreadProcessId, IsHungAppWindow, IsWindow,
+    IsWindowVisible, SW_SHOWMAXIMIZED, SW_SHOWMINIMIZED, SW_SHOWMINNOACTIVE, SW_SHOWNOACTIVATE,
+    SetWindowPlacement, WINDOWPLACEMENT, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
 };
 use ::windows::core::{BOOL, PWSTR};
 
@@ -212,6 +212,11 @@ impl WindowMover for Win32WindowMover {
         // SAFETY: a plain query.
         if !unsafe { IsWindow(Some(h)) }.as_bool() {
             return Err(MoveError::Gone);
+        }
+        // SAFETY: a plain query. SetWindowPlacement waits for the window's thread, so a hung
+        // app would block the agent's display loop.
+        if unsafe { IsHungAppWindow(h) }.as_bool() {
+            return Err(MoveError::Busy);
         }
         let offset = workspace_offset(&self.screens().map_err(MoveError::Other)?);
         let mut p = WINDOWPLACEMENT {

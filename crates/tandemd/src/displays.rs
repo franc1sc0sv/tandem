@@ -112,6 +112,9 @@ struct Inner {
     builtin_retry: Option<Retry>,
     /// The agent is exiting: nothing goes off any more.
     stopped: bool,
+    /// When each screen was last known to show the other machine, for the window rescue: an
+    /// input that is briefly unknown (a DDC read that failed) does not bring the windows back.
+    hidden_at: BTreeMap<DisplayKey, Instant>,
 }
 
 /// This machine's display control in the agent.
@@ -148,11 +151,26 @@ impl DisplayGuard {
     }
 
     /// Moves the windows off the screens of the monitors in `hidden` (those that show the other
-    /// machine) and puts them back when they are seen again.
-    pub fn rescue_windows(&self, hidden: &BTreeSet<DisplayKey>) {
-        if let Some(r) = &self.rescue {
-            r.reconcile(hidden);
-        }
+    /// machine) and puts them back when they are seen again (`shown`, they show this one). A
+    /// screen in neither, whose input is not known, stays hidden for [`UNKNOWN_GRACE`].
+    pub fn rescue_windows(
+        &self,
+        hidden: &BTreeSet<DisplayKey>,
+        shown: &BTreeSet<DisplayKey>,
+        now: Instant,
+    ) {
+        let Some(r) = &self.rescue else { return };
+        let effective = {
+            let mut inner = lock(&self.inner);
+            for k in hidden {
+                inner.hidden_at.insert(*k, now);
+            }
+            inner.hidden_at.retain(|k, at| {
+                !shown.contains(k) && now.saturating_duration_since(*at) < UNKNOWN_GRACE
+            });
+            inner.hidden_at.keys().copied().collect::<BTreeSet<_>>()
+        };
+        r.reconcile(&effective);
     }
 
     pub fn control(&self) -> DisplayControl {
@@ -742,11 +760,27 @@ mod tests {
         let mover: Arc<dyn WindowMover> = fake.clone();
         let g = DisplayGuard::new(Arc::new(FakeDisplayPower::unavailable("x")), None)
             .with_rescue(Some(mover));
-        g.rescue_windows(&BTreeSet::from([key]));
+        let t = Instant::now();
+        let none = BTreeSet::new();
+        g.rescue_windows(&BTreeSet::from([key]), &none, t);
         assert!(fake.window(1).unwrap().rect.x >= 0);
+        // Its input unknown for less than the grace: the windows stay where they were moved.
+        g.rescue_windows(&none, &none, t + UNKNOWN_GRACE - Duration::from_secs(1));
+        assert!(fake.window(1).unwrap().rect.x >= 0);
+        // Unknown for longer: they go back.
+        g.rescue_windows(&none, &none, t + UNKNOWN_GRACE);
+        assert_eq!(fake.window(1).unwrap().rect.x, -1000);
+        // Shown again on this machine: back at once.
+        g.rescue_windows(&BTreeSet::from([key]), &none, t + UNKNOWN_GRACE * 2);
+        assert!(fake.window(1).unwrap().rect.x >= 0);
+        g.rescue_windows(&none, &BTreeSet::from([key]), t + UNKNOWN_GRACE * 2);
+        assert_eq!(fake.window(1).unwrap().rect.x, -1000);
         // Without a mover (macOS) it does nothing.
-        DisplayGuard::new(Arc::new(FakeDisplayPower::unavailable("x")), None)
-            .rescue_windows(&BTreeSet::from([key]));
+        DisplayGuard::new(Arc::new(FakeDisplayPower::unavailable("x")), None).rescue_windows(
+            &BTreeSet::from([key]),
+            &none,
+            t,
+        );
     }
 
     fn mac() -> Arc<FakeDisplayPower> {

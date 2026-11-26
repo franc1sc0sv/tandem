@@ -3,6 +3,7 @@
 //! ([`DisplayWake`]) and the restore at exit. The built-in display follows its mode (T-353) in the
 //! same turn.
 
+use std::collections::BTreeSet;
 use std::sync::{Arc, PoisonError, Weak};
 use std::time::{Duration, Instant};
 
@@ -70,12 +71,13 @@ impl Agent {
         let keys = self.monitors.keys();
         guard.reconcile(me, &now, &keys, t);
         // Where the display stays on (Windows) its windows are moved to a screen somebody sees.
-        let hidden = keys
-            .iter()
-            .filter(|(id, _)| now.get(*id) == Some(&me.other()))
-            .map(|(_, key)| *key)
-            .collect();
-        guard.rescue_windows(&hidden);
+        let on = |m: Machine| {
+            keys.iter()
+                .filter(|(id, _)| now.get(*id) == Some(&m))
+                .map(|(_, key)| *key)
+                .collect::<BTreeSet<_>>()
+        };
+        guard.rescue_windows(&on(me.other()), &on(me), t);
         // The built-in display after the external ones: what it does depends on which are on.
         guard.reconcile_builtin(self.desk().builtin_display.of(me), t);
     }
